@@ -7538,7 +7538,7 @@ webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
 
-## Reel v8: voice-over and phonk, all free (2026-10-28)
+## Reel v9: voice-over and phonk, all free (2026-10-28)
 
 Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
 720x1280 HEVC at ~2 Mbps, an Apple Core Media export; cuts every 8 beats at
@@ -7554,20 +7554,25 @@ Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
   v7 (owner: "the highest quality we can"): Real-ESRGAN upload copy; v8
   (owner: the beginning must flow, "stop clipping for free, instead come clip
   for $250 in prizes"): one sentence. Not "$250 in prizes": line 2 says the
-  pool is $500, so $250 is "a prize".
+  pool is $500, so $250 is "a prize". v9 (owner: say "a $250 prize", add
+  "dollar", make everything flow): "two-fifty dollar prize"; the voice no
+  longer fits each line inside its scene but flows (see placement below).
 - `promo/reel/make_reel_audio.py`: Kokoro-82M (Apache-2.0, local, free for
   commercial use), voice am_fenrir, **fp32 model** (onnx-community model.onnx,
-  sha256 8fbea51e…), every line at speed 1.00. Line 2 starts at 3.92 s, not
-  3.85, so line 1 fits without speeding up. Hugging Face and GitHub releases
+  sha256 8fbea51e…), every line at speed 1.00, never sped up. Placement
+  flows: a line starts 0.08 s after its scene's cut or 0.15 s after the line
+  before, whichever is later (max 0.9 s behind its cut; must end before the
+  closing fade). Line 1 (4.27 s) crosses the first cut; lines 2-6 trail their
+  cuts by 0.48-0.75 s, landing as each scene's text appears. SFX duck 6 dB
+  under the voice. Hugging Face and GitHub releases
   are blocked from the sandbox, so the model comes from npm
   (kokoro-fp32{a,b,c}-shards, 19 shards; same publisher as kokoro-q8-shards,
   whose join matched its published hash) and the voices from kokoro-js 1.2.1,
   all pinned by sha256. Provenance check: the fp32 join predicts the same line
   timings as the q8 model to 0.03 s on every line, i.e. the same network.
-- The script: "Stop clipping for free, come clip for a two-fifty prize
-  instead." (3.71 s at speed 1.00 in a 3.76 s slot; the "$250" spelled out ran
-  4.0-4.9 s) /
-  "There's five hundred in prizes, and it all comes down to views." / "Join
+- The script: "Stop clipping for free, come clip for a two-fifty dollar prize
+  instead." / "There's five hundred up for grabs, and it all comes down to
+  views." ("up for grabs", not "in prizes", right after "prize") / "Join
   for free, clip Duxxion's stream, and post from Highlightz." / "Want an edge?
   Pro unlocks the Clip Editor and one-press posting." / "Start free, upgrade
   anytime." / "Clip to win two-fifty at highlightz dot app." Say "win" for the
