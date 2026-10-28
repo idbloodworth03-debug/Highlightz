@@ -231,11 +231,11 @@ capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate
 ```
 
-## Reel v3: voice-over and phonk on the owner's 20 s reel
+## Reel v4: voice-over and phonk on the owner's 20 s reel
 
 `reel/make_reel_audio.py` replaces the audio of the owner's "Stop clipping for
-free" reel (picture copied untouched) with a voice-over, a quiet synthesized
-phonk bed at 128 BPM and whooshes on the cuts:
+free" reel with a voice-over, a quiet synthesized phonk bed at 128 BPM and
+whooshes on the cuts:
 
 ```
 pip install kokoro-onnx
@@ -243,9 +243,15 @@ python3 reel/make_reel_audio.py reel/reel-v1.mov
 ```
 
 - The voice is Kokoro-82M (Apache-2.0), run locally: free, and fine to use
-  commercially. Voice `am_fenrir`. The first run downloads the model and voices
+  commercially. Voice `af_bella`. The first run downloads the model and voices
   from the npm registry into `reel/kokoro/` and checks them against pinned
   sha256 hashes.
-- The script is `LINES` in the file; edit a line and re-run (about 45 s).
-- Output: `out/highlightz-reel-v3-stop-clipping-for-free.mp4`, plus
-  `out/reel-v3-stems/` (voice, music, sfx, mix) to rebalance in an editor.
+- The script is `LINES` in the file, written to be said aloud; edit a line and
+  re-run (about a minute). A line too long for its scene stops the build.
+- Output in `out/`:
+  - `highlightz-reel-v4-stop-clipping-for-free.mp4`: the picture copied bit for
+    bit, so no loss at all.
+  - `...-1080x1920.mp4`: the upload copy, upscaled to 1080x1920 (what Instagram
+    and TikTok ask for) and encoded near-losslessly (H.264 CRF 12). It adds no
+    detail the source lacks.
+  - `reel-v4-stems/` (voice, music, sfx, mix) to rebalance in an editor.

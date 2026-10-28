@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Reel v3's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v4's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
 VOICE. Kokoro-82M, an open text-to-speech model under Apache-2.0: free, runs
 here on the CPU, and its output is ours to use commercially (the owner won't
-pay for ElevenLabs, whose free plan forbids commercial use). Voice am_fenrir:
-of Kokoro's best-rated US male voices it has the highest, liveliest pitch,
-which is what "energetic and young" asked for. Each line is spoken on its own
-and placed on its scene. Kokoro says "Duxxion" as /ˈdʌksiən/ (DUCKS-ee-on,
-as the owner says it) and "Highlightz" as "highlights" with no respelling.
+pay for ElevenLabs, whose free plan forbids commercial use). Voice af_bella,
+the owner's pick. Each line is spoken on its own, at a lively pace, a touch
+quicker where a line needs it to finish inside its scene (Kokoro's own speed
+control, not a stretch afterwards), and placed on its scene. Kokoro says
+"Duxxion" as /ˈdʌksiən/ (DUCKS-ee-on, as the owner says it) and "Highlightz"
+as "highlights" with no respelling.
 
 The model and voices come from the npm registry, pinned by sha256, because
 that is what this sandbox can reach (Hugging Face and GitHub releases are
@@ -24,9 +25,18 @@ low and ducked under the voice: the owner wants the voice-over to lead.
 TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
+PICTURE. Two files, both from the reel's own frames:
+  ...-v4.mp4            the picture stream copied bit for bit: no loss at all
+  ...-v4-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
+                        (x264 CRF 12), for uploading: Instagram and TikTok
+                        both ask for 1080x1920. It adds no detail the source
+                        doesn't have; a higher-resolution export of the reel
+                        would.
+
 OUTPUT (out/):
-  highlightz-reel-v3-stop-clipping-for-free.mp4   the reel with the new audio
-  reel-v3-stems/{voice,music,sfx,mix}.wav         to rebalance in an editor
+  highlightz-reel-v4-stop-clipping-for-free.mp4
+  highlightz-reel-v4-stop-clipping-for-free-1080x1920.mp4
+  reel-v4-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
     python3 reel/make_reel_audio.py reel/reel-v1.mov
@@ -46,7 +56,6 @@ import tempfile
 import urllib.request
 
 import numpy as np
-from scipy.io import wavfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMO = os.path.dirname(HERE)
@@ -60,20 +69,21 @@ BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
 rng = np.random.default_rng(20261028)
 
-VOICE = "am_fenrir"
-SPEED = 1.05                # a touch quicker than Kokoro's default read
+VOICE = "af_bella"
+SPEED = 1.10                # Bella's default read is unhurried; a reel isn't
+MAX_SPEED = 1.25            # quicker than this starts to sound rushed
 
 # Each line and where it starts. Lines start just after their cut, so the
-# whoosh lands on the cut and the voice follows it.
+# whoosh lands on the cut and the voice follows it. Written to be said, not
+# read: whole sentences, joined the way people talk.
 LINES = [
-    ("Stop clipping for free. Top Duxxion clip wins two-fifty!", 0.08),
-    ("Five hundred in prizes. Most views on one clip wins.", 3.85),
-    ("Join free. Clip Duxxion's stream. Post from Highlightz.", 7.60),
-    ("Want an edge? Pro adds the Clip Editor and one-press posts.", 11.35),
-    ("Start free. Upgrade anytime.", 15.08),
-    ("Clip for two-fifty. Highlightz dot app.", 17.05),
+    ("Stop clipping for free. The best Duxxion clip wins two-fifty.", 0.08),
+    ("There's five hundred in prizes, and it all comes down to views.", 3.85),
+    ("Join for free, clip Duxxion's stream, and post from Highlightz.", 7.60),
+    ("Want an edge? Pro unlocks the Clip Editor and one-press posting.", 11.35),
+    ("Start free, upgrade anytime.", 15.08),
+    ("Clip for two-fifty at highlightz dot app.", 17.05),
 ]
-MAX_STRETCH = 1.10          # quicker than this starts to sound sped up
 
 # What happens on screen (seconds), measured frame by frame off reel v1.
 REVEAL_250 = 1.43           # "free" struck out, "$250" lands
@@ -143,44 +153,39 @@ def trim(x: np.ndarray) -> np.ndarray:
     return x
 
 
-def speak(model: str, voices: str) -> list[np.ndarray]:
+def budget(i: int, total_s: float) -> float:
+    """Seconds line i has before the next one starts (or the reel ends)."""
+    nxt = LINES[i + 1][1] if i + 1 < len(LINES) else total_s - 0.3
+    return nxt - 0.08 - LINES[i][1]
+
+
+def speak(model: str, voices: str, total_s: float) -> tuple[np.ndarray, list]:
+    """Say each line and place it on its scene. A line that would overrun is
+    said again a little quicker, by Kokoro, so it still sounds like speech."""
     from kokoro_onnx import Kokoro
     k = Kokoro(model, voices)
-    out = []
-    for text, _ in LINES:
-        a, sr = k.create(text, voice=VOICE, speed=SPEED, lang="en-us")
+
+    def say(text, speed):
+        a, sr = k.create(text, voice=VOICE, speed=speed, lang="en-us")
         g = math.gcd(SR, sr)
-        out.append(trim(ma.signal.resample_poly(np.asarray(a, np.float64), SR // g, sr // g)))
-    return out
+        return trim(ma.signal.resample_poly(np.asarray(a, np.float64), SR // g, sr // g))
 
-
-def stretch(x: np.ndarray, tempo: float) -> np.ndarray:
-    """Quicker by `tempo`, same pitch (Rubber Band, via ffmpeg)."""
-    if tempo <= 1.0001:
-        return x
-    with tempfile.TemporaryDirectory() as d:
-        src = os.path.join(d, "in.wav")
-        wavfile.write(src, SR, x.astype(np.float32))
-        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-af", f"rubberband=tempo={tempo:.4f}",
-                              "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
-                             capture_output=True, check=True).stdout
-    return np.frombuffer(raw, np.float32).astype(np.float64)
-
-
-def place_voice(lines: list[np.ndarray], total_s: float) -> tuple[np.ndarray, list]:
     buf = np.zeros((2, ma.ns(total_s)))
     report = []
-    for i, ((text, at), seg) in enumerate(zip(LINES, lines)):
-        nxt = LINES[i + 1][1] if i + 1 < len(LINES) else total_s - 0.3
-        budget = nxt - 0.08 - at
-        dur = len(seg) / SR
-        tempo = max(1.0, dur / budget)
-        if tempo > MAX_STRETCH:
-            sys.exit(f"line {i + 1} runs {dur:.2f}s for {budget:.2f}s: shorten it or move its start")
-        seg = stretch(seg, tempo)
-        seg = ma.hp(seg, 85)
-        ma.add(buf, seg, at)
-        report.append((at, at + len(seg) / SR, tempo, text))
+    for i, (text, at) in enumerate(LINES):
+        room = budget(i, total_s)
+        speed, seg = SPEED, say(text, SPEED)
+        for _ in range(3):
+            if len(seg) / SR <= room:
+                break
+            speed = speed * (len(seg) / SR) / room * 1.01
+            if speed > MAX_SPEED:
+                sys.exit(f"line {i + 1} needs speed {speed:.2f} to fit {room:.2f}s: shorten it")
+            seg = say(text, speed)
+        if len(seg) / SR > room:
+            sys.exit(f"line {i + 1} runs {len(seg) / SR:.2f}s for {room:.2f}s: shorten it")
+        ma.add(buf, ma.hp(seg, 85), at)
+        report.append((at, at + len(seg) / SR, speed, text))
     return buf, report
 
 
@@ -347,16 +352,16 @@ def main():
     args = ap.parse_args()
     total_s = duration(args.reel)
 
-    voice, report = place_voice(speak(*fetch_kokoro()), total_s)
-    for s, e, tempo, text in report:
-        print(f"  voice {s:5.2f}-{e:5.2f}s  x{tempo:.3f}  {text}")
+    voice, report = speak(*fetch_kokoro(), total_s)
+    for s, e, speed, text in report:
+        print(f"  voice {s:5.2f}-{e:5.2f}s  speed {speed:.2f}  {text}")
 
     voice = to_lufs(voice, VOICE_LUFS)
     music = to_lufs(render_phonk(total_s), VOICE_LUFS - MUSIC_UNDER)
     music = duck_under(music, voice)
     sfx = to_lufs(render_sfx(total_s), SFX_LUFS)
 
-    stems = os.path.join(OUT, "reel-v3-stems")
+    stems = os.path.join(OUT, "reel-v4-stems")
     os.makedirs(stems, exist_ok=True)
     for name, x in (("voice", voice), ("music", music), ("sfx", sfx)):
         ma.write(os.path.join(stems, f"{name}.wav"), x)
@@ -366,12 +371,22 @@ def main():
     ma.write(wav, mix)
     lufs, tp = ma.loudness(wav)
 
-    out = os.path.join(OUT, "highlightz-reel-v3-stop-clipping-for-free.mp4")
+    audio = ["-c:a", "aac", "-b:a", "256k", "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart"]
+    base = os.path.join(OUT, "highlightz-reel-v4-stop-clipping-for-free")
+    # The picture exactly as it came: no re-encode, so no loss.
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-tag:v", "hvc1",
-                    "-c:a", "aac", "-b:a", "256k", "-ar", str(SR), "-t", f"{total_s:.4f}",
-                    "-movflags", "+faststart", out], check=True)
-    print(f"{os.path.relpath(out, PROMO)}: {total_s:.3f} s, {lufs:.1f} LUFS, true peak {tp:.1f} dBTP")
+                    *audio, base + ".mp4"], check=True)
+    # The upload copy: 1080x1920, near-lossless H.264, BT.709 SDR like the source.
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-vf", "scale=1080:1920:flags=lanczos+accurate_rnd+full_chroma_int",
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-profile:v", "high",
+                    "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
+                    "-color_trc", "bt709", "-color_range", "tv",
+                    *audio, base + "-1080x1920.mp4"], check=True)
+    print(f"{os.path.relpath(base, PROMO)}[-1080x1920].mp4: {total_s:.3f} s, "
+          f"{lufs:.1f} LUFS, true peak {tp:.1f} dBTP")
 
 
 if __name__ == "__main__":

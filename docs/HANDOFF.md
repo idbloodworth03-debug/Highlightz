@@ -7538,27 +7538,37 @@ webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
 
-## Reel v3: voice-over and phonk, all free (2026-10-28)
+## Reel v4: voice-over and phonk, all free (2026-10-28)
 
 Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
-720x1280 HEVC, cuts every 8 beats at 128 BPM) and asked for an energetic young
-voice-over, its music swapped for something trendy, kept quiet under the voice.
+720x1280 HEVC at ~2 Mbps, an Apple Core Media export; cuts every 8 beats at
+128 BPM) and asked for a voice-over, its music swapped for something trendy and
+kept quiet under the voice, high picture quality, and natural-sounding lines.
 Duxxion is said DUCKS-ee-on. **The owner will not pay for a voice service.**
 
 - v2 used ElevenLabs on its free plan, which forbids commercial use (and its
-  Music API needs a paid plan): never post v2. v3 replaces it.
+  Music API needs a paid plan): never post v2. v3 (Kokoro am_fenrir) worked;
+  the owner then picked Bella and asked for less stilted lines: v4.
 - `promo/reel/make_reel_audio.py`: Kokoro-82M (Apache-2.0, local, free for
-  commercial use), voice am_fenrir: the highest, liveliest pitch of Kokoro's
-  best-rated US male voices (median 139 Hz, 14.5 semitone range; puck, michael
-  and echo measured lower and flatter). Kokoro says "Duxxion" as /ˈdʌksiən/
-  unprompted. Hugging Face and GitHub releases are blocked from the sandbox,
-  so the model and voices come from npm (kokoro-q8-shards, kokoro-js 1.2.1),
-  pinned by sha256; the voices are byte-identical across both npm packages.
+  commercial use), voice af_bella at speed 1.10; a line that would overrun its
+  scene is re-said slightly quicker by Kokoro (cap 1.25; line 4 uses 1.12).
+  Kokoro says "Duxxion" as /ˈdʌksiən/ unprompted. Hugging Face and GitHub
+  releases are blocked from the sandbox, so the model and voices come from npm
+  (kokoro-q8-shards, kokoro-js 1.2.1), pinned by sha256.
+- The script, rewritten as spoken sentences: "Stop clipping for free. The best
+  Duxxion clip wins two-fifty." / "There's five hundred in prizes, and it all
+  comes down to views." / "Join for free, clip Duxxion's stream, and post from
+  Highlightz." / "Want an edge? Pro unlocks the Clip Editor and one-press
+  posting." / "Start free, upgrade anytime." / "Clip for two-fifty at
+  highlightz dot app."
 - Phonk synthesized from `promo/audio/make_audio.py` parts (original, nothing
   to license); about 18 LU under the voice, ducked 5 dB while it speaks;
-  master -14.2 LUFS, -1.4 dBTP.
-- Verified: video packets md5-identical to v1; a speech-to-text pass over the
-  final mix reads every line, each starting on its scene.
-- Script edits from the approved draft: "The top" became "Top" and "one-press
-  TikTok posts" became "one-press posts", so lines 1 and 4 fit their scenes.
+  master -14.1 LUFS, -1.4 dBTP.
+- Picture: the main file stream-copies the source (md5-identical video
+  packets). The 1080x1920 upload copy is Lanczos-upscaled, x264 CRF 12,
+  BT.709 kept; scaled back to 720 it measures SSIM 0.9986 / PSNR 52 dB against
+  the source. **The ceiling is the source: 720p at 2 Mbps.** A higher-res
+  export of the reel would give a sharper result with the same audio.
+- Verified: a speech-to-text pass over the final mix reads every line, each
+  starting on its scene.
 - Media (`reel/*.mov`), the model (`reel/kokoro/`) and `out/` are gitignored.
