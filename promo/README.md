@@ -231,7 +231,7 @@ capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate
 ```
 
-## Reel v7: voice-over and phonk on the owner's 20 s reel
+## Reel v8: voice-over and phonk on the owner's 20 s reel
 
 `reel/make_reel_audio.py` replaces the audio of the owner's "Stop clipping for
 free" reel with a voice-over, a quiet synthesized phonk bed at 128 BPM and
@@ -254,8 +254,8 @@ python3 reel/make_reel_audio.py reel/reel-v1.mov --upscaled reel/esrgan/x2
   on the CPU, one worker per core, resumable; the upload copy is made from
   those frames. Without `--upscaled` it falls back to a plain Lanczos upscale.
 - Output in `out/`:
-  - `highlightz-reel-v7-stop-clipping-for-free.mp4`: the picture copied bit for
+  - `highlightz-reel-v8-stop-clipping-for-free.mp4`: the picture copied bit for
     bit, so no loss at all.
   - `...-1080x1920.mp4`: the upload copy (what Instagram and TikTok ask for),
     H.264 CRF 10 veryslow (~18 Mbps), AAC 320k.
-  - `reel-v7-stems/` (voice, music, sfx, mix) to rebalance in an editor.
+  - `reel-v8-stems/` (voice, music, sfx, mix) to rebalance in an editor.

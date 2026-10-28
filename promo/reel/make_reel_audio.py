@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reel v7's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v8's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
@@ -30,8 +30,8 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 PICTURE. Two files, both from the reel's own frames:
-  ...-v7.mp4            the picture stream copied bit for bit: no loss at all
-  ...-v7-1080x1920.mp4  for uploading (Instagram and TikTok both ask for
+  ...-v8.mp4            the picture stream copied bit for bit: no loss at all
+  ...-v8-1080x1920.mp4  for uploading (Instagram and TikTok both ask for
                         1080x1920), x264 CRF 10 veryslow. With --upscaled, made
                         from reel/upscale_reel.py's Real-ESRGAN frames (2x,
                         1440x2560) brought down to 1080x1920: crisp text and
@@ -41,9 +41,9 @@ PICTURE. Two files, both from the reel's own frames:
                         higher-resolution export of the reel would beat both.
 
 OUTPUT (out/):
-  highlightz-reel-v7-stop-clipping-for-free.mp4
-  highlightz-reel-v7-stop-clipping-for-free-1080x1920.mp4
-  reel-v7-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
+  highlightz-reel-v8-stop-clipping-for-free.mp4
+  highlightz-reel-v8-stop-clipping-for-free-1080x1920.mp4
+  reel-v8-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
     python3 reel/upscale_reel.py reel/reel-v1.mov          # ~2.5 h, once
@@ -75,7 +75,7 @@ BEAT = 60.0 / 128
 STEP = BEAT / 4
 BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
-VERSION = "v7"
+VERSION = "v8"
 rng = np.random.default_rng(20261028)
 
 VOICE = "am_fenrir"
@@ -88,7 +88,7 @@ MAX_SPEED = 1.1             # past this a line should be rewritten, not rushed
 # every mention of it is something you win, never something you pay: "clip
 # for two-fifty" sounded like a price.
 LINES = [
-    ("Stop clipping for free. Win two hundred fifty dollars.", 0.08),
+    ("Stop clipping for free, come clip for a two-fifty prize instead.", 0.08),
     ("There's five hundred in prizes, and it all comes down to views.", 3.92),
     ("Join for free, clip Duxxion's stream, and post from Highlightz.", 7.60),
     ("Want an edge? Pro unlocks the Clip Editor and one-press posting.", 11.35),
