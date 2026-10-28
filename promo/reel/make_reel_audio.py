@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Reel v2's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v3's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
-VOICE. ElevenLabs "Liam" (young, energetic): one take of the whole script so
-the read stays continuous, then cut into its six lines at the pauses and each
-line placed on its scene. The take is cached in reel/vo/ so a re-mix spends no
-characters; --new-take asks for a new one (needs ELEVENLABS_API_KEY). Duxxion
-is said DUCKS-ee-on and Highlightz "highlights", hence the spellings in LINES.
+VOICE. Kokoro-82M, an open text-to-speech model under Apache-2.0: free, runs
+here on the CPU, and its output is ours to use commercially (the owner won't
+pay for ElevenLabs, whose free plan forbids commercial use). Voice am_fenrir:
+of Kokoro's best-rated US male voices it has the highest, liveliest pitch,
+which is what "energetic and young" asked for. Each line is spoken on its own
+and placed on its scene. Kokoro says "Duxxion" as /ˈdʌksiən/ (DUCKS-ee-on,
+as the owner says it) and "Highlightz" as "highlights" with no respelling.
+
+The model and voices come from the npm registry, pinned by sha256, because
+that is what this sandbox can reach (Hugging Face and GitHub releases are
+blocked): the weights re-hosted byte-identical in six shards
+(kokoro-q8-shards), the voices from kokoro-js, Kokoro's reference JS build.
 
 MUSIC. Phonk at 128 BPM, synthesized from the promo's own drum and synth parts
 (audio/make_audio.py): a pitched 808 cowbell riff, a distorted 808 that slides,
@@ -18,21 +25,23 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 OUTPUT (out/):
-  highlightz-reel-v2-stop-clipping-for-free.mp4   the reel with the new audio
-  reel-v2-stems/{voice,music,sfx}.wav             before the master, to remix
+  highlightz-reel-v3-stop-clipping-for-free.mp4   the reel with the new audio
+  reel-v3-stems/{voice,music,sfx,mix}.wav         to rebalance in an editor
 
+    pip install kokoro-onnx
     python3 reel/make_reel_audio.py reel/reel-v1.mov
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
-import json
+import hashlib
+import io
 import math
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.request
 
@@ -49,23 +58,20 @@ BEAT = 60.0 / 128
 STEP = BEAT / 4
 BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
-VO_DIR = os.path.join(HERE, "vo")
 rng = np.random.default_rng(20261028)
 
-VOICE_ID = "TX3LPaxmHKxFdv7VOQHJ"          # Liam: young, energetic, social media
-VOICE_MODEL = "eleven_v4"
-VOICE_SETTINGS = {"stability": 0.5, "similarity_boost": 0.75, "style": 0.45,
-                  "use_speaker_boost": True, "speed": 1.12}
+VOICE = "am_fenrir"
+SPEED = 1.05                # a touch quicker than Kokoro's default read
 
 # Each line and where it starts. Lines start just after their cut, so the
 # whoosh lands on the cut and the voice follows it.
 LINES = [
-    ("Stop clipping for free. Top Ducks-ee-on clip wins two-fifty!", 0.08),
+    ("Stop clipping for free. Top Duxxion clip wins two-fifty!", 0.08),
     ("Five hundred in prizes. Most views on one clip wins.", 3.85),
-    ("Join free. Clip Ducks-ee-on's stream. Post from Highlights.", 7.60),
+    ("Join free. Clip Duxxion's stream. Post from Highlightz.", 7.60),
     ("Want an edge? Pro adds the Clip Editor and one-press posts.", 11.35),
     ("Start free. Upgrade anytime.", 15.08),
-    ("Clip for two-fifty. Highlights dot app.", 17.05),
+    ("Clip for two-fifty. Highlightz dot app.", 17.05),
 ]
 MAX_STRETCH = 1.10          # quicker than this starts to sound sped up
 
@@ -79,31 +85,43 @@ URL_PILL = 18.50            # highlightz.app lands
 
 # ── voice ────────────────────────────────────────────────────────────────────
 
-def new_take(take_mp3: str, take_json: str):
-    key = os.environ.get("ELEVENLABS_API_KEY")
-    if not key:
-        sys.exit("ELEVENLABS_API_KEY is not set: add it in the environment settings")
-    text = "\n".join(line for line, _ in LINES)
-    body = json.dumps({"text": text, "model_id": VOICE_MODEL, "voice_settings": VOICE_SETTINGS}).encode()
-    req = urllib.request.Request(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/with-timestamps"
-        "?output_format=mp3_44100_128",
-        data=body, headers={"xi-api-key": key, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
-        d = json.load(r)
-    os.makedirs(VO_DIR, exist_ok=True)
-    with open(take_mp3, "wb") as f:
-        f.write(base64.b64decode(d.pop("audio_base64")))
-    d.update(text=text, model_id=VOICE_MODEL, voice_id=VOICE_ID, voice_settings=VOICE_SETTINGS)
-    with open(take_json, "w") as f:
-        json.dump(d, f)
+KOKORO_DIR = os.path.join(HERE, "kokoro")
+KOKORO_TARBALLS = {
+    "model": ("https://registry.npmjs.org/kokoro-q8-shards/-/kokoro-q8-shards-1.0.0.tgz",
+              "94b79d3f877a5f6d1f0b8b081fd2b7d2f4f33cefb1210400d2cf67431f8d57b8"),
+    "voices": ("https://registry.npmjs.org/kokoro-js/-/kokoro-js-1.2.1.tgz",
+               "1f0d0383ef0349af0bd9440d81dc12abbea3a5392eb645283eda876f537f5860"),
+}
+# model_quantized.onnx from onnx-community/Kokoro-82M-v1.0-ONNX, once joined.
+MODEL_SHA256 = "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478"
 
 
-def decode(path: str) -> np.ndarray:
-    """Any audio file to 48 kHz mono float."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(SR),
-                          "-f", "f32le", "-"], capture_output=True, check=True).stdout
-    return np.frombuffer(raw, np.float32).astype(np.float64)
+def fetch_kokoro() -> tuple[str, str]:
+    """The model and the voices, downloaded once into reel/kokoro/."""
+    model = os.path.join(KOKORO_DIR, "kokoro-q8.onnx")
+    voices = os.path.join(KOKORO_DIR, "voices.npz")
+    if os.path.exists(model) and os.path.exists(voices):
+        return model, voices
+    os.makedirs(KOKORO_DIR, exist_ok=True)
+    tars = {}
+    for name, (url, sha) in KOKORO_TARBALLS.items():
+        with urllib.request.urlopen(url, timeout=300) as r:
+            data = r.read()
+        if hashlib.sha256(data).hexdigest() != sha:
+            sys.exit(f"{url} does not match its pinned sha256")
+        tars[name] = tarfile.open(fileobj=io.BytesIO(data))
+    joined = b"".join(tars["model"].extractfile(f"package/kokoro-q8.part{i}.bin").read() for i in range(6))
+    if hashlib.sha256(joined).hexdigest() != MODEL_SHA256:
+        sys.exit("the joined Kokoro model does not match its sha256")
+    with open(model, "wb") as f:
+        f.write(joined)
+    arrays = {}
+    for m in tars["voices"].getmembers():
+        if m.name.startswith("package/voices/") and m.name.endswith(".bin"):
+            raw = tars["voices"].extractfile(m).read()
+            arrays[os.path.basename(m.name)[:-4]] = np.frombuffer(raw, np.float32).reshape(-1, 1, 256)
+    np.savez(voices, **arrays)
+    return model, voices
 
 
 def energy_db(x: np.ndarray, hop_s=0.01) -> np.ndarray:
@@ -112,46 +130,27 @@ def energy_db(x: np.ndarray, hop_s=0.01) -> np.ndarray:
     return 20 * np.log10(e + 1e-9)
 
 
-def split_lines(x: np.ndarray, take: dict) -> list[np.ndarray]:
-    """Cut the take into its lines. The alignment says roughly where each line
-    ends; the cut goes in the middle of the longest pause near there, then each
-    line is trimmed to its speech with a little air either side."""
-    a = take["alignment"]
-    chars, st, en = a["characters"], a["character_start_times_seconds"], a["character_end_times_seconds"]
-    spans, pos = [], 0
-    for line in "".join(chars).split("\n"):
-        spans.append((st[pos], en[pos + len(line) - 1]))
-        pos += len(line) + 1
-    if len(spans) != len(LINES):
-        sys.exit(f"the take has {len(spans)} lines, LINES has {len(LINES)}: make a new take")
+def trim(x: np.ndarray) -> np.ndarray:
+    """The line's speech with a little air either side, faded so it can't click."""
     db = energy_db(x)
-    quiet = db < db.max() - 38
-    cuts = [0.0]
-    for (_, end_i), (start_j, _) in zip(spans, spans[1:]):
-        lo, hi = int((end_i - 0.6) * 100), int((start_j + 0.4) * 100)
-        best, run_start, best_mid = 0, None, None
-        for k in range(max(lo, 0), min(hi, len(quiet))):
-            if quiet[k]:
-                run_start = k if run_start is None else run_start
-                if k - run_start + 1 > best:
-                    best, best_mid = k - run_start + 1, (run_start + k) / 2 / 100
-            else:
-                run_start = None
-        if best < 12:                                   # under 120 ms: no real pause
-            sys.exit(f"no pause found between lines near {end_i:.2f}s: make a new take")
-        cuts.append(best_mid)
-    cuts.append(len(x) / SR)
+    loud = np.flatnonzero(db >= db.max() - 38)
+    s = max(0.0, loud[0] / 100 - 0.03)
+    e = min(len(x) / SR, loud[-1] / 100 + 0.08)
+    x = x[ma.ns(s):ma.ns(e)].copy()
+    f_in, f_out = ma.ns(0.008), ma.ns(0.03)
+    x[:f_in] *= np.linspace(0, 1, f_in)
+    x[-f_out:] *= np.linspace(1, 0, f_out)
+    return x
+
+
+def speak(model: str, voices: str) -> list[np.ndarray]:
+    from kokoro_onnx import Kokoro
+    k = Kokoro(model, voices)
     out = []
-    for c0, c1 in zip(cuts, cuts[1:]):
-        seg = x[ma.ns(c0):ma.ns(c1)]
-        loud = np.flatnonzero(energy_db(seg) >= db.max() - 38)
-        s = max(0.0, loud[0] / 100 - 0.03)
-        e = min(len(seg) / SR, loud[-1] / 100 + 0.08)
-        seg = seg[ma.ns(s):ma.ns(e)].copy()
-        f_in, f_out = ma.ns(0.008), ma.ns(0.03)
-        seg[:f_in] *= np.linspace(0, 1, f_in)
-        seg[-f_out:] *= np.linspace(1, 0, f_out)
-        out.append(seg)
+    for text, _ in LINES:
+        a, sr = k.create(text, voice=VOICE, speed=SPEED, lang="en-us")
+        g = math.gcd(SR, sr)
+        out.append(trim(ma.signal.resample_poly(np.asarray(a, np.float64), SR // g, sr // g)))
     return out
 
 
@@ -345,17 +344,10 @@ def duration(path: str) -> float:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("reel", help="reel v1 (its picture is kept, its audio replaced)")
-    ap.add_argument("--new-take", action="store_true", help="ask ElevenLabs for a new voice take")
     args = ap.parse_args()
     total_s = duration(args.reel)
 
-    take_mp3, take_json = os.path.join(VO_DIR, "take.mp3"), os.path.join(VO_DIR, "take.json")
-    if args.new_take or not os.path.exists(take_mp3):
-        new_take(take_mp3, take_json)
-    take = json.load(open(take_json))
-    if take.get("text") != "\n".join(line for line, _ in LINES):
-        sys.exit("LINES changed since the cached take: run with --new-take")
-    voice, report = place_voice(split_lines(decode(take_mp3), take), total_s)
+    voice, report = place_voice(speak(*fetch_kokoro()), total_s)
     for s, e, tempo, text in report:
         print(f"  voice {s:5.2f}-{e:5.2f}s  x{tempo:.3f}  {text}")
 
@@ -364,7 +356,7 @@ def main():
     music = duck_under(music, voice)
     sfx = to_lufs(render_sfx(total_s), SFX_LUFS)
 
-    stems = os.path.join(OUT, "reel-v2-stems")
+    stems = os.path.join(OUT, "reel-v3-stems")
     os.makedirs(stems, exist_ok=True)
     for name, x in (("voice", voice), ("music", music), ("sfx", sfx)):
         ma.write(os.path.join(stems, f"{name}.wav"), x)
@@ -374,7 +366,7 @@ def main():
     ma.write(wav, mix)
     lufs, tp = ma.loudness(wav)
 
-    out = os.path.join(OUT, "highlightz-reel-v2-stop-clipping-for-free.mp4")
+    out = os.path.join(OUT, "highlightz-reel-v3-stop-clipping-for-free.mp4")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-tag:v", "hvc1",
                     "-c:a", "aac", "-b:a", "256k", "-ar", str(SR), "-t", f"{total_s:.4f}",

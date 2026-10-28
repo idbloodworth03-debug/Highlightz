@@ -231,20 +231,21 @@ capture/fetch-data.mjs  the numbers and the featured clips
 capture/check-data.mjs  the release gate
 ```
 
-## Reel v2: voice-over and phonk on the owner's 20 s reel
+## Reel v3: voice-over and phonk on the owner's 20 s reel
 
 `reel/make_reel_audio.py` replaces the audio of the owner's "Stop clipping for
-free" reel (picture copied untouched) with an ElevenLabs voice-over, a quiet
-synthesized phonk bed at 128 BPM and whooshes on the cuts:
+free" reel (picture copied untouched) with a voice-over, a quiet synthesized
+phonk bed at 128 BPM and whooshes on the cuts:
 
 ```
-python3 reel/make_reel_audio.py reel/reel-v1.mov              # re-mix, cached take
-python3 reel/make_reel_audio.py reel/reel-v1.mov --new-take   # new take (ELEVENLABS_API_KEY)
+pip install kokoro-onnx
+python3 reel/make_reel_audio.py reel/reel-v1.mov
 ```
 
-- The script is `LINES` in the file. Changing a line needs `--new-take`; the
-  build refuses a cached take that doesn't match.
-- **ElevenLabs' free plan has no commercial licence.** Takes made on it are for
-  review only: on a paid plan, run `--new-take` before the reel is posted.
-- Output: `out/highlightz-reel-v2-stop-clipping-for-free.mp4`, plus
-  `out/reel-v2-stems/` (voice, music, sfx, mix) to rebalance in an editor.
+- The voice is Kokoro-82M (Apache-2.0), run locally: free, and fine to use
+  commercially. Voice `am_fenrir`. The first run downloads the model and voices
+  from the npm registry into `reel/kokoro/` and checks them against pinned
+  sha256 hashes.
+- The script is `LINES` in the file; edit a line and re-run (about 45 s).
+- Output: `out/highlightz-reel-v3-stop-clipping-for-free.mp4`, plus
+  `out/reel-v3-stems/` (voice, music, sfx, mix) to rebalance in an editor.

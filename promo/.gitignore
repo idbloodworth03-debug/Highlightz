@@ -13,6 +13,6 @@ public/captures/*.webm
 !*.ts
 # npm packages the capture serves in place of unpkg.com (see rig.mjs)
 capture/.vendor/
-# The owner's reel and its ElevenLabs voice takes: media, kept local.
+# The owner's reel, and the Kokoro model the build downloads (~120 MB).
 reel/*.mov
-reel/vo/
+reel/kokoro/
