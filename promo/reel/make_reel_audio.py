@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""Reel v4's soundtrack: a voice-over, a quiet phonk bed and transition hits,
+"""Reel v5's soundtrack: a voice-over, a quiet phonk bed and transition hits,
 laid under the owner's 20 s "Stop clipping for free" reel. The picture is
 copied untouched; only the audio track is replaced.
 
 VOICE. Kokoro-82M, an open text-to-speech model under Apache-2.0: free, runs
 here on the CPU, and its output is ours to use commercially (the owner won't
-pay for ElevenLabs, whose free plan forbids commercial use). Voice af_bella,
-the owner's pick. Each line is spoken on its own, at a lively pace, a touch
-quicker where a line needs it to finish inside its scene (Kokoro's own speed
-control, not a stretch afterwards), and placed on its scene. Kokoro says
-"Duxxion" as /ˈdʌksiən/ (DUCKS-ee-on, as the owner says it) and "Highlightz"
-as "highlights" with no respelling.
+pay for ElevenLabs, whose free plan forbids commercial use). Voice am_fenrir,
+the owner's pick ("the guy"): of Kokoro's best-rated US male voices the
+highest, liveliest pitch. Quality first: the full-precision (fp32) model, not
+a quantized one, and every line at Kokoro's natural speed; a line is only
+said quicker (by Kokoro, never stretched afterwards) if it can't fit its
+scene. Kokoro says "Duxxion" as /ˈdʌksiən/ (DUCKS-ee-on, as the owner says
+it) and "Highlightz" as "highlights" with no respelling.
 
 The model and voices come from the npm registry, pinned by sha256, because
 that is what this sandbox can reach (Hugging Face and GitHub releases are
-blocked): the weights re-hosted byte-identical in six shards
-(kokoro-q8-shards), the voices from kokoro-js, Kokoro's reference JS build.
+blocked): onnx-community's fp32 model.onnx in 19 shards across three
+packages (kokoro-fp32{a,b,c}-shards, the publisher of kokoro-q8-shards,
+whose join matches its published hash), the voices from kokoro-js, Kokoro's
+reference JS build. The fp32 join predicts the same timing as the q8 model on
+every line of the script, to 0.03 s: the same network, unquantized.
 
 MUSIC. Phonk at 128 BPM, synthesized from the promo's own drum and synth parts
 (audio/make_audio.py): a pitched 808 cowbell riff, a distorted 808 that slides,
@@ -26,17 +30,17 @@ TIMING. The reel cuts every 8 beats at 128 BPM (3.75 s), measured off its
 frames; every cue below is in seconds on the reel's clock.
 
 PICTURE. Two files, both from the reel's own frames:
-  ...-v4.mp4            the picture stream copied bit for bit: no loss at all
-  ...-v4-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
-                        (x264 CRF 12), for uploading: Instagram and TikTok
+  ...-v5.mp4            the picture stream copied bit for bit: no loss at all
+  ...-v5-1080x1920.mp4  upscaled 1.5x (Lanczos) and re-encoded near-losslessly
+                        (x264 CRF 10, veryslow), for uploading: Instagram and TikTok
                         both ask for 1080x1920. It adds no detail the source
                         doesn't have; a higher-resolution export of the reel
                         would.
 
 OUTPUT (out/):
-  highlightz-reel-v4-stop-clipping-for-free.mp4
-  highlightz-reel-v4-stop-clipping-for-free-1080x1920.mp4
-  reel-v4-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
+  highlightz-reel-v5-stop-clipping-for-free.mp4
+  highlightz-reel-v5-stop-clipping-for-free-1080x1920.mp4
+  reel-v5-stems/{voice,music,sfx,mix}.wav   to rebalance in an editor
 
     pip install kokoro-onnx
     python3 reel/make_reel_audio.py reel/reel-v1.mov
@@ -69,16 +73,16 @@ BAR = 4 * BEAT
 OUT = os.path.join(PROMO, "out")
 rng = np.random.default_rng(20261028)
 
-VOICE = "af_bella"
-SPEED = 1.10                # Bella's default read is unhurried; a reel isn't
-MAX_SPEED = 1.25            # quicker than this starts to sound rushed
+VOICE = "am_fenrir"
+SPEED = 1.0                 # Kokoro's natural read: the most natural it sounds
+MAX_SPEED = 1.1             # past this a line should be rewritten, not rushed
 
 # Each line and where it starts. Lines start just after their cut, so the
 # whoosh lands on the cut and the voice follows it. Written to be said, not
 # read: whole sentences, joined the way people talk.
 LINES = [
     ("Stop clipping for free. The best Duxxion clip wins two-fifty.", 0.08),
-    ("There's five hundred in prizes, and it all comes down to views.", 3.85),
+    ("There's five hundred in prizes, and it all comes down to views.", 3.92),
     ("Join for free, clip Duxxion's stream, and post from Highlightz.", 7.60),
     ("Want an edge? Pro unlocks the Clip Editor and one-press posting.", 11.35),
     ("Start free, upgrade anytime.", 15.08),
@@ -96,39 +100,52 @@ URL_PILL = 18.50            # highlightz.app lands
 # ── voice ────────────────────────────────────────────────────────────────────
 
 KOKORO_DIR = os.path.join(HERE, "kokoro")
-KOKORO_TARBALLS = {
-    "model": ("https://registry.npmjs.org/kokoro-q8-shards/-/kokoro-q8-shards-1.0.0.tgz",
-              "94b79d3f877a5f6d1f0b8b081fd2b7d2f4f33cefb1210400d2cf67431f8d57b8"),
-    "voices": ("https://registry.npmjs.org/kokoro-js/-/kokoro-js-1.2.1.tgz",
-               "1f0d0383ef0349af0bd9440d81dc12abbea3a5392eb645283eda876f537f5860"),
-}
-# model_quantized.onnx from onnx-community/Kokoro-82M-v1.0-ONNX, once joined.
-MODEL_SHA256 = "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478"
+NPM = "https://registry.npmjs.org"
+MODEL_TARBALLS = [   # in shard order: a holds 0-6, b 7-13, c 14-18
+    (f"{NPM}/kokoro-fp32a-shards/-/kokoro-fp32a-shards-1.0.0.tgz",
+     "3865cf44462777e1dfc30aebf268bd57f09949b1d69204c7dd8b6d511cb3c18b"),
+    (f"{NPM}/kokoro-fp32b-shards/-/kokoro-fp32b-shards-1.0.0.tgz",
+     "8fe7242dc2d2135eec6497e996b5efbb1b33163ddd9682107dc6e473fb2505fc"),
+    (f"{NPM}/kokoro-fp32c-shards/-/kokoro-fp32c-shards-1.0.0.tgz",
+     "21091855eab91d5d9fbdbbc6fb8c69e08b1f42eb707891aae5d01cd2ce34c1db"),
+]
+MODEL_SHARDS = 19
+MODEL_SHA256 = "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb"   # joined
+VOICES_TARBALL = (f"{NPM}/kokoro-js/-/kokoro-js-1.2.1.tgz",
+                  "1f0d0383ef0349af0bd9440d81dc12abbea3a5392eb645283eda876f537f5860")
 
 
 def fetch_kokoro() -> tuple[str, str]:
     """The model and the voices, downloaded once into reel/kokoro/."""
-    model = os.path.join(KOKORO_DIR, "kokoro-q8.onnx")
+    model = os.path.join(KOKORO_DIR, "kokoro-fp32.onnx")
     voices = os.path.join(KOKORO_DIR, "voices.npz")
     if os.path.exists(model) and os.path.exists(voices):
         return model, voices
     os.makedirs(KOKORO_DIR, exist_ok=True)
-    tars = {}
-    for name, (url, sha) in KOKORO_TARBALLS.items():
-        with urllib.request.urlopen(url, timeout=300) as r:
+
+    def tarball(url, sha):
+        with urllib.request.urlopen(url, timeout=600) as r:
             data = r.read()
         if hashlib.sha256(data).hexdigest() != sha:
             sys.exit(f"{url} does not match its pinned sha256")
-        tars[name] = tarfile.open(fileobj=io.BytesIO(data))
-    joined = b"".join(tars["model"].extractfile(f"package/kokoro-q8.part{i}.bin").read() for i in range(6))
+        return tarfile.open(fileobj=io.BytesIO(data))
+
+    shards = {}
+    for url, sha in MODEL_TARBALLS:
+        t = tarball(url, sha)
+        for m in t.getmembers():
+            if m.name.endswith(".bin"):
+                shards[int(m.name.rsplit("part", 1)[1][:-4])] = t.extractfile(m).read()
+    joined = b"".join(shards[i] for i in range(MODEL_SHARDS))
     if hashlib.sha256(joined).hexdigest() != MODEL_SHA256:
         sys.exit("the joined Kokoro model does not match its sha256")
     with open(model, "wb") as f:
         f.write(joined)
+    t = tarball(*VOICES_TARBALL)
     arrays = {}
-    for m in tars["voices"].getmembers():
+    for m in t.getmembers():
         if m.name.startswith("package/voices/") and m.name.endswith(".bin"):
-            raw = tars["voices"].extractfile(m).read()
+            raw = t.extractfile(m).read()
             arrays[os.path.basename(m.name)[:-4]] = np.frombuffer(raw, np.float32).reshape(-1, 1, 256)
     np.savez(voices, **arrays)
     return model, voices
@@ -361,7 +378,7 @@ def main():
     music = duck_under(music, voice)
     sfx = to_lufs(render_sfx(total_s), SFX_LUFS)
 
-    stems = os.path.join(OUT, "reel-v4-stems")
+    stems = os.path.join(OUT, "reel-v5-stems")
     os.makedirs(stems, exist_ok=True)
     for name, x in (("voice", voice), ("music", music), ("sfx", sfx)):
         ma.write(os.path.join(stems, f"{name}.wav"), x)
@@ -371,8 +388,8 @@ def main():
     ma.write(wav, mix)
     lufs, tp = ma.loudness(wav)
 
-    audio = ["-c:a", "aac", "-b:a", "256k", "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart"]
-    base = os.path.join(OUT, "highlightz-reel-v4-stop-clipping-for-free")
+    audio = ["-c:a", "aac", "-b:a", "320k", "-ar", str(SR), "-t", f"{total_s:.4f}", "-movflags", "+faststart"]
+    base = os.path.join(OUT, "highlightz-reel-v5-stop-clipping-for-free")
     # The picture exactly as it came: no re-encode, so no loss.
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-tag:v", "hvc1",
@@ -381,7 +398,7 @@ def main():
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", args.reel, "-i", wav,
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-vf", "scale=1080:1920:flags=lanczos+accurate_rnd+full_chroma_int",
-                    "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-profile:v", "high",
+                    "-c:v", "libx264", "-preset", "veryslow", "-crf", "10", "-profile:v", "high",
                     "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709",
                     "-color_trc", "bt709", "-color_range", "tv",
                     *audio, base + "-1080x1920.mp4"], check=True)
