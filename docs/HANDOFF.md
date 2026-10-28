@@ -7537,3 +7537,23 @@ on the previous code MRR reads 60 where 50 is right) and a signed legacy-price
 webhook through the real endpoint in `tests/test_stripe_sdk_objects.py`; full
 suite 4225 passed. Not deployed from here.
 
+
+## Reel v2: voice-over and phonk (2026-10-28)
+
+Owner sent their own 20 s reel (`highlightz-reel-v1-stop-clipping-for-free`,
+720x1280 HEVC, cuts every 8 beats at 128 BPM) and asked for an energetic young
+voice-over, its music swapped for something trendy, kept quiet under the voice.
+Duxxion is said DUCKS-ee-on.
+
+- `promo/reel/make_reel_audio.py`: ElevenLabs voice "Liam", model eleven_v4,
+  one take cut into six lines placed on their scenes (stretched at most 1.085x);
+  original phonk synthesized from `promo/audio/make_audio.py` parts; music about
+  18 LU under the voice and ducked 5 dB while it speaks; -14 LUFS, -1.4 dBTP.
+- Verified: video packets byte-identical to v1 (md5); ElevenLabs speech-to-text
+  of the final mix reads every line, each starting on its scene.
+- **Not cleared for posting yet:** the account is on ElevenLabs' free plan,
+  which has no commercial licence, and its Music API needs a paid plan (so the
+  phonk is ours, not Eleven Music). On a paid plan: `--new-take`, then re-post.
+- Script edits from the approved draft: "The top" became "Top" and "one-press
+  TikTok posts" became "one-press posts", so lines 1 and 4 fit their scenes.
+- Media (`reel/*.mov`, `reel/vo/`) and `out/` are gitignored.
