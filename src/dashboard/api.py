@@ -515,6 +515,66 @@ class RequestFailureLogMiddleware:
 
 app.add_middleware(RequestFailureLogMiddleware)
 
+
+class KickWebhookFastPath:
+    """Kick's chat webhooks, answered in front of the site's middleware.
+
+    WHY. Kick POSTs one request per chat message of every channel anyone
+    lists: over 99% of all requests this server gets, 20-45k per 10 minutes on
+    2026-10-29, when a burst of them outran the server, piled up past the
+    open-file limit and froze the site (src/main.py has the full story). Each
+    one went through the session, auth and security-header layers (two of them
+    BaseHTTPMiddleware: a task and a pair of streams per request), CORS and
+    FastAPI's routing. A signed machine POST needs none of that: it has no
+    session, renders nothing, and is authenticated by Kick's RSA signature in
+    kick_events.handle_delivery. So it is answered here, outermost.
+
+    Same contract as the /kick/webhook route, which stays for anything that
+    reaches it: 413 over MAX_BODY (declared or streamed), otherwise whatever
+    handle_delivery answers; an unexpected error is logged as request_failed
+    and answered 500. Only POST to exactly /kick/webhook; everything else
+    passes through untouched.
+    """
+
+    PATH = "/kick/webhook"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (scope.get("type") != "http" or scope.get("path") != self.PATH
+                or scope.get("method") != "POST"):
+            return await self.app(scope, receive, send)
+        from src.chat.platform import kick_events
+        limit = kick_events.MAX_BODY
+        headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers") or ()}
+        size = headers.get("content-length", "")
+        status = 413 if size.isdigit() and int(size) > limit else 0
+        body = b""
+        while not status:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"")
+            if len(body) > limit:
+                status = 413
+            elif not message.get("more_body", False):
+                break
+        if not status:
+            try:
+                status = await kick_events.handle_delivery(headers, body)
+            except Exception as exc:
+                log.warning("request_failed", method="POST", path=self.PATH,
+                            error=f"{type(exc).__name__}: {str(exc)[:160]}")
+                status = 500
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-length", b"0")]})
+        await send({"type": "http.response.body", "body": b""})
+
+
+# Added last, so it runs first: nothing else touches a Kick delivery.
+app.add_middleware(KickWebhookFastPath)
+
 from typing import Callable
 
 # ── Atomic file writes ────────────────────────────────────────────────────────

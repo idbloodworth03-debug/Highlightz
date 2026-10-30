@@ -28,6 +28,11 @@ WorkingDirectory=/opt/highlightz
 ExecStart=/opt/highlightz/venv/bin/python -m src.main
 Restart=always
 RestartSec=10
+# The default soft limit (1024) is what froze the site on 2026-10-29: Kick
+# chat webhooks piled up past it and accept() failed with EMFILE. The app
+# raises its own soft limit at startup too (src/main.py), so a server whose
+# installed unit predates this line is covered by the next deploy.
+LimitNOFILE=65536
 EnvironmentFile=/opt/highlightz/.env
 
 # Give FFmpeg enough time to buffer on shutdown

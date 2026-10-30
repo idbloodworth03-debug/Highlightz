@@ -1,0 +1,10 @@
+# Restart Highlightz when it stops answering (deploy/healthcheck.sh): every
+# minute, as root, three missed checks in a row restart the service. Install
+# once on the server (deploys keep the script itself up to date):
+#
+#   install -m 644 /opt/highlightz/deploy/highlightz-health.cron /etc/cron.d/highlightz-health
+#
+# Its notes go to the journal: journalctl -t highlightz-health
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root /bin/bash /opt/highlightz/deploy/healthcheck.sh

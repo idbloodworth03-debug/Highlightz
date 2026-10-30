@@ -7635,3 +7635,68 @@ answer columns at one x each across all rows; one answer font size; no
 horizontal overflow at any width. `tests/test_compare.py::
 test_everything_lines_up_not_just_the_numbers` pins the rules (fails on the
 old page). Static public page: no realtime path involved.
+
+## The 2026-10-29 freeze: Kick webhooks used up the open-file limit (2026-10-30)
+
+Owner: "my site went down yesterday out of nowhere ... between 9:00 and 12:00"
+(evening, Eastern). Diagnosed from production, read-only, with the owner
+running the commands:
+
+- **What the server saw.** Boot -1 ran Oct 15 -> Oct 30 03:26 UTC. The reboot
+  at 03:25:44 was the owner's own (root login from their usual address at
+  03:24:53, `last -x`): the fix, not the cause. Last deploy Oct 28 18:26 UTC.
+  No OOM kill, disk 44%, no app error lines until the freeze.
+- **The traffic.** Over 99% of all requests are `POST /kick/webhook` from four
+  Kick addresses (`Go-http-client/1.1`): one request per chat message of every
+  Kick channel anyone lists, 13 at the time (adinross, n3on, westcol, gaules,
+  starladder ... see `clips/kick_event_subscriptions.json`). 6k per 10 min at
+  20:00 UTC, 20-30k from 00:00, 44.5k in the 03:10 bucket.
+- **The freeze.** 03:10-03:25 UTC: 55k requests ended 499 (caller gave up),
+  and the journal holds ~13,000 `OSError: [Errno 24] Too many open files` from
+  `socket.accept()`: the requests in flight had piled up past the process's
+  soft limit of **1024** (hard 524288), so the server could accept nothing.
+  The process never exited, so `Restart=always` never fired.
+- **Not a leak.** 10 h after the reboot the process held 46 descriptors (21
+  sockets, 10 pipes, 13 pidfds). It was the pile-up.
+- **Wasted chat.** `kick_webhook_stats`: before 23:27 UTC about 95% of the
+  chat was `unclaimed` (channel listed by someone, nobody watching it live);
+  after, a big channel was being watched and most of it was used.
+
+**Fixed (owner chose 1-3 of 4):**
+1. `src/main.py` raises the soft RLIMIT_NOFILE to 65536 at startup (up to the
+   hard limit, never lowering; logs `open_file_limit`, or warns below 4096).
+   No unit change needed on production. `deploy/highlightz.service` sets
+   `LimitNOFILE=65536` too, for new installs.
+2. `deploy/healthcheck.sh`, run each minute by `deploy/highlightz-health.cron`
+   (**one-time install on the box**, below): asks `127.0.0.1:8000/health`
+   directly; three misses in a row write `clips/health_restart.json` (time,
+   misses, open descriptors) and `systemctl restart highlightz`. A stopped
+   service is left alone, one miss (a deploy) is not enough, an answer resets
+   the count. The next start logs `site_restarted_unresponsive` as an
+   **error**, so the owner gets an alert email. Its notes:
+   `journalctl -t highlightz-health`.
+3. `api.KickWebhookFastPath`, the outermost ASGI layer, answers
+   `POST /kick/webhook` itself with the route's contract (413 over MAX_BODY,
+   declared or streamed; `kick_events.handle_delivery`'s status; 500 +
+   `request_failed` on an unexpected error), skipping session, auth (a
+   BaseHTTPMiddleware), security headers (another), CORS and routing. Measured
+   in the dev container, signed deliveries straight into the ASGI app: 1.06 ms
+   -> 0.054 ms each (0.030 of it the RSA check), all 3000 delivered both ways.
+   Everything else, `/kick/webhook/` included, goes through the site as before.
+
+**Not built (owner's call): only receiving chat someone is watching.** Today
+a subscription lasts while anyone lists the channel, live or not (`prune`).
+Subscribing only while a session listens would have cut ~95% of the evening's
+volume, at the cost of a subscribe round-trip (and Kick's #419 quirks) when
+watching starts.
+
+Tests: `tests/test_freeze_guards.py` (16; 15 fail with the fixes reverted,
+the 16th pins `/health` staying open). Full suite 4242 passed.
+
+**Production steps (once):**
+```
+cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && systemctl restart highlightz
+install -m 644 /opt/highlightz/deploy/highlightz-health.cron /etc/cron.d/highlightz-health
+grep "open files" /proc/$(systemctl show -p MainPID --value highlightz)/limits   # soft 65536
+bash /opt/highlightz/deploy/healthcheck.sh; cat /run/highlightz-health.fails    # 0
+```

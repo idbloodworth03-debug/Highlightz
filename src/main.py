@@ -43,6 +43,62 @@ _worker_instances: dict[str, "StreamWorker"] = {}
 _queue: JobQueue | None = None
 
 
+# ── Open files, and coming back from a freeze ────────────────────────────────
+#
+# THE 2026-10-29 FREEZE. Every connection, pipe and file the server holds is
+# one descriptor, and a systemd service starts with a soft limit of 1024. That
+# evening Kick's chat webhooks (one POST per message, 13 channels, 20-45k per
+# 10 minutes) outran the server, the requests in flight piled up past 1024, and
+# accept() failed with EMFILE ~13,000 times in 15 minutes: the site answered
+# nobody until the box was rebooted. The process never died, so Restart=always
+# never fired. Three guards: this limit, the Kick fast path in front of the
+# site's middleware (api.KickWebhookFastPath), and deploy/healthcheck.sh, which
+# restarts the service when /health stops answering and leaves a marker that
+# the next start reports (an error, so it reaches the owner's alert email).
+
+NOFILE_TARGET = 65536
+HEALTH_MARKER = "health_restart.json"      # in local_storage_path, from healthcheck.sh
+
+
+def raise_open_file_limit(target: int = NOFILE_TARGET) -> tuple[int, int]:
+    """Raise this process's soft open-file limit to `target`, or to the hard
+    limit if that is lower. Any process may raise its soft limit up to its
+    hard one (production's is 524288), so this needs no unit change. Never
+    lowers it and never raises: returns the (soft, hard) now in force, or
+    (-1, -1) if it could not be read."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = target if hard == resource.RLIM_INFINITY else min(target, hard)
+        if soft != resource.RLIM_INFINITY and soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+        return resource.getrlimit(resource.RLIMIT_NOFILE)
+    except Exception:
+        return (-1, -1)
+
+
+def take_health_restart_marker(folder: str | None = None) -> dict | None:
+    """The note healthcheck.sh leaves when it restarted a server that had
+    stopped answering: read once, then removed. None when there is none."""
+    from pathlib import Path
+    path = Path(folder or settings.local_storage_path) / HEALTH_MARKER
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    except Exception:
+        text = ""
+    try:
+        path.unlink()
+    except Exception:
+        pass
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
 # ── Worker management ─────────────────────────────────────────────────────────
 
 async def spawn_worker(channel: str, platform_name: str, user_id: str = "", preset: str = "default") -> None:
@@ -754,6 +810,18 @@ async def main() -> None:
         ]
     )
     alerts.install_stdlib_taps()
+
+    soft, hard = raise_open_file_limit()
+    if 0 <= soft < 4096:
+        log.warning("open_file_limit_low", soft=soft, hard=hard)
+    else:
+        log.info("open_file_limit", soft=soft, hard=hard)
+    restarted = take_health_restart_marker()
+    if restarted is not None:
+        # An error, so the alert tap emails the owner: the site had stopped
+        # answering and the health check restarted it.
+        log.error("site_restarted_unresponsive",
+                  **{k: restarted.get(k) for k in ("at", "fails", "open_files") if k in restarted})
 
     _queue = JobQueue()
     await _queue.connect()
