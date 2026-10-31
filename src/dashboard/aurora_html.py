@@ -3691,6 +3691,8 @@ const INBOX_KINDS = {
   announcement: ['bell', 'Announcement'],
   update:       ['zap', 'Update'],
   offer:        ['sparkles', 'Offer'],
+  // A note to this account alone, e.g. what the admin clean-up did to it.
+  notice:       ['alert', 'Notice'],
 };
 const inboxWhen = ts => {
   if (!ts) return '';
@@ -4049,6 +4051,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
                       ? <><b>No file for this clip.</b> Highlightz was not holding video when
                           this moment was caught, so there is nothing to download. Clips caught
                           from here on come with an MP4.</>
+                      : clip.file_state === 'expired' && clip.file_cleared_at
+                      ? <><b>This video was cleared.</b> After a week away, saved clip videos
+                          on Free are cleared to free up space. The clip itself is still
+                          here — only the downloadable file is gone.</>
                       : clip.file_state === 'expired'
                       ? <><b>This download has expired.</b> Video is held for a few days
                           and then cleared to make room for new clips, so grab the ones you

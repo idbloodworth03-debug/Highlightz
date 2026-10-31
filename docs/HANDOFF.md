@@ -7700,3 +7700,52 @@ install -m 644 /opt/highlightz/deploy/highlightz-health.cron /etc/cron.d/highlig
 grep "open files" /proc/$(systemctl show -p MainPID --value highlightz)/limits   # soft 65536
 bash /opt/highlightz/deploy/healthcheck.sh; cat /run/highlightz-health.fails    # 0
 ```
+
+## Admin "Clean up": free up the server (2026-10-31)
+
+Owner: "free up space on the server, go through users who have been inactive
+for a week or more and clear out space, and also end streams for people who
+have not accepted a clip in a week or more". Owner's choices: **free accounts
+only**, **clip videos only**, **remove the channels**, **an admin button with a
+preview first**. Nothing runs on its own; there is no schedule.
+
+Admin page, tab **Clean up**: Preview (`GET /admin/cleanup`, changes nothing)
+lists each account, how long ago it was active or last approved a clip, and the
+videos/bytes and channels involved. A red button runs it after a `confirm()`,
+sending the previewed account ids (`POST /admin/cleanup`); a preview older
+than 10 minutes must be redone first. The server re-plans at run time and acts
+only on accounts both confirmed and still qualifying, so someone who came back
+in between is skipped (`skipped_accounts`) and nobody not shown is touched.
+
+Rules (`src/dashboard/cleanup.py`, pure, so preview and run cannot disagree):
+- **Free only**: `plans.get_plan(u) == "free"` and not admin. Paying, legacy
+  $15, past_due, trialing, labeler and admin accounts are never in it.
+- **Away a week** (latest of `_user_last_active`, `last_login_at`,
+  `created_at` is 7+ days ago): the MP4 of each of their clips is unlinked
+  (`files.clear_video`), the picture (.jpg) and the record stay, and the record
+  gets `file_cleared_at`, so `_file_state` says `expired` and the card reads
+  "This video was cleared". Twitch clips stay fetchable from the card (the
+  existing fetch path; a landed fetch drops the mark in `on_clip_file_ready`);
+  a Kick clip's video is gone for good. A file written in
+  the last hour, or one being fetched, is never cleared. Uploads (the editor's
+  files) are not touched.
+- **No clip approved in a week** (latest approved clip's `approved_at`, else
+  `created_at`; or none ever on an account 7+ days old): every channel on their
+  list, paused or running, is removed with `stop_stream_internal` (the same path
+  as the user pressing remove). Kick subscriptions for channels nobody lists
+  any more are dropped by the next `prune_task` pass (30 min).
+- Each account touched gets one note in its notifications bell
+  (`users.add_notices`, kept on the record as `notices`, last 10;
+  `_inbox_for` shows them as kind `notice`) saying what was done and how to
+  undo it ("Add them back on Live Streams anytime").
+
+Realtime: `clip_updated` per cleared clip, `stream_removed` per channel,
+`inbox_changed` per account, all scoped to that account; all three already had
+handlers. The admin page has no socket; it re-previews after a run.
+
+Tests: `tests/test_cleanup.py` (30). Verified the tests bite: removing the
+`file_cleared_at` state, the confirmed-account filter, or the new-account
+grace fails 4 of them. Dashboard JSX parsed with Babel, the admin script with
+`node --check` (and still has no backslash). **Not run against production
+data**: what the preview shows there is the first real number; read it before
+pressing the button.

@@ -118,6 +118,24 @@ def delete(clip_id: str) -> bool:
     return False
 
 
+def clear_video(clip_id: str) -> int:
+    """Remove a clip's VIDEO and keep its picture, the way the size cap does,
+    so the card still looks like the clip. Bytes freed; 0 if there was none.
+    The caller drops the cached read (_forget_scan) once for a whole batch."""
+    p = path_for(clip_id)
+    if not p:
+        return 0
+    try:
+        size = p.stat().st_size if p.is_file() else 0
+        if size:
+            p.unlink()
+            log.info("clip_file_swept", clip_id=clip_id, reason="cleanup")
+        return size
+    except OSError as exc:
+        log.warning("clip_file_delete_failed", clip_id=clip_id, error=str(exc))
+        return 0
+
+
 # ── moments that will never become a clip (2026-10-13) ───────────────────────
 #
 # The stream worker cuts a file about 30s after a trigger, independently of the

@@ -1440,3 +1440,32 @@ def mark_inbox_read(user_id: str) -> None:
             u["inbox_read_at"] = time.time()
             _save(users)
             return
+
+
+# A note to ONE account in its notifications bell: something the site did to it
+# that it should hear about (the admin clean-up, 2026-10-31). Kept on the user
+# record, newest last, the last few only; shown by api._inbox_for as kind
+# "notice" and read like everything else in the bell.
+NOTICES_KEPT = 10
+
+
+def add_notices(notes: dict[str, dict]) -> int:
+    """Leave {user id: {"title", "body"}} in each account's bell, in ONE write.
+    Returns how many accounts got one."""
+    if not notes:
+        return 0
+    now = time.time()
+    users = _load()
+    done = 0
+    for u in users:
+        note = notes.get(u.get("id"))
+        if not note:
+            continue
+        kept = [n for n in (u.get("notices") or []) if isinstance(n, dict)]
+        kept.append({"id": f"n-{int(now * 1000)}", "title": str(note.get("title") or ""),
+                     "body": str(note.get("body") or ""), "at": now})
+        u["notices"] = kept[-NOTICES_KEPT:]
+        done += 1
+    if done:
+        _save(users)
+    return done

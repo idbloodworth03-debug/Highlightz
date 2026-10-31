@@ -3540,6 +3540,10 @@ def _file_state(clip: dict, listing=None) -> str:
         horizon = clip_files.oldest_mtime()
     except Exception:
         return "missed"
+    # Cleared on purpose by the admin clean-up (cleanup_run): recorded, so it
+    # is never mistaken for a moment the buffer missed.
+    if clip.get("file_cleared_at"):
+        return "expired"
     if not settings.clip_capture_enabled:
         return "off"
     created = float(clip.get("created_at") or 0)
@@ -3620,6 +3624,10 @@ async def on_clip_file_ready(clip_id: str) -> None:
     # own video, made now while the video is certainly on disk. In the
     # background; the card asks for it too and the two share one run.
     clip = _clips.get(clip_id)
+    # It has a video again (a Twitch clip fetched after the clean-up cleared
+    # it), so a later eviction must not be described as the clean-up's.
+    if clip and clip.pop("file_cleared_at", None):
+        _save_clips()
     if clip and not clip.get("thumbnail_url"):
         from src.clips import thumbs as clip_thumbs
         clip_thumbs.make_soon(clip_id, float(clip.get("duration_seconds") or 0) / 2)
@@ -8234,6 +8242,15 @@ def _inbox_for(user: dict) -> dict:
                       "plan": offer["plan"], "headline": offer["headline"], "at": at,
                       "read": bool(raw.get("dismissed_at") or raw.get("claimed_at"))
                               or at <= read_at})
+    # Notes to this account alone (users.add_notices), e.g. what the admin
+    # clean-up did to it and how to undo it.
+    for n in user.get("notices") or []:
+        if not isinstance(n, dict):
+            continue
+        at = float(n.get("at") or 0)
+        items.append({"id": str(n.get("id") or f"n-{int(at * 1000)}"), "kind": "notice",
+                      "title": n.get("title", ""), "body": n.get("body", ""), "at": at,
+                      "read": at <= read_at})
     items.sort(key=lambda i: i["at"], reverse=True)
     return {"items": items, "unread": sum(1 for i in items if not i["read"])}
 
@@ -8339,6 +8356,144 @@ async def admin_downloads(request: Request, limit: int = 200):
         row["user"] = who.get(r.get("user_id"), "(deleted account)")
         rows.append(row)
     return {"rows": rows, "totals": dl_log.totals()}
+
+
+# ── Free up the server (owner, 2026-10-31) ───────────────────────────────────
+#
+# The admin "Clean up" tab. The rules are in src/dashboard/cleanup.py; this is
+# the data they read and the carrying out. GET is the preview; POST runs it for
+# exactly the accounts the preview listed and the admin confirmed, re-checked
+# at run time, so somebody who came back in between is spared and nobody who
+# was not shown is touched.
+
+_cleanup_lock = asyncio.Lock()
+# Never clear a video written in the last hour: it may still be being cut, or
+# somebody may be reaching for Download (the same guard as files.trim_to_cap).
+_CLEANUP_MIN_FILE_AGE_S = 3600.0
+
+
+async def _cleanup_plan() -> dict:
+    from src.auth import users as user_store
+    from src.clips import fetch as clip_fetch
+    from src.clips import files as clip_files
+    from src.dashboard import cleanup
+    # Snapshots on the loop (cheap), the walk and the stats off it.
+    users = list(user_store._load())
+    clips = list(_clips.values())
+    streams = dict(_streams)
+    activity = dict(_user_last_active)
+    listing = clip_files.existing_ids()
+
+    def size(cid: str) -> int:
+        if cid not in listing or clip_fetch.in_flight(cid):
+            return 0
+        p = clip_files.path_for(cid)
+        try:
+            st = p.stat() if p and p.is_file() else None
+        except OSError:
+            return 0
+        if not st or time.time() - st.st_mtime < _CLEANUP_MIN_FILE_AGE_S:
+            return 0
+        return st.st_size
+
+    return await asyncio.to_thread(cleanup.plan, users, clips, streams, activity,
+                                   time.time(), size)
+
+
+@app.get("/admin/cleanup")
+async def admin_cleanup_preview(request: Request):
+    """What a clean-up would do right now. Changes nothing."""
+    _require_admin(request)
+    from src.clips import files as clip_files
+    out = await _cleanup_plan()
+    out["store_bytes"] = await asyncio.to_thread(clip_files.total_bytes)
+    return out
+
+
+@app.post("/admin/cleanup")
+async def admin_cleanup_run(request: Request):
+    """Run the clean-up for the accounts the admin confirmed from the preview.
+
+    Body: {"files": [user id, ...], "streams": [user id, ...]}.
+    Videos: the MP4 goes, the picture and the record stay; the record is marked
+    `file_cleared_at`, so the card says the video was cleared (and offers the
+    Twitch fetch where there is one). Channels: stop_stream_internal, the same
+    path as the user pressing remove. Each account gets a bell notice saying
+    what happened and how to undo it. Every change reaches an open tab live:
+    clip_updated, stream_removed, inbox_changed."""
+    _require_admin(request)
+    from src.auth import users as user_store
+    from src.clips import files as clip_files
+    from src.dashboard import cleanup
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    want_files = {str(u) for u in (body.get("files") or []) if u}
+    want_streams = {str(u) for u in (body.get("streams") or []) if u}
+    if not want_files and not want_streams:
+        raise HTTPException(status_code=400, detail="Nothing confirmed. Preview first.")
+    if _cleanup_lock.locked():
+        raise HTTPException(status_code=409, detail="A clean-up is already running.")
+
+    async with _cleanup_lock:
+        fresh = await _cleanup_plan()
+        file_rows = [r for r in fresh["files"] if r["user_id"] in want_files]
+        stream_rows = [r for r in fresh["streams"] if r["user_id"] in want_streams]
+
+        # Videos: unlink off the loop, then mark and announce on it.
+        ids = [cid for r in file_rows for cid in r["clips"]]
+        freed = await asyncio.to_thread(lambda: {cid: clip_files.clear_video(cid) for cid in ids})
+        clip_files._forget_scan()
+        now = time.time()
+        cleared: dict[str, list[dict]] = {}
+        for r in file_rows:
+            for cid in r["clips"]:
+                clip = _clips.get(cid)
+                if not freed.get(cid) or not clip:
+                    continue
+                clip["file_cleared_at"] = now
+                cleared.setdefault(r["user_id"], []).append(clip)
+        if cleared:
+            _save_clips()
+            listing = clip_files.existing_ids()
+            for uid, mine in cleared.items():
+                for clip in mine:
+                    await broadcast({"event": "clip_updated", "clip": _clip_out(clip, listing)},
+                                    user_id=uid)
+
+        # Channels.
+        removed: dict[str, list[str]] = {}
+        for r in stream_rows:
+            for channel in r["channels"]:
+                try:
+                    if await stop_stream_internal(channel, r["user_id"]):
+                        removed.setdefault(r["user_id"], []).append(channel)
+                except Exception as exc:          # one bad record must not stop the rest
+                    log.warning("cleanup_stream_stop_failed", user_id=r["user_id"],
+                                channel=channel, error=str(exc))
+
+        # One note per account touched, in one write.
+        notes = {}
+        for uid in set(cleared) | set(removed):
+            n = cleanup.notice(len(cleared.get(uid, [])), removed.get(uid, []))
+            if n:
+                notes[uid] = n
+        user_store.add_notices(notes)
+        for uid in notes:
+            await broadcast({"event": "inbox_changed"}, user_id=uid)
+
+    result = {"freed_bytes": sum(freed.values()),
+              "clip_files": sum(len(v) for v in cleared.values()),
+              "file_accounts": len(cleared),
+              "channels": sum(len(v) for v in removed.values()),
+              "stream_accounts": len(removed),
+              "skipped_accounts": len((want_files - {r["user_id"] for r in file_rows})
+                                      | (want_streams - {r["user_id"] for r in stream_rows}))}
+    log.info("admin_cleanup_run", by=request.session.get("user_id", ""), **result)
+    return result
 
 
 @app.get("/admin/overview")
@@ -15302,6 +15457,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="onboarding">Onboarding<span class="c" id="tc-onboarding"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
+    <button class="tab" data-tab="cleanup">Clean up<span class="c" id="tc-cleanup"></span></button>
   </div>
 
   <!-- ── USERS ── -->
@@ -15434,6 +15590,30 @@ ADMIN_HTML = """<!DOCTYPE html>
     </p>
     <div class="toolbar"><input class="field" id="dl-filter" placeholder="Filter by account, channel or title"></div>
     <div class="tw"><div id="dl-wrap" class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <!-- ── CLEAN UP (owner, 2026-10-31) ── Free accounts only. The preview is
+       GET /admin/cleanup and changes nothing; Run sends exactly the accounts
+       it listed, and the server re-checks each one. See src/dashboard/cleanup.py. -->
+  <div class="panel" id="panel-cleanup">
+    <div class="block-head"><h2>Free up the server</h2><span class="c" id="cu-c"></span></div>
+    <p class="lede">
+      Free accounts only &mdash; paying, trial and staff accounts are never touched.
+      <b>Away a week</b>: the video files of their clips are cleared. The clips stay
+      listed with their pictures, Twitch clips can be fetched again from the card,
+      a Kick clip&rsquo;s video is gone for good.
+      <b>No clip approved in a week</b> (accounts at least a week old): their channels
+      come off their list, which ends those streams. Each account gets a note in its
+      notifications bell saying what happened and how to undo it. Nothing runs until
+      you press the red button.
+    </p>
+    <div class="toolbar"><button class="btn" id="cu-preview">Preview</button></div>
+    <div id="cu-wrap" class="sub">Press Preview to see exactly who and how much.</div>
+    <div class="danger" id="cu-run-box" style="display:none;margin-top:18px">
+      <div class="dh">Run the clean-up</div>
+      <p id="cu-run-sum"></p>
+      <button class="btn btn-bad" id="cu-run">Clear these videos and remove these channels</button>
+    </div>
   </div>
 
   <!-- ── ACCOUNTS ── -->
@@ -15676,6 +15856,76 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'accounts') loadAccounts();
   if(b.dataset.tab === 'campaigns') loadCampaigns();
   if(b.dataset.tab === 'onboarding') loadOnboarding();
+});
+
+// ── clean up ────────────────────────────────────────────────────────────────
+// Preview first; Run sends the accounts the preview showed and nothing else.
+// A preview older than ten minutes must be redone, so what is confirmed is
+// what was looked at.
+let CU_PLAN = null, CU_AT = 0;
+function cuAgo(ts){
+  if(!ts) return 'never';
+  const d = Math.floor((Date.now()/1000 - ts) / 86400);
+  return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+}
+async function loadCleanup(){
+  const wrap = document.getElementById('cu-wrap');
+  const box = document.getElementById('cu-run-box');
+  box.style.display = 'none';
+  wrap.className = 'loading'; wrap.textContent = 'Working it out' + String.fromCharCode(8230);
+  let d;
+  try { d = await api('/admin/cleanup'); }
+  catch(e){ wrap.className = 'err'; wrap.textContent = 'Could not load: ' + e.message; return; }
+  CU_PLAN = d; CU_AT = Date.now();
+  const t = d.totals || {};
+  document.getElementById('cu-c').textContent = 'clip store ' + dlSize(d.store_bytes) + ' now';
+  let html = '<h3 style="margin:8px 0">Clip videos to clear &middot; ' + dlSize(t.bytes) + ' from '
+    + n0(t.clip_files) + ' files, ' + n0(t.file_accounts) + ' accounts</h3>';
+  if((d.files || []).length){
+    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Last active</th><th>Videos</th><th>Size</th></tr></thead><tbody>';
+    d.files.forEach(function(r){
+      html += '<tr><td><b>' + esc(r.name) + '</b></td><td>' + cuAgo(r.last_active) + '</td><td>'
+        + n0(r.clips.length) + '</td><td>' + dlSize(r.bytes) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  } else html += '<p class="sub">None: no free account away a week has a clip video on the server.</p>';
+  html += '<h3 style="margin:18px 0 8px">Channels to remove &middot; ' + n0(t.channels) + ' from '
+    + n0(t.stream_accounts) + ' accounts</h3>';
+  if((d.streams || []).length){
+    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Last approved clip</th><th>Channels</th></tr></thead><tbody>';
+    d.streams.forEach(function(r){
+      html += '<tr><td><b>' + esc(r.name) + '</b></td><td>' + cuAgo(r.last_approved) + '</td><td>'
+        + r.channels.map(esc).join(', ') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  } else html += '<p class="sub">None: every free account with channels approved a clip this week.</p>';
+  wrap.className = ''; wrap.innerHTML = html;
+  if((d.files || []).length || (d.streams || []).length){
+    document.getElementById('cu-run-sum').textContent = 'Clears ' + n0(t.clip_files)
+      + ' clip videos (' + dlSize(t.bytes) + ') from ' + n0(t.file_accounts) + ' accounts and removes '
+      + n0(t.channels) + ' channels from ' + n0(t.stream_accounts)
+      + ' accounts. Only the accounts listed above; anyone who came back since this preview is skipped.';
+    box.style.display = '';
+  }
+}
+document.getElementById('cu-preview').addEventListener('click', loadCleanup);
+document.getElementById('cu-run').addEventListener('click', async function(){
+  if(!CU_PLAN) return;
+  if(Date.now() - CU_AT > 600000){ toast('That preview is over ten minutes old. Preview again first.', false); return; }
+  const t = CU_PLAN.totals || {};
+  if(!confirm('Clear ' + n0(t.clip_files) + ' clip videos (' + dlSize(t.bytes) + ') and remove '
+      + n0(t.channels) + ' channels? This cannot be undone.')) return;
+  const btn = this; btn.disabled = true;
+  try {
+    const r = await apiJson('/admin/cleanup', 'POST', {
+      files: (CU_PLAN.files || []).map(function(x){ return x.user_id; }),
+      streams: (CU_PLAN.streams || []).map(function(x){ return x.user_id; })});
+    toast('Freed ' + dlSize(r.freed_bytes) + ' (' + n0(r.clip_files) + ' videos), removed '
+      + n0(r.channels) + ' channels' + (r.skipped_accounts ? ', skipped ' + n0(r.skipped_accounts) + ' accounts that came back' : ''));
+    CU_PLAN = null;
+    await loadCleanup();
+  } catch(e){ toast('Clean-up failed: ' + e.message, false); }
+  finally { btn.disabled = false; }
 });
 
 // ── onboarding ──────────────────────────────────────────────────────────────
