@@ -207,6 +207,16 @@ class Settings(BaseSettings):
     autopilot_font: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     autopilot_render_timeout_s: float = 300.0
 
+    # ── Marketing reels (src/marketing) ────────────────────────────────────
+    # Owner, 2026-10-31: "once a clip is captured, make a marketing reel with
+    # the peak from the clip as a hook". For these channels, a clip captured
+    # on an ADMIN's account becomes a V6-format reel in that admin's Library.
+    # Nobody else's clips are ever read. Empty = off. Comma-separated.
+    marketing_reel_channels: str = "duxxion"
+    marketing_reel_daily_cap: int = 10          # per admin account, per day (UTC)
+    marketing_reel_assets: str = ""             # empty = marketing/assets in the repo
+    marketing_reel_framing: str = "blur"        # blur | fill
+
     # How long a cut clip stays on disk. Retention is per plan (see
     # src/billing/plans.py) and this is the ceiling none of them may exceed:
     # the library is a working area for getting a clip posted, not an archive

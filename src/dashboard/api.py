@@ -3638,6 +3638,11 @@ async def on_clip_file_ready(clip_id: str) -> None:
     # whose video had to be fetched sat on "Starting…" for as long as that took
     # (owner, 2026-09-30), and the capture worker stalled the same way.
     _autopilot.kick(_autopilot.maybe_run_by_id(clip_id))
+    # Marketing reels (owner, 2026-10-31): a chosen channel's clip captured on
+    # an admin's account becomes a V6-format reel in that admin's Library.
+    # Background for the same reason; a no-op for every other clip.
+    from src.marketing import auto as _marketing
+    _autopilot.kick(_marketing.consider(clip_id))
 
 
 def _start_fetch(clip: dict) -> None:
