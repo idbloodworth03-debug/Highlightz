@@ -9646,153 +9646,6 @@ const aptLabel = c => {
   return APT_LABEL[a.status] || a.status;
 };
 
-// Peak reels (owner, 2026-10-31: "finds these clips, specifically duxxion for
-// now, uses the peak as hooks and creates instagram reels"). A channel's best
-// clips rendered by the plan-based Auto Edit, each opening on a hook placed at
-// its score peak on the SERVER (src/autopilot/peak_hook.py). Admins only, like
-// the rest of that edit. Realtime: the job arrives as `peak_reels` on hz_ws;
-// GET /reels/peak is re-read on hz_refetch (every reconnect) and when a batch
-// ends, so the channel counts and the made list never need a refresh.
-const PR_STATUS = {waiting:'Waiting', finding:'Finding the peak', rendering:'Rendering',
-                   ready:'Ready', failed:'Failed', skipped:'Skipped'};
-const PR_PILL = {finding:'rendering', rendering:'rendering', ready:'scheduled',
-                 failed:'failed', skipped:'skipped'};
-function prHookLine(h) {
-  if (!h) return 'No hook: the clip is too short for one, so it plays as it is.';
-  const why = h.source === 'audio' ? 'the loudest moment just before the score peak'
-            : h.source === 'score' ? 'the score peak (the audio had no clear spike)'
-            : 'the loudest moment in the clip';
-  return 'Opens on ' + fmtSecs(h.start) + '–' + fmtSecs(h.end) + ', ' + why;
-}
-function PeakReelsPanel() {
-  const [st, setSt] = useState(null);
-  const [channel, setChannel] = useState('');
-  const [count, setCount] = useState(5);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [watch, setWatch] = useState('');
-  const load = () => fetch('/reels/peak').then(r=>r.ok?r.json():null)
-    .then(d=>{ if (d) setSt(d); }).catch(()=>{});
-  useEffect(()=>{
-    load();
-    const onWs = e=>{
-      let m; try { m = JSON.parse(e.detail); } catch { return; }
-      if (m.event === 'peak_reels' && m.job) {
-        setSt(s=>({...(s||{}), job: m.job, running: m.job.status === 'running'}));
-        if (m.job.status !== 'running') load();
-      }
-    };
-    window.addEventListener('hz_ws', onWs);
-    window.addEventListener('hz_refetch', load);
-    return ()=>{ window.removeEventListener('hz_ws', onWs); window.removeEventListener('hz_refetch', load); };
-  }, []);
-  const chans = (st && st.channels) || [];
-  useEffect(()=>{
-    if (!channel && chans.length) {
-      const dux = chans.find(c=>c.channel === 'duxxion');
-      setChannel((dux || chans[0]).channel);
-    }
-  }, [chans.length]);
-
-  const job = st && st.job;
-  const running = !!(st && st.running);
-  const cur = chans.find(c=>c.channel === channel);
-  const left = cur ? Math.max(0, cur.clips - cur.made) : 0;
-  const n = Math.min(count, left);
-  const start = async ()=>{
-    setBusy(true); setErr('');
-    try {
-      const r = await fetch('/reels/peak', {method:'POST', headers:{'Content-Type':'application/json'},
-                                            body: JSON.stringify({channel, count})});
-      let d = null; try { d = await r.json(); } catch {}
-      if (r.ok && d) setSt(d); else setErr((d && d.detail) || 'Could not start the reels.');
-    } catch { setErr('Could not reach the server'); }
-    setBusy(false);
-  };
-  const stop = async ()=>{
-    try { const r = await fetch('/reels/peak/stop', {method:'POST'}); if (r.ok) setSt(await r.json()); } catch {}
-  };
-  const done = job ? job.items.filter(i=>i.status === 'ready').length : 0;
-  const recent = ((st && st.recent) || []).filter(r=>!job || !job.items.some(i=>i.clip_id === r.clip_id));
-  const row = (key, title, status, hook, uploadId, seconds, error) => (
-    <div key={key} className="apt-row">
-      <b>{title}</b>
-      <span className="apt-act">
-        <span className={'apt-pill ' + (PR_PILL[status] || '')}>{PR_STATUS[status] || status}</span>
-        {uploadId && <button className="rd-btn sm" onClick={()=>setWatch(watch === uploadId ? '' : uploadId)}>
-          {watch === uploadId ? 'Hide' : 'Watch'}</button>}
-        {uploadId && <a className="rd-btn sm" href={'/uploads/'+uploadId+'/file?download=1'} download>Download</a>}
-      </span>
-      {status !== 'waiting' && status !== 'skipped' && (hook || status === 'ready') &&
-        <em className="note">{prHookLine(hook)}{seconds ? ' · ' + fmtSecs(seconds) + ' reel' : ''}</em>}
-      {error && <em>{error}</em>}
-      {uploadId && watch === uploadId &&
-        <video src={'/uploads/'+uploadId+'/file'} controls playsInline preload="metadata"
-          style={{width:'100%', maxWidth:270, borderRadius:12, marginTop:8, background:'#000'}}/>}
-    </div>);
-
-  return (
-    <div className="apx-card">
-      <div className="apx-card-h"><div>
-        <h3 style={{marginBottom:4}}>Peak reels</h3>
-        <div className="hint">Turns a channel's best clips into vertical reels for Instagram, TikTok or Shorts.
-          Each reel opens on the clip's peak, the loudest moment just before the score topped out,
-          then plays the whole clip. Your Auto Edit settings (template, captions, title) apply.
-          Finished reels go to your Library; nothing is posted.</div>
-      </div></div>
-      {!st ? <div className="desc" style={{marginTop:12}}>Loading…</div>
-       : chans.length === 0
-         ? <div className="apx-empty"><span><Icon name="film" size={24}/></span><b>No clips with a video yet</b>
-             <span>Reels are made from clips the app captured. Once a channel has some, they show up here.</span></div>
-         : <section className="apx-sec" style={{marginTop:16}}>
-             <div className="apx-sb">
-               <h4>Channel</h4>
-               <div className="sc-pchips">
-                 {chans.slice(0, 12).map(c=>(
-                   <button key={c.channel} className={'sc-pchip' + (channel === c.channel ? ' on' : '')}
-                     disabled={running} onClick={()=>setChannel(c.channel)}>
-                     {c.channel} &middot; {Math.max(0, c.clips - c.made)} left</button>))}
-               </div>
-               <h4 style={{marginTop:16}}>How many</h4>
-               <div className="sc-pchips">
-                 {[3, 5, 10].map(k=>(
-                   <button key={k} className={'sc-pchip' + (count === k ? ' on' : '')} disabled={running}
-                     onClick={()=>setCount(k)}>{k}</button>))}
-               </div>
-               <div className="hint">Best clips first: approved ones, then pending, by virality and score.
-                 Clips that already have a reel are skipped.</div>
-               <div style={{display:'flex', gap:8, marginTop:16, flexWrap:'wrap'}}>
-                 {running
-                   ? <button className="rd-btn sm" onClick={stop} disabled={!!(job && job.stopping)}>
-                       {job && job.stopping ? 'Stopping after this one…' : 'Stop after this one'}</button>
-                   : <button className="rd-btn grad" onClick={start} disabled={busy || !channel || n < 1}>
-                       <Icon name="sparkles" size={14}/>&nbsp;
-                       {n < 1 ? 'No clips left for ' + (channel || 'this channel')
-                              : 'Make ' + n + ' ' + channel + ' reel' + (n === 1 ? '' : 's')}</button>}
-               </div>
-               {err && <div className="ed-warn" style={{marginTop:12}}>{err}</div>}
-             </div>
-           </section>}
-      {job && <section className="apx-sec" style={{marginTop:24}}>
-        <h4>{job.status === 'running' ? 'Making ' + job.channel + ' reels · ' + done + ' of ' + job.items.length + ' ready'
-             : job.status === 'stopped' ? 'Stopped · ' + done + ' of ' + job.items.length + ' made'
-             : 'Done · ' + done + ' of ' + job.items.length + ' made'}</h4>
-        <div className="apt-list">
-          {job.items.map(i=>row(i.clip_id, i.title || ('Clip ' + i.clip_id.slice(0, 6)), i.status,
-                               i.hook, i.upload_id, i.seconds, i.error))}
-        </div>
-      </section>}
-      {recent.length > 0 && <section className="apx-sec" style={{marginTop:24}}>
-        <h4>Reels made</h4>
-        <div className="apt-list">
-          {recent.slice(0, 10).map(r=>row(r.clip_id, r.channel + ' · ' + (r.title || 'Highlight'), 'ready',
-                                          r.hook, r.upload_id, r.seconds, null))}
-        </div>
-      </section>}
-    </div>
-  );
-}
-
 function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captionsOn = false,
                            uploadsOn = true, onOpenScheduler = null, queue = [] }) {
   const cfg = (ap && ap.config) || null;
@@ -9946,11 +9799,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
             <Icon name="zap" size={14}/>Autopilot</button>
           <button className={tab==='edit'?'on':''} role="tab" aria-selected={tab==='edit'} onClick={()=>setTab('edit')}>
             <Icon name="sparkles" size={14}/>Auto Edit settings</button>
-          {isAdmin && <button className={tab==='reels'?'on':''} role="tab" aria-selected={tab==='reels'} onClick={()=>setTab('reels')}>
-            <Icon name="film" size={14}/>Peak reels</button>}
         </div>
-
-        {tab === 'reels' && isAdmin && <PeakReelsPanel/>}
 
         {tab === 'autopilot' && <>
           <div className={'apx-hero' + (on ? ' on' : '')}>
@@ -12697,11 +12546,6 @@ function RdApp() {
         // Auto Edit runs on the SERVER; the editor that asked (or any other
         // tab with it open) follows the job here.
         else if(msg.event==='upload_auto_edit'){
-          window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
-        }
-        // Peak reels run on the SERVER too; the Autopilot tab's Peak reels
-        // panel follows the batch here.
-        else if(msg.event==='peak_reels'){
           window.dispatchEvent(new CustomEvent('hz_ws',{detail:e.data}));
         }
         // Captioning runs on the SERVER, so its progress has to arrive over the
