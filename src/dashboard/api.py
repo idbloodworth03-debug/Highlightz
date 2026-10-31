@@ -3895,6 +3895,93 @@ async def _run_auto_edit(clip_id: str, uid: str, captions: bool) -> None:
             await broadcast({"event": "clip_updated", "clip": _clip_out(clip)}, user_id=uid)
 
 
+# ── Peak reels, admins only while tested (owner, 2026-10-31) ─────────────────
+#
+# "can you build me a mod that finds these clips, specifically duxxion for
+# now, uses the peak as hooks and creates instagram reels?" A batch of the
+# plan-based Auto Edit over one channel's best clips, each opening on a hook
+# placed at its score peak (src/autopilot/peak_hook.py) instead of one a person
+# picked. Renders land in the Library; nothing is scheduled or posted.
+#
+#   GET  /reels/peak        the running/last job, channels to pick, reels made
+#   POST /reels/peak        {channel, count, skip_made} → 202, starts a batch
+#   POST /reels/peak/stop   finish the clip in hand, skip the rest
+#
+# Own clips only (see peak_reels.py). Realtime: every step is `peak_reels`
+# (forwarded to hz_ws in ws.onmessage), each finished reel is `upload_added`
+# and its clip's `clip_updated`; the panel re-reads GET on hz_refetch.
+
+def _peak_reels_state(uid: str) -> dict:
+    from src.autopilot import peak_reels
+    from src.clips import files as clip_files
+    have = clip_files.existing_ids()
+    mine = [c for c in _clips.values() if c.get("user_id") == uid]
+    return {"job": peak_reels.job_for(uid),
+            "running": peak_reels.running(uid),
+            "channels": peak_reels.channels(mine, uid, have),
+            "recent": peak_reels.recent(mine, uid),
+            "max": peak_reels.MAX_COUNT, "default": peak_reels.DEFAULT_COUNT}
+
+
+@app.get("/reels/peak")
+async def get_peak_reels(request: Request):
+    _require_admin(request)
+    return _peak_reels_state(_current_user_id(request))
+
+
+@app.post("/reels/peak", status_code=202)
+async def start_peak_reels(request: Request):
+    from src.autopilot import peak_reels
+    from src.autopilot import runner as ap_runner
+    from src.clips import files as clip_files
+    _require_admin(request)
+    uid = _current_user_id(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    channel = str(body.get("channel") or "").strip()
+    if not _CHANNEL_RE.fullmatch(channel):
+        raise HTTPException(status_code=400, detail="Pick a channel.")
+    channel = channel.lower()
+    try:
+        count = int(body.get("count") or peak_reels.DEFAULT_COUNT)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Send how many reels to make.")
+    if not 1 <= count <= peak_reels.MAX_COUNT:
+        raise HTTPException(status_code=400,
+                            detail=f"Make between 1 and {peak_reels.MAX_COUNT} reels at a time.")
+    skip_made = bool(body.get("skip_made", True))
+    if peak_reels.running(uid):
+        raise HTTPException(status_code=409, detail="A batch is already being made.")
+    mine = [c for c in _clips.values() if c.get("user_id") == uid]
+    picked = peak_reels.pick(mine, uid, channel, count, clip_files.existing_ids(),
+                             skip_made=skip_made)
+    if not picked:
+        raise HTTPException(status_code=409, detail=(
+            f"No {channel} clips with a video file are left to make reels from"
+            + (" (the ones with a reel already are skipped)." if skip_made else ".")))
+    job = peak_reels.new_job(uid, channel, picked)
+
+    async def notify(event: dict) -> None:
+        await broadcast(event, user_id=uid)
+
+    ap_runner.kick(peak_reels.run(uid, job, notify))
+    return _peak_reels_state(uid)
+
+
+@app.post("/reels/peak/stop")
+async def stop_peak_reels(request: Request):
+    from src.autopilot import peak_reels
+    _require_admin(request)
+    uid = _current_user_id(request)
+    peak_reels.request_stop(uid)
+    job = peak_reels.job_for(uid)
+    if job:
+        await broadcast({"event": "peak_reels", "job": job}, user_id=uid)
+    return _peak_reels_state(uid)
+
+
 # ── Auto Edit in the Clip Editor (owner, 2026-09-24) ────────────────────────
 #
 # "I want there to be a selection here when I go to edit something called
