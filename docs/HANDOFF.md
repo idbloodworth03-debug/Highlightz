@@ -7749,3 +7749,36 @@ grace fails 4 of them. Dashboard JSX parsed with Babel, the admin script with
 `node --check` (and still has no backslash). **Not run against production
 data**: what the preview shows there is the first real number; read it before
 pressing the button.
+
+## The Duxxion clip ad (2026-11-02)
+
+Owner sent a 10.7 s clip (Duxxion scores in Rocket League, celebrates; 720x1280
+HEVC 30 fps; facecam on top, gameplay below, his own burned-in caption "musty
+catching strays", ending on a dimmed Instagram @DUXXION card) and asked for
+"another short ad for the campaign ... professional and high quality but also
+goofy and entertaining ... 20-30 seconds no voice over ... trendy music ...
+talk about the campaign and joining it".
+
+- Built in `promo/` (Remotion composition `DuxAd`, `promo/ad/`; how-to in
+  `promo/ad/README.md`). Output `promo/out/highlightz-duxxion-ad.mp4`:
+  1080x1920, 60 fps, 26.25 s, H.264 CRF 12, AAC 320k, -14 LUFS.
+- **His speech swears throughout** (speech-to-text: "this kid f-ing sucks ...
+  double tap for f-ing Musty ... I'm f-ing your dad ... f- you!"), so it is
+  muted: only his laugh after the goal is heard, and the final yell is a
+  censor bleep with "*BLEEP*" on screen. A speech-to-text pass over the final
+  mix finds no words at all. Do not put the clip's own audio back in an ad.
+- Story: hook (his celebration, "me when my Duxxion clip hits 1M views") ->
+  record scratch, VHS rewind -> annotated replay (slow-mo "wait for it…",
+  GOAL on the drop, "…then hits the report button") -> Duxxion's Campaign,
+  live -> $500 pool -> podium $250/$150/$100 -> most views on one clip wins ->
+  how to join (free; join on Highlightz, clip his stream, post on TikTok or
+  Reels with #duxxion and add the link; posting closes Fri, Nov 6) ->
+  highlightz.app.
+- Campaign facts on screen are the 2026-10-25 setup above (not re-read from
+  production: the landing page does not expose campaigns). If the dates or
+  prizes changed, change `promo/src/ad/DuxAd.tsx` and re-render.
+- Music: original, synthesized (`promo/ad/make_ad_audio.py`), Brazilian
+  phonk style at 128 BPM; it follows the edit (tape-stop, backwards rewind,
+  slow-mo sweep, drop on the goal). Footage: Real-ESRGAN 2x of the clip's
+  first 197 frames (`reel/upscale_reel.py` gained `--work`/`--frames`).
+- The clip, its frames and the renders are gitignored (`promo/.gitignore`).

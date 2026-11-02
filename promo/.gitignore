@@ -17,3 +17,8 @@ capture/.vendor/
 reel/*.mov
 reel/kokoro/
 reel/esrgan/
+
+# The Duxxion clip ad: the owner's clip and its upscaled frames.
+ad/*.mp4
+ad/esrgan/
+public/ad/

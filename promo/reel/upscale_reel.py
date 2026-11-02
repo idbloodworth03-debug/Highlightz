@@ -57,13 +57,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("reel")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
+    # Reused by the Duxxion clip ad (ad/prepare_footage.py): its own work
+    # folder, and only the first N frames (the clip's Instagram outro is cut).
+    ap.add_argument("--work", default=WORK)
+    ap.add_argument("--frames", type=int, default=0, help="only the first N frames (0 = all)")
     args = ap.parse_args()
-    src, dst = os.path.join(WORK, "src"), os.path.join(WORK, "x2")
+    src, dst = os.path.join(args.work, "src"), os.path.join(args.work, "x2")
     os.makedirs(src, exist_ok=True)
     os.makedirs(dst, exist_ok=True)
     if not os.listdir(src):
+        limit = ["-frames:v", str(args.frames)] if args.frames else []
         subprocess.run(["ffmpeg", "-v", "error", "-i", args.reel, "-fps_mode", "passthrough",
-                        "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24",
+                        "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24", *limit,
                         "-start_number", "0", os.path.join(src, "%04d.png")], check=True)
     frames = sorted(os.listdir(src))
     todo = [f for f in frames if not os.path.exists(os.path.join(dst, f))]

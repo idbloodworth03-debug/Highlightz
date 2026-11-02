@@ -1,0 +1,55 @@
+{
+  "_": "The Duxxion clip ad (2026-11-02). One source of truth for the picture (src/ad/DuxAd.tsx) and the sound (ad/make_ad_audio.py). Times in seconds of the ad; 128 BPM, so a beat is 0.46875 s and a bar 1.875 s. `src` is a time in the owner's clip (ad/duxxion-goal.mp4); only 0-6.533 s of it is used (197 frames at 30 fps): after that it fades to his Instagram card.",
+  "bpm": 128,
+  "fps": 60,
+  "beats": 56,
+  "source_fps": 30,
+  "source_frames": 197,
+
+  "footage": [
+    {"from": 0.0,     "to": 0.9375,  "src": 4.42,    "rate": 1,        "look": "hook"},
+    {"from": 0.9375,  "to": 1.875,   "src": 4.80,    "rate": 1,        "look": "hookzoom"},
+    {"from": 1.875,   "to": 2.125,   "src": 5.74,    "rate": 0,        "look": "freeze"},
+    {"from": 2.125,   "to": 3.75,    "src": 5.74,    "rate": -3.53231, "look": "rewind"},
+    {"from": 3.75,    "to": 7.03125, "src": 0.0,     "rate": 1,        "look": "play"},
+    {"from": 7.03125, "to": 9.375,   "src": 3.28125, "rate": 0.47733,  "look": "slowmo"},
+    {"from": 9.375,   "to": 11.25,   "src": 4.40,    "rate": 1,        "look": "play"}
+  ],
+
+  "_clip_audio": "Only his laugh after the goal is heard (src 4.28-5.66, the transcript's [laughs]). Everything he says is muted: it swears throughout. The yell at src 5.74-6.42 is covered by a censor bleep.",
+  "clip_audio": [
+    {"from": 0.0,    "to": 0.9375, "src": 4.42},
+    {"from": 0.9375, "to": 1.795,  "src": 4.80},
+    {"from": 9.375,  "to": 10.635, "src": 4.40}
+  ],
+  "bleep": [10.715, 11.25],
+
+  "scenes": {
+    "hook": 0.0,
+    "rewind": 1.875,
+    "replay": 3.75,
+    "goal": 9.375,
+    "pitch": 11.25,
+    "pool": 13.125,
+    "podium": 15.0,
+    "views": 16.875,
+    "steps": 18.75,
+    "cta": 24.375,
+    "end": 26.25
+  },
+
+  "cues": {
+    "drop": [0.0, 9.375],
+    "zoom_punch": [0.9375],
+    "scratch": [1.875],
+    "rewind": [2.125, 3.75],
+    "play_click": [3.75],
+    "slowmo": [7.03125, 9.375],
+    "boing": [3.84375, 5.625, 12.1875, 15.46875, 25.3125],
+    "pop": [10.3125, 11.71875, 12.65625, 15.0, 15.9375, 16.40625, 23.4375, 24.84375],
+    "whoosh": [11.25, 16.875, 18.75, 20.625, 22.5],
+    "slam": [11.25, 24.375],
+    "coins": [13.125, 14.0625],
+    "ticker": [16.875, 18.28125]
+  }
+}
