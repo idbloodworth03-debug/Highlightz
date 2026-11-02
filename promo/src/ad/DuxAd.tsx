@@ -16,8 +16,8 @@
 //   0:13.125  pool     $500 prize pool
 //   0:15.000  podium   1st $250, 2nd $150, 3rd $100
 //   0:16.875  views    most views on one clip wins
-//   0:18.750  steps    join free, clip his stream, post with #duxxion + link;
-//                      posting closes Fri, Nov 6
+//   0:18.750  steps    join free, clip his stream, post with #duxhighlightz +
+//                      link; last day to post Thu, Nov 5 (closes 12:00 AM ET Fri)
 //   0:24.375  cta      highlightz.app
 //
 // The clip's frames are the 2x Real-ESRGAN upscale (ad/prepare_footage.py),
@@ -441,7 +441,7 @@ const Easing2 = (x: number) => 1 - Math.pow(1 - x, 3);
 const STEPS = [
   {n: 1, at: S.steps, text: <>Join <b>Duxxion&rsquo;s campaign</b> on Highlightz</>},
   {n: 2, at: S.steps + 4 * BEAT_S, text: <>Clip his stream ✂️</>},
-  {n: 3, at: S.steps + 8 * BEAT_S, text: <>Post it on TikTok or Reels with <b>#duxxion</b>, then add the link 🔗</>},
+  {n: 3, at: S.steps + 8 * BEAT_S, text: <>Post it on TikTok or Reels with <b>#duxhighlightz</b>, then add the link 🔗</>},
 ];
 
 const Steps: React.FC = () => {
@@ -475,7 +475,7 @@ const Steps: React.FC = () => {
           <div style={{padding: '20px 38px', borderRadius: 99, border: `3px solid ${C.ember}`, background: 'rgba(247,167,69,.12)', fontFamily: SANS,
             fontWeight: 800, fontSize: 52, color: C.ink, letterSpacing: '-0.02em', transform: `scale(${interpolate(cq, [0, 1], [1.5, 1])})`, opacity: cq,
             boxShadow: '0 0 40px rgba(247,167,69,.35)'}}>
-            ⏰ Posting closes <span style={{color: C.ember}}>Fri, Nov 6</span>
+            ⏰ Last day to post: <span style={{color: C.ember}}>Thu, Nov 5</span>
           </div>
         </div>
       )}

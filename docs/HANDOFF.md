@@ -7772,11 +7772,15 @@ talk about the campaign and joining it".
   GOAL on the drop, "…then hits the report button") -> Duxxion's Campaign,
   live -> $500 pool -> podium $250/$150/$100 -> most views on one clip wins ->
   how to join (free; join on Highlightz, clip his stream, post on TikTok or
-  Reels with #duxxion and add the link; posting closes Fri, Nov 6) ->
+  Reels with #duxhighlightz and add the link; last day to post Thu, Nov 5) ->
   highlightz.app.
-- Campaign facts on screen are the 2026-10-25 setup above (not re-read from
-  production: the landing page does not expose campaigns). If the dates or
-  prizes changed, change `promo/src/ad/DuxAd.tsx` and re-render.
+- Campaign facts on screen come from the live campaign as captured in
+  `promo/src/data/promo-data.json`: hashtag **#duxhighlightz** (the
+  "#duxxion required" in the 2026-10-25 setup note above is NOT the live
+  hashtag; the first render said #duxxion and was corrected), and `end_at`
+  = 12:00 AM ET Fri Nov 6, i.e. the last day to post is **Thursday Nov 5**
+  (the first render said "Posting closes Fri, Nov 6", corrected). If the
+  dates or prizes change, change `promo/src/ad/DuxAd.tsx` and re-render.
 - Music: original, synthesized (`promo/ad/make_ad_audio.py --style`), 128
   BPM, following the edit (tape-stop, backwards rewind, slow-mo sweep, drop
   on the goal). The first version was Brazilian phonk; owner: "Different

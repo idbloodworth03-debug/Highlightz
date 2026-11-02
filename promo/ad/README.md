@@ -47,9 +47,11 @@ node ad/stills.mjs 0.3 9.5 14.3   # stills at given seconds, for checking layout
   `ffmpeg -i out/duxxion-ad-video-only.mp4 -i public/ad/duxxion-ad-<style>.wav
   -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -shortest out/...mp4`.
 - **Campaign facts on screen** ($500 pool; $250 / $150 / $100; most views on
-  one clip; free to join; post on TikTok or Reels with #duxxion and add the
-  link; posting closes Fri, Nov 6) are from the campaign as set up on
-  2026-10-25 (docs/HANDOFF.md). If the campaign changes, change `DuxAd.tsx`.
+  one clip; free to join; post on TikTok or Reels with #duxhighlightz and add
+  the link; last day to post Thu, Nov 5, since posting closes 12:00 AM ET
+  Fri, Nov 6) are from the live campaign as captured in
+  src/data/promo-data.json (hashtag, end_at). An older HANDOFF note says
+  #duxxion: that is not the campaign's hashtag. If the campaign changes, change `DuxAd.tsx`.
 
 ## Timeline
 
@@ -63,5 +65,5 @@ node ad/stills.mjs 0.3 9.5 14.3   # stills at given seconds, for checking layout
 | 0:13.1 | $500 prize pool, split between the top 3 |
 | 0:15.0 | Podium: $150 / $250 / $100, "(that's a lot of burritos)" |
 | 0:16.9 | Most views on ONE clip wins; a view counter on a phone |
-| 0:18.8 | How to join (free): join on Highlightz, clip his stream, post with #duxxion + add the link; posting closes Fri, Nov 6 |
+| 0:18.8 | How to join (free): join on Highlightz, clip his stream, post with #duxhighlightz + add the link; last day to post Thu, Nov 5 |
 | 0:24.4 | Highlightz, "Join Duxxion's campaign", highlightz.app, "see you on the leaderboard" |
