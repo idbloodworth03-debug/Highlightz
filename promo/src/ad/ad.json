@@ -1,5 +1,5 @@
 {
-  "_": "The Duxxion clip ad (2026-11-02). One source of truth for the picture (src/ad/DuxAd.tsx) and the sound (ad/make_ad_audio.py). Times in seconds of the ad; 128 BPM, so a beat is 0.46875 s and a bar 1.875 s. `src` is a time in the owner's clip (ad/duxxion-goal.mp4); only 0-6.533 s of it is used (197 frames at 30 fps): after that it fades to his Instagram card.",
+  "_": "The Duxxion clip ad (2026-11-02). One source of truth for the picture (src/ad/DuxAd.tsx) and the sound (ad/make_ad_audio.py). Times in seconds of the ad; 128 BPM, so a beat is 0.46875 s and a bar 1.875 s. `src` is a time in the owner's clip (ad/duxxion-goal.mp4); only 0-6.533 s of it is used (197 frames at 30 fps): after that it fades to his Instagram card. Its first 0.4 s fades in from black, so the replay starts at 0.40.",
   "bpm": 128,
   "fps": 60,
   "beats": 56,
@@ -10,9 +10,9 @@
     {"from": 0.0,     "to": 0.9375,  "src": 4.42,    "rate": 1,        "look": "hook"},
     {"from": 0.9375,  "to": 1.875,   "src": 4.80,    "rate": 1,        "look": "hookzoom"},
     {"from": 1.875,   "to": 2.125,   "src": 5.74,    "rate": 0,        "look": "freeze"},
-    {"from": 2.125,   "to": 3.75,    "src": 5.74,    "rate": -3.53231, "look": "rewind"},
-    {"from": 3.75,    "to": 7.03125, "src": 0.0,     "rate": 1,        "look": "play"},
-    {"from": 7.03125, "to": 9.375,   "src": 3.28125, "rate": 0.47733,  "look": "slowmo"},
+    {"from": 2.125,   "to": 3.75,    "src": 5.74,    "rate": -3.28615, "look": "rewind"},
+    {"from": 3.75,    "to": 7.03125, "src": 0.40,    "rate": 1,        "look": "play"},
+    {"from": 7.03125, "to": 9.375,   "src": 3.68125, "rate": 0.30667,  "look": "slowmo"},
     {"from": 9.375,   "to": 11.25,   "src": 4.40,    "rate": 1,        "look": "play"}
   ],
 

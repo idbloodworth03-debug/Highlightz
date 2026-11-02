@@ -126,6 +126,9 @@ const Footage: React.FC = () => {
   const srcT = seg.src + seg.rate * (t - seg.from);
   const i = srcIndex(srcT);
   const local = f - T(seg.from);
+  // In the slow-mo each source frame would hold for ~6 output frames; a
+  // crossfade to the next one keeps the motion smooth.
+  const blend = srcT * AD.source_fps - Math.floor(srcT * AD.source_fps + 1e-6);
 
   if (seg.look === 'rewind') {
     return (
@@ -164,6 +167,7 @@ const Footage: React.FC = () => {
     <AbsoluteFill style={{background: '#000', overflow: 'hidden'}}>
       <AbsoluteFill style={{transform: `translate(${sh.x}px, ${sh.y}px) rotate(${sh.r}deg) scale(${scale})`, transformOrigin: origin}}>
         <Frame i={i} style={{filter}} />
+        {seg.look === 'slowmo' && blend > 0.02 && <Frame i={Math.min(i + 1, AD.source_frames - 1)} style={{filter, opacity: blend}} />}
       </AbsoluteFill>
       {vhsOut > 0.01 && (
         <AbsoluteFill style={{opacity: vhsOut}}>
@@ -171,7 +175,7 @@ const Footage: React.FC = () => {
         </AbsoluteFill>
       )}
       {seg.look === 'play' && seg.from === S.replay && local < T(0.85) && <Osd text="▶ PLAY" f={f} />}
-      {seg.look === 'slowmo' && <Osd text="🐢 0.5x" f={f} />}
+      {seg.look === 'slowmo' && <Osd text="🐢 SLOW-MO" f={f} />}
       {seg.look === 'slowmo' && (
         <AbsoluteFill style={{background: 'radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.6) 100%)'}} />
       )}
@@ -189,21 +193,26 @@ const Footage: React.FC = () => {
 // at least as wide, so that never shows through.
 const Cap: React.FC<{
   from: number; to: number; children: React.ReactNode; y?: number; size?: number;
-  tilt?: number; minWidth?: number; sub?: React.ReactNode; big?: boolean;
-}> = ({from, to, children, y = 962, size = 64, tilt = -2, minWidth = 880, sub, big}) => {
+  tilt?: number; minWidth?: number; sub?: React.ReactNode; big?: boolean; cover?: boolean;
+}> = ({from, to, children, y = 962, size = 64, tilt = -2, minWidth = 880, sub, big, cover = true}) => {
   const f = useCurrentFrame();
   const a = T(from), b = T(to);
   if (f < a || f >= b) return null;
   const p = interpolate(f - a, [0, 9], [0, 1], {...clamp, easing: SPRING});
-  const out = interpolate(f, [b - 4, b], [1, 0], clamp);
-  const s = interpolate(p, [0, 1], [big ? 1.8 : 0.6, 1]) * interpolate(out, [0, 1], [0.85, 1]);
+  // Over the clip (`cover`), a caption never shrinks below full size or
+  // fades: it slams in from oversized and cuts out on the frame the next one
+  // lands, so the clip's own caption never shows between two of ours.
+  const out = cover ? 1 : interpolate(f, [b - 4, b], [1, 0], clamp);
+  const s = cover
+    ? interpolate(p, [0, 1], [big ? 1.8 : 1.22, 1])
+    : interpolate(p, [0, 1], [big ? 1.8 : 0.6, 1]) * interpolate(out, [0, 1], [0.85, 1]);
   const wob = Math.sin((f - a) / 9) * 0.6;
   return (
     <div style={{position: 'absolute', left: 0, right: 0, top: y, display: 'flex', justifyContent: 'center', pointerEvents: 'none'}}>
       <div
         style={{
           transform: `translateY(-50%) scale(${s}) rotate(${tilt + wob}deg)`,
-          opacity: Math.min(p * 3, 1) * out,
+          opacity: cover ? 1 : Math.min(p * 3, 1) * out,
           minWidth, maxWidth: 940, boxSizing: 'border-box', textAlign: 'center',
           padding: `${size * 0.26}px ${size * 0.5}px`, borderRadius: size * 0.36,
           background: '#fff', color: '#0A0A0C', border: '5px solid #0A0A0C',
@@ -395,7 +404,7 @@ const Podium: React.FC = () => {
       })}
       <Emoji at={S.podium + BEAT_S * 1.3} x={540} y={base - 470 - 220} size={120} char="👑" rot={-10} />
       <div style={{position: 'absolute', left: 0, right: 0, top: base, height: 14, background: '#0A0A0C'}} />
-      <Cap from={S.podium + BEAT_S * 3} to={S.views} y={1490} size={50} minWidth={0} tilt={2}>(that&rsquo;s a lot of burritos 🌯)</Cap>
+      <Cap from={S.podium + BEAT_S * 3} to={S.views} y={1490} size={50} minWidth={0} tilt={2} cover={false}>(that&rsquo;s a lot of burritos 🌯)</Cap>
     </AbsoluteFill>
   );
 };
@@ -505,7 +514,7 @@ const Cta: React.FC = () => {
         <div style={{fontFamily: SANS, fontWeight: 600, fontSize: 42, color: C.ink2, opacity: l3}}>free to join · $500 · top 3 win</div>
       </div>
       <FaceSticker face={FACE_LAUGH} at={S.cta + BEAT_S * 2} x={540} y={1265} size={230} rot={-10} spin />
-      <Cap from={S.cta + BEAT_S * 2.4} to={S.end + 1} y={1455} size={46} minWidth={0} tilt={-3}>see you on the leaderboard 🫡</Cap>
+      <Cap from={S.cta + BEAT_S * 2.4} to={S.end + 1} y={1455} size={46} minWidth={0} tilt={-3} cover={false}>see you on the leaderboard 🫡</Cap>
     </AbsoluteFill>
   );
 };
