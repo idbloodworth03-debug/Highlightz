@@ -16,7 +16,7 @@ cd promo
 cp <clip>.mp4 ad/duxxion-goal.mp4
 pip install numpy scipy pillow realesrgan-ncnn-py     # + apt libomp5
 npm run ad:footage     # Real-ESRGAN 2x of the first 197 frames -> public/ad/frames (~15 min on 4 cores)
-npm run ad:audio       # music, sound effects, the laugh, the bleep -> public/ad/duxxion-ad.wav
+npm run ad:audio       # music (--style trap|jersey|phonk), sound effects, the laugh, the bleep -> public/ad/duxxion-ad-<style>.wav
 npm run render:ad      # the picture, then the sound muxed on
 node ad/stills.mjs 0.3 9.5 14.3   # stills at given seconds, for checking layout
 ```
@@ -37,10 +37,15 @@ node ad/stills.mjs 0.3 9.5 14.3   # stills at given seconds, for checking layout
 - **The clip's own caption** ("musty catching strays", burned in at y ~962)
   is always covered by ours while the clip is on screen.
 - **Music.** Original, synthesized in `make_ad_audio.py` (nothing sampled,
-  nothing to license): Brazilian-phonk style, F# minor, distorted 808 with
-  slides, a cowbell riff, tamborzao-style kicks and toms. It drops on frame
-  one, tape-stops on the record scratch, plays backwards through the rewind,
-  sinks through the slow-mo, and drops again on the goal.
+  nothing to license), three styles on the same edit: `trap` (playful trap:
+  marimba hook, pizzicato strings, half-time drums, sliding 808; the
+  default), `jersey` (jersey club: triplet kicks, bed-squeaks, chord stabs)
+  and `phonk` (the first version, which the owner asked to replace). Each
+  drops on frame one, tape-stops on the record scratch, plays backwards
+  through the rewind, sinks through the slow-mo, and drops again on the
+  goal. To put a track on the rendered picture without re-rendering:
+  `ffmpeg -i out/duxxion-ad-video-only.mp4 -i public/ad/duxxion-ad-<style>.wav
+  -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -shortest out/...mp4`.
 - **Campaign facts on screen** ($500 pool; $250 / $150 / $100; most views on
   one clip; free to join; post on TikTok or Reels with #duxxion and add the
   link; posting closes Fri, Nov 6) are from the campaign as set up on

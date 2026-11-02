@@ -7777,8 +7777,11 @@ talk about the campaign and joining it".
 - Campaign facts on screen are the 2026-10-25 setup above (not re-read from
   production: the landing page does not expose campaigns). If the dates or
   prizes changed, change `promo/src/ad/DuxAd.tsx` and re-render.
-- Music: original, synthesized (`promo/ad/make_ad_audio.py`), Brazilian
-  phonk style at 128 BPM; it follows the edit (tape-stop, backwards rewind,
-  slow-mo sweep, drop on the goal). Footage: Real-ESRGAN 2x of the clip's
+- Music: original, synthesized (`promo/ad/make_ad_audio.py --style`), 128
+  BPM, following the edit (tape-stop, backwards rewind, slow-mo sweep, drop
+  on the goal). The first version was Brazilian phonk; owner: "Different
+  music but the clip is good", so two more on the same picture: `trap`
+  (playful trap, marimba + pizzicato) and `jersey` (jersey club). Only the
+  audio changes between them: the picture is muxed, not re-rendered. Footage: Real-ESRGAN 2x of the clip's
   first 197 frames (`reel/upscale_reel.py` gained `--work`/`--frames`).
 - The clip, its frames and the renders are gitignored (`promo/.gitignore`).
