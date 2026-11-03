@@ -41,7 +41,12 @@ class FakeStripe:
 
         class Prices:
             def list(self, params):
-                return {"data": [p for p in outer._prices if p["product"] == params["product"]]}
+                if "product" in params:
+                    return {"data": [p for p in outer._prices if p["product"] == params["product"]]}
+                # the account-wide search: Stripe filters by these, so the fake does too
+                assert params["type"] == "recurring" and params["recurring"] == {"interval": "month"}
+                return {"data": [p for p in outer._prices if p["active"] and p["currency"] == "usd"],
+                        "has_more": False}
 
             def retrieve(self, pid):
                 return {"price_pro": {"id": "price_pro", "product": "prod_P"}}[pid]
@@ -159,3 +164,28 @@ def test_a_key_from_another_stripe_account_says_so(tmp_path):
 
 def test_the_script_targets_the_owners_product():
     assert S.STUDIO_PRODUCT == "prod_VYemn1IbgCQEkz"
+
+
+# Both ids came off screenshots, where capital I and lowercase l look alike.
+MISREAD = PROD.replace("1Ib", "1lb")
+
+
+def test_a_misread_product_id_still_finds_the_250_price(tmp_path, capsys):
+    env_path = tmp_path / ".env"
+    env_path.write_text("A=1\n")
+    configs = [cfg("bpc_old", [("prod_St", "price_starter"), ("prod_P", "price_pro")])]
+    fake = FakeStripe([price("price_S"), price("price_pro_x", cents=2500, product="prod_P")], configs)
+    S.main(["--product", MISREAD], client=fake, env_path=env_path, pro_price="price_pro")
+    assert env_path.read_text() == "A=1\nSTRIPE_PRICE_ID_STUDIO=price_S\n"
+    assert fake.updates[0][1]["features"]["subscription_update"]["products"][1] == {
+        "product": PROD, "prices": ["price_S"]}
+    assert "looking for the account's $250/month price" in capsys.readouterr().out
+
+
+def test_a_misread_id_with_two_250_prices_in_the_account_changes_nothing(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("A=1\n")
+    fake = FakeStripe([price("price_a"), price("price_b", product="prod_other")], [])
+    with pytest.raises(SystemExit) as e:
+        S.main(["--product", MISREAD], client=fake, env_path=env_path, pro_price="price_pro")
+    assert "more than one" in str(e.value) and env_path.read_text() == "A=1\n"

@@ -7890,6 +7890,12 @@ Opus Clip's own "Starter" plan on /compare is theirs and stays.
    ON so it offers exactly Pro and Studio (Starter dropped; proration setting
    kept). A configuration with switching off is left alone. Running it twice
    changes nothing the second time. Tests: `tests/test_setup_studio_price.py`.
+   The owner's dashboard shows the price as `price_1UXXTAQKNGrpZIbHvVBxziWA`;
+   that is what the run should print. Both ids were read off screenshots, where
+   capital I and lowercase l look the same, so the script does not trust the
+   typed product id: if Stripe has no such product it uses the account's one
+   active $250/month USD price, and refuses if there are two. Never hand-type
+   either id into `.env` from a screenshot.
 3. Restart so the app reads the new price. The deploy paste given to the
    owner on 2026-11-03 did all three:
    `cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && venv/bin/python scripts/setup_studio_price.py; systemctl restart highlightz`

@@ -27,7 +27,14 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Both ids were read off dashboard screenshots, where a capital I and a
+# lowercase l look the same ("1Ibg", "ZIbH"). So the product id is only the
+# first place to look: if Stripe has no such product, the script finds the
+# account's one active $250/month USD price instead, and never relies on a
+# hand-typed id being exact. The price is not used at all; it is the one the
+# run should print, for the owner to compare with the dashboard.
 STUDIO_PRODUCT = "prod_VYemn1IbgCQEkz"
+SEEN_PRICE = "price_1UXXTAQKNGrpZIbHvVBxziWA"
 ENV_KEY = "STRIPE_PRICE_ID_STUDIO"
 
 
@@ -87,6 +94,23 @@ def pick_price(product, prices, expected_cents: int) -> str:
     raise SystemExit(f"More than one ${expected_cents // 100}/month price on this product "
                      f"({', '.join(good)}). Archive the extra one in Stripe, or set "
                      f"{ENV_KEY} in .env by hand.")
+
+
+def find_by_amount(client, expected_cents: int) -> list:
+    """Every active monthly USD subscription price in the account that is
+    exactly `expected_cents`, across all pages."""
+    base = {"active": True, "type": "recurring", "currency": "usd",
+            "recurring": {"interval": "month"}, "limit": 100}
+    found, after = [], None
+    for _ in range(50):
+        params = dict(base, **({"starting_after": after} if after else {}))
+        page = client.prices.list(params=params)
+        data = list(g(page, "data", []) or [])
+        found += [p for p in data if not price_problem(p, expected_cents)]
+        if not g(page, "has_more") or not data:
+            break
+        after = as_id(data[-1])
+    return found
 
 
 def set_env_line(text: str, key: str, value: str) -> tuple[str, bool]:
@@ -186,17 +210,29 @@ def main(argv=None, client=None, env_path: pathlib.Path | None = None,
         pro_price = settings.stripe_price_id_pro
     client = client or _client()
 
+    product_id = args.product
     try:
-        product = client.products.retrieve(args.product)
+        product = client.products.retrieve(product_id)
     except Exception as exc:
-        raise SystemExit(f"Stripe could not find {args.product} with this key ({exc}). Is "
-                         "STRIPE_SECRET_KEY the live key of the account the product is in?")
+        print(f"Product   Stripe has no {product_id} ({exc}); looking for the account's "
+              f"${expected // 100}/month price instead.")
+        found = find_by_amount(client, expected)
+        if not found:
+            raise SystemExit(f"No product {product_id} and no active ${expected // 100}/month USD price "
+                             "in this Stripe account. Is STRIPE_SECRET_KEY the live key of the "
+                             "account the product is in?")
+        if len(found) > 1:
+            raise SystemExit(f"No product {product_id}, and more than one ${expected // 100}/month price "
+                             f"({', '.join(as_id(p) for p in found)}). Rerun with --product prod_... "
+                             "copied from the Stripe dashboard.")
+        product_id = as_id(g(found[0], "product"))
+        product = client.products.retrieve(product_id)
     name, desc = g(product, "name", ""), g(product, "description", "")
-    print(f"Product   {args.product}: {name!r}" + (f", {desc!r}" if desc else "")
+    print(f"Product   {product_id}: {name!r}" + (f", {desc!r}" if desc else "")
           + ("" if g(product, "active") else "  (ARCHIVED)"))
     if not g(product, "active"):
         raise SystemExit("That product is archived in Stripe. Unarchive it first.")
-    prices = list(g(client.prices.list(params={"product": args.product, "active": True, "limit": 100}),
+    prices = list(g(client.prices.list(params={"product": product_id, "active": True, "limit": 100}),
                     "data", []) or [])
     price_id = pick_price(product, prices, expected)
     price = next((p for p in prices if as_id(p) == price_id), None)
@@ -223,7 +259,7 @@ def main(argv=None, client=None, env_path: pathlib.Path | None = None,
                       "data", []) or [])
         if not cfgs:
             print("Portal    no saved configuration; the app builds one with Pro and Studio on first use.")
-        for cid, params, say in portal_changes(cfgs, [(pro_product, pro_price), (args.product, price_id)]):
+        for cid, params, say in portal_changes(cfgs, [(pro_product, pro_price), (product_id, price_id)]):
             if params and not args.check:
                 client.billing_portal.configurations.update(cid, params=params)
                 say = say.replace("will offer", "now offers")
