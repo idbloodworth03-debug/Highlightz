@@ -183,8 +183,10 @@ async def process_clip(clip: dict, cfg: dict, notify, *, connected: set[str]) ->
                 captions = await _captions_for(src, lang)
             if cid in _cancelled:
                 raise _Removed()
+            from src.billing.plans import uid_has_priority
             await ap_render.render(src, dst, cfg["template"], title=title_for(cfg, clip, lang),
-                                   captions=captions, duration=duration)
+                                   captions=captions, duration=duration,
+                                   priority=uid_has_priority(uid))
 
         if cid in _cancelled:
             dst.unlink(missing_ok=True)

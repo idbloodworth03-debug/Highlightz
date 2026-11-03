@@ -254,6 +254,11 @@ grep before relying on either. Every public page — /compare, /llms.txt,
 
 ## Billing (Stripe) — current design (TWO TIERS since 2026-07-11)
 
+> **2026-11-03: now Free / Pro / Studio ($250).** Starter is no longer sold but
+> existing Starter subscribers keep it. Read "Studio ($250/month); Starter no
+> longer sold" near the bottom of this file before trusting the tier list
+> below.
+
 - **Two plans**: Starter $10/mo (3 monitored streams, 50 pending clips, no
   VOD scanner) and Pro $25/mo (10 streams, 200 pending, VOD scanner).
   Plumbing: `src/billing/plans.py` (PLAN_LIMITS + get_plan), price ids in
@@ -7789,3 +7794,115 @@ talk about the campaign and joining it".
   audio changes between them: the picture is muxed, not re-rendered. Footage: Real-ESRGAN 2x of the clip's
   first 197 frames (`reel/upscale_reel.py` gained `--work`/`--frames`).
 - The clip, its frames and the renders are gitignored (`promo/.gitignore`).
+
+## Studio ($250/month); Starter no longer sold; Pro "Most popular" (2026-11-03)
+
+Owner: "lets remove the 10$ tier from the site. Lets add a new tier that is
+250$ this needs to be better than the highest tier how can we do that. Also
+make the 25$ highlighted as like 'best seller' or 'popular'". Asked which
+perks: the owner took all four offered (**front of the line**, **more channels
+and limits**, **clip videos kept 30 days**, **no campaign fee + direct
+support**) and the name **Studio**. My default, stated to the owner: existing
+Starter subscribers keep Starter at their price; it just stops being sold.
+
+| | Free | Starter (not sold) | Pro | Studio |
+|---|---|---|---|---|
+| Price | $0 | $10 | $25, "Most popular" | $250 |
+| Channels at once | 1 | 3 | 10 | 30 |
+| Clips held for review | 20 | 50 | 200 | 1,000 |
+| Highlight clips | 5 | 25 | 75 | 200 |
+| Front of the line / videos kept / no campaign fee / direct support | no | no | no | yes |
+
+All numbers live in `PLAN_LIMITS` (`src/billing/plans.py`); every page reads
+them, never a literal.
+
+**Entitled vs sold.** `PAID_PLANS` (starter, pro, studio) is what a subscriber
+can be ON: `get_plan`, the webhook, `plan_for_price` and the admin all still
+know Starter. `SELLABLE_PLANS` (pro, studio) is what is SOLD: checkout,
+`/billing/change`, admin offers and the self-built Stripe portal config.
+`/billing/checkout?plan=starter` sends people to the paywall. Upgrade prompts
+go through `next_plan()`: free and starter to Pro, Pro to Studio, Studio to
+nothing. `POPULAR_PLAN = "pro"` carries the one badge (landing and paywall).
+
+**If the Studio price is not set** (`STRIPE_PRICE_ID_STUDIO` empty), checkout
+and the plan-change confirm redirect to `/billing/paywall?unavailable=studio`,
+which says "Studio is not open for checkout yet. Email support@highlightz.app
+and we will set you up", and log `checkout_price_missing`. Never a 500. So the
+deploy is safe before the Stripe price exists.
+
+How each perk is built (flags on the plan: `priority`, `keep_files`,
+`no_campaign_fee`, `direct_support`; `/me` `plan_limits` carries all four
+plus `keep_days`. The first build left them out of `/me`, so a Studio
+subscriber's Settings looked exactly like Pro's while every string test
+passed; `test_a_studio_subscribers_screen_is_told_its_perks` now holds it):
+- **Front of the line**, in three places, none of which preempts work already
+  running:
+  - Live slots: `acquire_live_slot` holds back up to `PRIORITY_RESERVED_SLOTS`
+    (2) of the live ceiling for Studio channels, but **only as many as Studio
+    channels are actually waiting** (`_priority_waiting()`: listed, not paused,
+    not holding a slot) and never the whole ceiling (`cap - 1`). With no Studio
+    channel waiting the reserve is 0 and nothing changes for anyone else.
+  - Clip jobs: a second Redis list, `superclipbot:clip_jobs:priority`, which
+    `BLPOP` drains first (`JobQueue(priority_of=uid_has_priority)`);
+    `queue_length` counts both lists.
+  - Renders: the one-at-a-time render slot is `render._PrioritySlot`. When it
+    frees, a waiting Studio render goes next; FIFO within each class; a
+    cancelled waiter passes its turn on. Used by Autopilot renders and the
+    plan-based auto-edit.
+- **Videos kept 30 days**: `files.kept_ids()` exempts a Studio account's clips
+  from `trim_to_cap` (the size cap that clears the oldest files to make room).
+  The age sweep still applies. (Admin "Clean up" only touches free accounts
+  anyway.) The "N days" on every page reads `settings.clip_file_max_age_days`
+  (30 by default) like the Privacy Policy does, so if prod's `.env` sets
+  another number the pages say that number.
+- **No campaign fee**: `creq.fee_waived(user)`; `pricing(user)` and
+  `quote(budget, waived)` zero both the flat fee and the percentage, so a
+  Studio streamer pays the budget only. The request screen shows "Waived on
+  Studio".
+- **Direct support**: a Settings row with a mail link to support@highlightz.app,
+  subject "Studio support". There is no separate inbox: **the owner answers
+  these**, so read that subject line first.
+
+Who is NOT priority: admins and labelers resolve to `pro` as before, so they do
+not jump the line. An admin-granted trial with plan `studio` does get Studio.
+
+Surfaces changed: landing pricing (Free/Pro/Studio; Pro has `plan is-pop`, an
+ember top rule and the "Most popular" tag), paywall, Settings (Go Studio row
+for Pro, Starter's upgrade goes to Pro), queue-full and upgrade notices, admin
+(Studio chip, Paying tile, offer selects are Pro/Studio), Terms ("Subscribers
+on an earlier plan keep its terms until they change plans"), FAQ, llms.txt and
+llms-full.txt, JSON-LD (`highPrice` 250.00), /compare, Tutorial, blog.
+Opus Clip's own "Starter" plan on /compare is theirs and stays.
+
+**Owner's steps before Studio can be bought** (none of this is in the repo):
+1. Stripe, Product catalog: add a product "Highlightz Studio" with a
+   recurring $250/month price; copy its `price_...` id.
+2. In `/opt/highlightz/.env`: `STRIPE_PRICE_ID_STUDIO=price_...`, then deploy
+   (the restart reads it).
+3. Stripe, Settings, Billing, Customer portal: if a configuration is saved
+   there, edit its plan switching to offer Pro and Studio and remove Starter.
+   The app only builds a portal config itself when none exists, and leaves a
+   saved one untouched.
+4. Check: sign in as a Pro test account, Settings, "Go Studio", confirm page
+   shows $250. Do not complete it on a real card unless you mean to.
+
+**OPEN: capacity for a 30-channel customer (not changed; owner's call).**
+Recorded prod figures (2026-09-21, not re-read since): 2 vCPU, so a live
+ceiling of 12 and a registration pool of 48 for the whole server. One Studio
+account listing 30 channels is most of that pool, and `_check_server_capacity`
+shares a nearly-full pool by refusing **the heaviest account first**, which
+would be the $250 customer. And no more than 12 channels, across everyone, are
+watched live at once; "30 channels at once" is how many can be listed, the same
+meaning Pro's 10 has always had. Before the first real Studio sale: run
+`python3 scripts/capacity.py` on prod, and plan a droplet resize (the ceilings
+derive from the core count on restart) or set `MAX_CONCURRENT_STREAMS` /
+`MAX_REGISTERED_STREAMS` in `.env` deliberately. Do not raise them without
+measuring; read the capacity notes under Billing first.
+
+Tests: `tests/test_studio_plan.py` (26) covers each perk, the sold/entitled
+split, the missing-price page, the Pro to Studio confirm flow and every public
+page. 21 older test files were updated to Free/Pro/Studio. Full suite 4296
+passed. Dashboard JSX parsed with Babel; admin script passes `node --check`
+with no backslash. Landing checked in a browser at desktop and phone width (one
+badge, on Pro; no sideways scroll; no console errors). **Not done:** a real
+Stripe checkout at $250 (no Studio price exists yet).

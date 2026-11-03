@@ -60,8 +60,8 @@ def test_the_two_sections_are_tagged_coming_soon(held):
 def test_the_plan_rows_say_soon_instead_of_yes(held):
     """A pricing table is a promise about today. Three rows — the editor, the
     Scheduler and (since 2026-10-05) Autopilot — on the one plan that
-    includes them."""
-    assert held.count("<b>Soon</b>") == 3
+    includes them — and on Studio (2026-11-03), which includes them too."""
+    assert held.count("<b>Soon</b>") == 6
     rows = re.findall(r"<span>(Clip Editor|Scheduler|Autopilot)</span><b>(\w+)</b>", held)
     assert not any(v == "Yes" for _, v in rows)
     # Free still says No: the flag says WHEN, the plan says WHO, and a plan

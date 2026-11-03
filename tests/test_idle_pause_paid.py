@@ -171,10 +171,10 @@ def test_the_faq_the_brief_and_the_toast_say_free_only():
     from fastapi.testclient import TestClient
     from src.dashboard.aurora_html import DASHBOARD_HTML
     faq = api.LANDING_HTML
-    assert "On Starter and Pro it keeps watching" in faq
+    assert "On Pro and Studio it keeps watching" in faq
     assert "On Free, monitoring pauses after 8 hours" in faq
     assert "Monitoring stops after 8 hours without you opening the dashboard, so a" not in faq
     brief = TestClient(api.app).get("/llms.txt").text
-    assert "Starter and Pro keep watching while you are away;" in brief
+    assert "Paid plans keep watching while you are away;" in brief
     assert "monitoring stops after 8 hours" not in brief
-    assert "Starter and Pro keep watching while you are away." in DASHBOARD_HTML
+    assert "Paid plans keep watching while you are away." in DASHBOARD_HTML

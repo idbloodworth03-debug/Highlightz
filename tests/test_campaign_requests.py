@@ -383,6 +383,7 @@ def test_it_is_admin_only_until_switched_on(client, monkeypatch):
 def test_a_free_account_asks_and_hears_back_live(client):
     me = client.login("streamr").get("/campaign-requests").json()
     assert me["rows"] == [] and me["pricing"] == {"flat_fee": 25.0, "fee_pct": 5.0,
+                                                  "fee_waived": False,
                                                   "min_budget": 100.0, "max_budget": 50000.0}
     assert me["account"]["channels"] == [{"platform": "twitch", "name": "streamr"}]
     r = client.post("/campaign-requests", json=ask())

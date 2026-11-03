@@ -153,7 +153,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(clip_files, "path_for", lambda cid: src_dir / f"{cid}.mp4")
     rendered = []
 
-    async def fake_render(src, dst, template, *, title="", captions=None, duration=0.0):
+    async def fake_render(src, dst, template, *, title="", captions=None, duration=0.0, priority=False):
         rendered.append({"src": src, "template": template, "title": title, "captions": captions})
         dst.parent.mkdir(parents=True, exist_ok=True); dst.write_bytes(MP4); return dst
     monkeypatch.setattr(ap_render, "render", fake_render)

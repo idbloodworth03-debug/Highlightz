@@ -612,12 +612,16 @@ def _ensure_portal_configuration(client: stripe.StripeClient) -> str:
         "payment_method_update": {"enabled": True},
         "subscription_cancel":   {"enabled": True, "mode": "at_period_end"},
     }
-    # Plan switching (Starter <-> Pro). subscription_update needs product ids,
-    # which we don't store — resolve them from the configured prices. Skipped
-    # (not fatal) if prices are unset or lookup fails: the portal still opens.
-    price_ids = [p for p in (settings.stripe_price_id_starter,
-                             settings.stripe_price_id_pro) if p]
-    if len(price_ids) == 2:
+    # Plan switching between the tiers on sale (Pro <-> Studio since
+    # 2026-11-03; Starter is no longer one). subscription_update needs product
+    # ids, which we don't store — resolve them from the configured prices.
+    # Skipped (not fatal) if prices are unset or lookup fails: the portal still
+    # opens. NOTE: this only builds a configuration when none exists; one made
+    # before Studio still lists Starter until it is edited in the Stripe
+    # dashboard (Settings -> Billing -> Customer portal).
+    from src.billing.plans import SELLABLE_PLANS
+    price_ids = [p for p in (price_id_for(x) for x in SELLABLE_PLANS) if p]
+    if len(price_ids) >= 2:
         try:
             products = []
             for pid in price_ids:
@@ -790,6 +794,15 @@ def monthly_amount(sub, now: float | None = None) -> float | None:
     return round(total / 100, 2)
 
 
+def price_id_for(plan: str) -> str:
+    """The configured Stripe price id for a tier, or "" when it is not set
+    (or the tier has none). One place, so checkout, the in-place switch and
+    the portal can never disagree about which price a tier is."""
+    return {"starter": settings.stripe_price_id_starter,
+            "pro": settings.stripe_price_id_pro,
+            "studio": settings.stripe_price_id_studio}.get(plan, "") or ""
+
+
 def plan_for_price(price_id: str | None) -> str | None:
     """Map a Stripe price id to a membership plan. The legacy single-price id
     ($15 era) maps to 'pro' — existing subscribers are grandfathered with full
@@ -800,6 +813,8 @@ def plan_for_price(price_id: str | None) -> str | None:
         return "starter"
     if price_id == settings.stripe_price_id_pro:
         return "pro"
+    if price_id == settings.stripe_price_id_studio:
+        return "studio"
     if price_id == settings.stripe_price_id:
         return "pro"   # grandfathered legacy $15 subscribers
     return None

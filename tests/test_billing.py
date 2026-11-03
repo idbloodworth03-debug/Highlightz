@@ -237,7 +237,8 @@ def test_no_paywall_variant_promises_free_days_that_do_not_exist():
             f"the {kind} paywall does not mention what they still have"
 
     for kind, c in variants.items():
-        assert "from $10/month" in c["subline"]
+        # Starter is no longer sold (2026-11-03): the cheapest paid plan is Pro.
+        assert "from $25/month" in c["subline"]
         # No variant leaves template placeholders behind.
         assert all("{" not in v for v in c.values())
     assert "trial" in variants["trial_ended"]["headline"].lower()
@@ -300,8 +301,9 @@ def test_portal_happy_path_needs_no_configuration(monkeypatch):
 
 def test_portal_self_heals_when_account_has_no_configuration(monkeypatch):
     _fresh_portal_state(monkeypatch)
-    monkeypatch.setattr(sb.settings, "stripe_price_id_starter", "price_s")
+    # The tiers on sale since 2026-11-03: Pro and Studio (Starter is not).
     monkeypatch.setattr(sb.settings, "stripe_price_id_pro", "price_p")
+    monkeypatch.setattr(sb.settings, "stripe_price_id_studio", "price_s")
     fake = MagicMock()
     # First attempt fails the way Stripe actually fails; retry succeeds.
     fake.billing_portal.sessions.create.side_effect = [
@@ -311,7 +313,7 @@ def test_portal_self_heals_when_account_has_no_configuration(monkeypatch):
     ]
     fake.billing_portal.configurations.list.return_value = MagicMock(data=[])
     fake.billing_portal.configurations.create.return_value = MagicMock(id="bpc_1")
-    fake.prices.retrieve.side_effect = [MagicMock(product="prod_s"), MagicMock(product="prod_p")]
+    fake.prices.retrieve.side_effect = [MagicMock(product="prod_p"), MagicMock(product="prod_s")]
     with patch.object(sb, "_client", return_value=fake):
         url = asyncio.run(sb.create_portal_url("cus_A"))
     assert url == "https://billing.stripe.com/s/2"
@@ -322,8 +324,8 @@ def test_portal_self_heals_when_account_has_no_configuration(monkeypatch):
     assert f["subscription_cancel"] == {"enabled": True, "mode": "at_period_end"}
     assert f["payment_method_update"]["enabled"] and f["invoice_history"]["enabled"]
     assert f["subscription_update"]["products"] == [
-        {"product": "prod_s", "prices": ["price_s"]},
         {"product": "prod_p", "prices": ["price_p"]},
+        {"product": "prod_s", "prices": ["price_s"]},
     ]
     # Retry pinned the new configuration, and it's cached for next time.
     retry = fake.billing_portal.sessions.create.call_args.kwargs["params"]

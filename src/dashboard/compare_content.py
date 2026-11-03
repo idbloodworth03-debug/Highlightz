@@ -74,8 +74,8 @@ def _our_plans() -> tuple[Plan, ...]:
     than they are.
     """
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
-    free, st, pro = (PLAN_LIMITS["free"], PLAN_LIMITS["starter"],
-                     PLAN_LIMITS["pro"])
+    free, pro, sd = (PLAN_LIMITS["free"], PLAN_LIMITS["pro"],
+                     PLAN_LIMITS["studio"])
 
     def chans(p: dict) -> str:
         n = p["max_streams"]
@@ -91,11 +91,12 @@ def _our_plans() -> tuple[Plan, ...]:
              f"{chans(free)}, {free['max_pending']}-clip queue, "
              f"{free['max_suggested']} Highlight clips, {keeps(free)}. "
              "No card, no time limit."),
-        Plan("Starter", f"${st['price']}/mo",
-             f"{chans(st)}, {st['max_pending']}-clip queue, {keeps(st)}."),
         Plan("Pro", f"${pro['price']}/mo",
              f"{chans(pro)}, {pro['max_pending']}-clip queue, {keeps(pro)}, "
              "VOD Scanner."),
+        Plan("Studio", f"${sd['price']}/mo",
+             f"{chans(sd)}, {sd['max_pending']}-clip queue, everything in Pro, "
+             "front of the line, no campaign fee."),
     )
 
 
@@ -318,7 +319,7 @@ CREDITS_CHECKED_ON = "2 September 2026"
 
 def _credit_rows() -> tuple[tuple[str, str, str, str], ...]:
     from src.billing.plans import PLAN_LIMITS
-    f, s, p = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
+    f, p, s = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "pro", "studio"))
     return (
         ("What is metered",
          "Nothing. You pay for channels, not minutes.",
@@ -326,7 +327,7 @@ def _credit_rows() -> tuple[tuple[str, str, str, str], ...]:
          "Minutes of YouTube video (YT Credits). Live clipping has its own "
          "per-stream and per-day caps on top."),
         ("What the plan includes",
-         f"Every second of every channel you watch: {f} on Free, {s} on Starter, {p} on Pro.",
+         f"Every second of every channel you watch: {f} on Free, {p} on Pro, {s} on Studio.",
          "60 credits a month on Free, 150 on Starter, 300 on Pro (3,600 a year "
          "if paid annually).",
          "30 minutes a month on Free, 600 a month on Premium (7,200 a year on "
@@ -421,11 +422,12 @@ CLOSER = {
 
 FAQ = (
     ("Is this cheaper than Opus Clip or Eklipse?",
-     "Starter is $10, against $15 for Opus Clip's cheapest paid tier and "
-     "$24.99 for Eklipse Premium. At the top, Pro is $25 against Opus at $29 "
-     "and Eklipse at $24.99 — so against Eklipse it is a wash on price, and "
-     "the question becomes what you get for it: they clip your account, Pro "
-     "watches ten channels that do not have to be yours."),
+     "Not at the bottom: our first paid plan is Pro at $25, against $15 for "
+     "Opus Clip's cheapest paid tier and $24.99 for Eklipse Premium. Against "
+     "Opus Pro at $29 it is cheaper, against Eklipse it is a wash, so the "
+     "question becomes what you get for it: they clip your account, Pro "
+     "watches ten channels that do not have to be yours. Studio, at $250, is "
+     "for clipping thirty channels at once with the front of the line."),
     ("What happens when the credits run out on Opus Clip or Eklipse?",
      "The tool stops until the next cycle or the next purchase. On Opus Clip "
      "credits are not sold on their own: you buy your plan again for another "

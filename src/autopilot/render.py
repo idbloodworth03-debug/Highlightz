@@ -118,13 +118,75 @@ def build_command(src: Path, dst: Path, template: str, *, title: str = "",
             str(dst)]
 
 
+class _PrioritySlot:
+    """One render at a time, with Studio's renders served before anybody
+    else's waiting (2026-11-03). `async with _slot:` works as the Semaphore it
+    replaced did; `async with slot_for(True):` joins the queue at the front
+    (first-come among the priority ones). Futures are made on the running
+    loop at wait time, so nothing is bound to a loop at import."""
+
+    def __init__(self) -> None:
+        import heapq
+        self._heapq = heapq
+        self._busy = False
+        self._waiters: list = []         # (0 priority | 1 normal, order, future)
+        self._n = 0
+
+    async def acquire(self, priority: bool = False) -> None:
+        if not self._busy and not self._waiters:
+            self._busy = True
+            return
+        fut = asyncio.get_running_loop().create_future()
+        self._n += 1
+        self._heapq.heappush(self._waiters, (0 if priority else 1, self._n, fut))
+        try:
+            await fut
+        except asyncio.CancelledError:
+            # Handed the slot in the instant it was cancelled: pass it on, or
+            # it would be held forever by a task that is gone.
+            if fut.done() and not fut.cancelled():
+                self.release()
+            raise
+
+    def release(self) -> None:
+        while self._waiters:
+            _, _, fut = self._heapq.heappop(self._waiters)
+            if not fut.done():
+                fut.set_result(True)        # the slot passes straight to them
+                return
+        self._busy = False
+
+    def hold(self, priority: bool = False):
+        slot = self
+
+        class _Hold:
+            async def __aenter__(self):
+                await slot.acquire(priority)
+
+            async def __aexit__(self, *exc):
+                slot.release()
+        return _Hold()
+
+    async def __aenter__(self):
+        await self.acquire(False)
+
+    async def __aexit__(self, *exc):
+        self.release()
+
+
 # One render at a time: this is a 1-vCPU box that is also scoring live
 # streams, and ffmpeg with libx264 will take every core it is given.
-_slot = asyncio.Semaphore(1)
+_slot = _PrioritySlot()
+
+
+def slot_for(priority: bool):
+    """The render slot, entered at the front of the line when `priority`."""
+    return _slot.hold(priority)
 
 
 async def render(src: Path, dst: Path, template: str, *, title: str = "",
-                 captions: list | None = None, duration: float = 0.0) -> Path:
+                 captions: list | None = None, duration: float = 0.0,
+                 priority: bool = False) -> Path:
     font = font_path()
     if (title or captions) and not font:
         log.warning("autopilot_font_missing", path=settings.autopilot_font,
@@ -132,7 +194,7 @@ async def render(src: Path, dst: Path, template: str, *, title: str = "",
     cmd = build_command(src, dst, template, title=title, captions=captions,
                         duration=duration, font=font)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    async with _slot:
+    async with slot_for(priority):
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
         try:

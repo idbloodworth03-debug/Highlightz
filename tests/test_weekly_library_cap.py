@@ -244,8 +244,6 @@ def test_the_pricing_columns_state_the_weekly_allowance():
     from src.dashboard.api import _pricing
     html = _pricing()
     assert f"<span>Clips kept per week</span><b>{FREE_CAP}</b>" in html
-    assert (f"<span>Clips kept per week</span><b>{PLAN_LIMITS['starter']['max_library_week']}</b>"
-            in html)
     # The sentinel is a real number in JSON and would print in full.
     assert "1000000000" not in html, "the unlimited sentinel reached the page"
     assert "<span>Clips kept per week</span><b>Unlimited</b>" in html, \
@@ -259,7 +257,7 @@ def test_the_pricing_columns_derive_the_number():
     with _plan_limit("free", "max_library_week", 4242):
         assert "<span>Clips kept per week</span><b>4242</b>" in _pricing(), \
             "the free column types the weekly allowance"
-    with _plan_limit("starter", "max_library_week", 5151):
+    with _plan_limit("studio", "max_library_week", 5151):
         assert "<span>Clips kept per week</span><b>5151</b>" in _pricing()
 
 
@@ -290,9 +288,7 @@ def test_the_tutorial_table_has_a_row_for_it():
     from src.dashboard.tutorial_content import PLAN_ROWS
     row = next((r for r in PLAN_ROWS if "kept per week" in r[0]), None)
     assert row, "the plan table has no weekly-keep row"
-    assert row[1:] == (str(FREE_CAP),
-                       str(PLAN_LIMITS["starter"]["max_library_week"]),
-                       "Unlimited")
+    assert row[1:] == (str(FREE_CAP), "Unlimited", "Unlimited")      # Free, Pro, Studio
 
 
 def test_staff_stay_unlimited_even_if_pro_ever_gets_a_ceiling():

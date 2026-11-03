@@ -57,7 +57,7 @@ def test_landing_stats_route_is_public():
 
 def test_landing_html_has_price_counter_and_demo():
     html = api.LANDING_HTML
-    assert "$10" in html and "$25" in html          # both tier prices shown
+    assert "$25" in html and "$250" in html          # both paid tier prices shown (2026-11-03)
     # Inverted AGAIN, and the flip-flopping is the point: this assertion has
     # now been "there is no free tier", "there is a trial", and "there is a
     # free tier". What it is really protecting is that the page states SOME
@@ -154,7 +154,7 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     html = api.LANDING_HTML
 
     free    = PLAN_LIMITS["free"]["max_streams"]
-    starter = PLAN_LIMITS["starter"]["max_streams"]
+    studio = PLAN_LIMITS["studio"]["max_streams"]
     pro     = PLAN_LIMITS["pro"]["max_streams"]
 
     # Near the top. The hero's lede — slogan, lead and CTAs — was removed on
@@ -174,13 +174,13 @@ def test_the_advertised_channel_counts_come_from_the_real_plan_limits():
     # survives a scan.
     # The pricing columns' "Channels at once" rows.
     assert f"<b>{pro} channels</b>" in html
-    assert f"<b>{starter} channels</b>" in html
+    assert f"<b>{PLAN_LIMITS['studio']['max_streams']} channels</b>" in html
 
     # No stale "up to N streams" survives anywhere on the page.
     import re
     for n in re.findall(r"(?:up to|Monitor)\s*<?b?>?\s*(\d+)\s*(?:streams?|channels?)",
                         html, re.I):
-        assert int(n) in (free, starter, pro), f"advertises {n}, not a real plan limit"
+        assert int(n) in (free, pro, studio), f"advertises {n}, not a real plan limit"
 
 
 def test_the_run_unattended_claim_matches_the_code():
@@ -671,8 +671,8 @@ def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans()
     for tell in ("viewer", "audience", "crowd", "clipped", "settl", "views", "cluster",
                  "popular", "shar", "twitch's clips api", "helix"):
         assert tell not in low, f"the Highlight answers give the mechanism away: {tell!r}"
-    f, s, p = (PLAN_LIMITS[k]["max_suggested"] for k in ("free", "starter", "pro"))
-    assert f"<b>{f}</b> on Free, <b>{s}</b> on Starter, <b>{p}</b> on Pro" in hi
+    f, p, s = (PLAN_LIMITS[k]["max_suggested"] for k in ("free", "pro", "studio"))
+    assert f"<b>{f}</b> on Free, <b>{p}</b> on Pro, <b>{s}</b> on Studio" in hi
     # The rest of the important facts, each one a question a visitor asks.
     for q in ("Can I clip channels I don't own?", "Do I have to leave anything running?",
               "How many channels can it watch at once?", "Is this AI?",
@@ -681,8 +681,8 @@ def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans()
               "How does billing work?",
               "What are the VOD Scanner, the Clip Editor and the Scheduler?"):
         assert f'class="faq-q">{q}</summary>' in faq, f"missing: {q}"
-    ch = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "starter", "pro"))
-    assert "<b>%d</b> on Free, <b>%d</b> on Starter, <b>%d</b> on Pro" % tuple(ch) in faq
+    ch = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "pro", "studio"))
+    assert "<b>%d</b> on Free, <b>%d</b> on Pro, <b>%d</b> on Studio" % tuple(ch) in faq
     assert "every 30 seconds" in faq and "8 hours" in faq
     # Native disclosure, no script: the answers open without JavaScript.
     assert faq.count("<details class=\"faq-item\">") == faq.count('class="faq-q"') >= 12

@@ -30,6 +30,7 @@ def world(monkeypatch, tmp_path):
     monkeypatch.setattr(api.settings, "stripe_secret_key", "sk_test")
     monkeypatch.setattr(api.settings, "stripe_price_id_starter", "price_starter")
     monkeypatch.setattr(api.settings, "stripe_price_id_pro", "price_pro")
+    monkeypatch.setattr(api.settings, "stripe_price_id_studio", "price_studio")
     now = time.time()
     (tmp_path / "users.json").write_text(json.dumps([
         {"id": "u1", "username": "starter_user", "subscription_status": "active",
@@ -38,6 +39,8 @@ def world(monkeypatch, tmp_path):
          "plan": "pro", "stripe_customer_id": "cus_B", "created_at": now},
         {"id": "u3", "username": "free_user", "subscription_status": "none",
          "plan": "free", "created_at": now},
+        {"id": "u4", "username": "studio_user", "subscription_status": "active",
+         "plan": "studio", "stripe_customer_id": "cus_D", "created_at": now},
     ]))
     changes, sent = [], []
 
@@ -81,8 +84,13 @@ def test_the_upgrade_link_changes_nothing_and_goes_to_the_page(world):
 
 
 def test_a_downgrade_link_changes_nothing_either(world):
+    # Studio -> Pro is the downgrade now; Starter is no longer sold (2026-11-03),
+    # so a link to it goes to the plans page and moves nobody.
+    r = world.as_user("u4").get("/billing/checkout?plan=pro", follow_redirects=False)
+    assert r.headers["location"] == "/billing/change?plan=pro"
+    assert world.changes == [] and world.plan_of("u4") == "studio"
     r = world.as_user("u2").get("/billing/checkout?plan=starter", follow_redirects=False)
-    assert r.headers["location"] == "/billing/change?plan=starter"
+    assert r.headers["location"] == "/billing/paywall"
     assert world.changes == [] and world.plan_of("u2") == "pro"
 
 
@@ -107,7 +115,7 @@ def test_the_page_names_both_plans_their_prices_and_the_charge(world):
 
 
 def test_a_downgrade_page_says_the_rest_becomes_credit(world):
-    page = world.as_user("u2").get("/billing/change?plan=starter").text
+    page = world.as_user("u4").get("/billing/change?plan=pro").text
     assert "becomes a credit on your account" in page
     assert "charges the card" not in page
 
@@ -147,7 +155,7 @@ def test_a_token_works_once(world):
 
 def test_a_token_for_one_plan_cannot_confirm_the_other(world):
     c = world.as_user("u2")
-    tok = _token(c.get("/billing/change?plan=starter").text)
+    tok = _token(c.get("/billing/change?plan=studio").text)
     r = c.post("/billing/change", data={"plan": "pro", "token": tok}, follow_redirects=False)
     assert world.changes == [] and r.headers["location"] == "/billing/change?plan=pro"
 
@@ -188,8 +196,8 @@ def test_someone_not_subscribed_goes_to_checkout_not_an_in_place_change(world):
 
 
 def test_the_plan_you_already_have_is_a_no_op(world):
-    c = world.as_user("u1")
-    assert c.get("/billing/change?plan=starter", follow_redirects=False).headers["location"] == "/?plan=unchanged"
+    c = world.as_user("u2")
+    assert c.get("/billing/change?plan=pro", follow_redirects=False).headers["location"] == "/?plan=unchanged"
     assert world.changes == []
 
 
@@ -201,4 +209,5 @@ def test_the_paywall_cards_still_point_at_checkout():
     """Unchanged links; it is the endpoint behind them that now asks first."""
     from src.dashboard import api
     assert 'href="/billing/checkout?plan=pro"' in api.PAYWALL_HTML
-    assert 'href="/billing/checkout?plan=starter"' in api.PAYWALL_HTML
+    assert 'href="/billing/checkout?plan=studio"' in api.PAYWALL_HTML
+    assert 'href="/billing/checkout?plan=starter"' not in api.PAYWALL_HTML

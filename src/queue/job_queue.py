@@ -17,6 +17,11 @@ from config.settings import settings
 log = structlog.get_logger(__name__)
 
 QUEUE_KEY = "superclipbot:clip_jobs"
+# Studio's clips (plans.uid_has_priority), cut ahead of everyone else's
+# (2026-11-03). A second list rather than LPUSH onto the first, so priority
+# jobs stay first-in-first-out among themselves; BLPOP takes from the first
+# non-empty key in the order given, so this one is always drained first.
+PRIORITY_KEY = "superclipbot:clip_jobs:priority"
 PROCESSING_KEY = "superclipbot:processing"
 
 _CHANNEL_RE_Q = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
@@ -66,8 +71,11 @@ class ClipJob:
 
 
 class JobQueue:
-    def __init__(self) -> None:
+    def __init__(self, priority_of=None) -> None:
         self._redis: Redis | None = None
+        # user id -> bool, injected by main.py (plans.uid_has_priority), so
+        # this module needs to know nothing about plans or accounts.
+        self._priority_of = priority_of
 
     async def connect(self) -> None:
         self._redis = await redis_from_url(settings.redis_url, decode_responses=True)
@@ -85,12 +93,20 @@ class JobQueue:
 
     async def push(self, job: ClipJob) -> None:
         self._require_redis()
-        await self._redis.rpush(QUEUE_KEY, job.to_json())
-        log.info("job_enqueued", clip_id=job.clip_id, channel=job.channel)
+        key = QUEUE_KEY
+        if self._priority_of and job.user_id:
+            try:
+                if self._priority_of(job.user_id):
+                    key = PRIORITY_KEY
+            except Exception:                 # never lose a job over a lookup
+                key = QUEUE_KEY
+        await self._redis.rpush(key, job.to_json())
+        log.info("job_enqueued", clip_id=job.clip_id, channel=job.channel,
+                 priority=key == PRIORITY_KEY)
 
     async def pop(self, timeout: int = 5) -> ClipJob | None:
         self._require_redis()
-        result = await self._redis.blpop(QUEUE_KEY, timeout=timeout)
+        result = await self._redis.blpop([PRIORITY_KEY, QUEUE_KEY], timeout=timeout)
         if result is None:
             return None
         _, raw = result
@@ -132,4 +148,4 @@ class JobQueue:
 
     async def queue_length(self) -> int:
         self._require_redis()
-        return await self._redis.llen(QUEUE_KEY)
+        return (await self._redis.llen(QUEUE_KEY)) + (await self._redis.llen(PRIORITY_KEY))

@@ -57,13 +57,8 @@ def as_list(x) -> list:
 
 
 def plan_for(price_id: str) -> str | None:
-    if not price_id:
-        return None
-    if price_id == settings.stripe_price_id_starter:
-        return "starter"
-    if price_id in (settings.stripe_price_id_pro, settings.stripe_price_id):
-        return "pro"
-    return None
+    from src.billing.stripe_billing import plan_for_price
+    return plan_for_price(price_id)
 
 
 subs = as_list(client.subscriptions.list(params={"status": "all", "limit": 100}))

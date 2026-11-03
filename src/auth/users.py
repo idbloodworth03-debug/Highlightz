@@ -1333,7 +1333,8 @@ def set_offer(user_id: str, code: str, plan: str, headline: str) -> dict | None:
     code = _clean_offer_code(code)
     if not code:
         return None
-    offer = {"code": code, "plan": plan if plan in ("starter", "pro") else "pro",
+    from src.billing.plans import SELLABLE_PLANS
+    offer = {"code": code, "plan": plan if plan in SELLABLE_PLANS else "pro",
              "headline": str(headline or "").strip()[:OFFER_HEADLINE_MAX],
              "created_at": time.time(), "claimed_at": 0, "dismissed_at": 0}
     users = _load()
@@ -1349,6 +1350,7 @@ def set_offer_for_many(user_ids, code: str, plan: str, headline: str) -> list[st
     """The same offer for many accounts in one write (the "everyone not
     paying" send, owner 2026-10-05). Replaces any earlier offer, like
     set_offer. Returns the ids actually given it; [] for a bad code."""
+    from src.billing.plans import SELLABLE_PLANS
     code = _clean_offer_code(code)
     if not code:
         return []
@@ -1358,7 +1360,7 @@ def set_offer_for_many(user_ids, code: str, plan: str, headline: str) -> list[st
     users = _load()
     for u in users:
         if u["id"] in wanted:
-            u["offer"] = {"code": code, "plan": plan if plan in ("starter", "pro") else "pro",
+            u["offer"] = {"code": code, "plan": plan if plan in SELLABLE_PLANS else "pro",
                           "headline": str(headline or "").strip()[:OFFER_HEADLINE_MAX],
                           "created_at": now, "claimed_at": 0, "dismissed_at": 0}
             done.append(u["id"])

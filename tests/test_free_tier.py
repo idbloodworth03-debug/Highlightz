@@ -148,7 +148,7 @@ def test_the_one_stream_allowance_is_enforced_and_explains_itself(client):
     second = c.post("/streams", json={"channel": "chan2", "platform": "twitch",
                                       "preset": "default"})
     assert second.status_code == 429, second.text
-    assert "Starter" in second.text and "$10" in second.text
+    assert "Pro" in second.text and "$25" in second.text and "Starter" not in second.text
 
 
 def test_the_pending_cap_drops_the_new_clip_and_says_so(client, monkeypatch):

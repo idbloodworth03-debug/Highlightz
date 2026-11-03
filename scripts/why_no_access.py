@@ -115,9 +115,10 @@ def environment_report() -> list[str]:
     key = bool(settings.stripe_secret_key)
     print(f"  STRIPE_SECRET_KEY      : {'set' if key else 'MISSING'}")
     print(f"  STRIPE_WEBHOOK_SECRET  : {'set' if secret else 'MISSING'}")
-    print(f"  price ids starter/pro  : "
-          f"{'set' if settings.stripe_price_id_starter else 'MISSING'}"
-          f" / {'set' if settings.stripe_price_id_pro else 'MISSING'}")
+    print(f"  price ids pro/studio   : "
+          f"{'set' if settings.stripe_price_id_pro else 'MISSING'}"
+          f" / {'set' if settings.stripe_price_id_studio else 'MISSING'}"
+          f"  (starter, no longer sold: {'set' if settings.stripe_price_id_starter else 'unset'})")
     if not key:
         problems.append("STRIPE_SECRET_KEY is unset — nothing can reach Stripe.")
     if not secret:
@@ -162,9 +163,8 @@ def describe(sub) -> str:
     status = str(g(sub, "status", "") or "?")
     items = as_list(g(sub, "items"))
     price = as_id(g(items[0], "price")) if items else ""
-    tier = ("starter" if price == settings.stripe_price_id_starter
-            else "pro" if price in (settings.stripe_price_id_pro,
-                                    settings.stripe_price_id) else price or "?")
+    from src.billing.stripe_billing import plan_for_price
+    tier = plan_for_price(price) or price or "?"
     te = g(sub, "trial_end")
     trial = f", trial ends {when(te)}" if te else ""
     return (f"{as_id(sub)}  status={status}  tier={tier}"
@@ -248,9 +248,8 @@ def apply_fix(user: dict, sv: dict) -> None:
         trial_end = 0
     items = as_list(g(sub, "items"))
     price = as_id(g(items[0], "price")) if items else ""
-    tier = ("starter" if price == settings.stripe_price_id_starter
-            else "pro" if price in (settings.stripe_price_id_pro,
-                                    settings.stripe_price_id) else None)
+    from src.billing.stripe_billing import plan_for_price
+    tier = plan_for_price(price)
 
     # Exactly the write the webhook would have made, trial end included — so a
     # repaired account is indistinguishable from one that never broke.

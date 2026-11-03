@@ -369,7 +369,7 @@ FEATURES: tuple[Section, ...] = (
             "switch tabs. Start it, go do something else, come back to the results."
         ),
         note=(
-            "The VOD Scanner is on **Pro**. On the free plan and on Starter the "
+            "The VOD Scanner is on **Pro** and **Studio**. On the free plan the "
             "tab explains the upgrade rather than failing silently."
         ),
     ),
@@ -407,9 +407,9 @@ FEATURES: tuple[Section, ...] = (
             "Your plan, your billing and your connected accounts. Every account "
             f"starts on the free plan — {PLAN_LIMITS['free']['max_streams']} channel, "
             f"a {PLAN_LIMITS['free']['max_pending']}-clip queue, no card and no "
-            "time limit. When one channel stops being enough, Starter watches "
-            f"{PLAN_LIMITS['starter']['max_streams']} and Pro watches "
-            f"{PLAN_LIMITS['pro']['max_streams']} and adds the VOD Scanner."
+            "time limit. When one channel stops being enough, Pro watches "
+            f"{PLAN_LIMITS['pro']['max_streams']} and adds the VOD Scanner, and Studio "
+            f"watches {PLAN_LIMITS['studio']['max_streams']} with the front of the line."
         ),
         steps=(
             "Open the **Settings** tab and scroll down to **Plan status** and **Membership**.",
@@ -454,21 +454,25 @@ def _week(limits: dict) -> str:
 def _plan_rows() -> tuple[tuple[str, ...], ...]:
     from src.billing.plans import PLAN_LIMITS
     free = PLAN_LIMITS["free"]
-    starter, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    pro, studio = PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
+    yn = lambda p, k: "Yes" if p.get(k) else "No"      # noqa: E731
     return (
-        ("",                       "Free", "Starter", "Pro"),
+        ("",                       "Free", "Pro", "Studio"),
         ("Price",                  "$0, no card",
-         f"${starter['price']}/mo", f"${pro['price']}/mo"),
+         f"${pro['price']}/mo", f"${studio['price']}/mo"),
         ("Channels at once",       str(free["max_streams"]),
-         str(starter["max_streams"]), str(pro["max_streams"])),
+         str(pro["max_streams"]), str(studio["max_streams"])),
         ("Clips held for review",  str(free["max_pending"]),
-         str(starter["max_pending"]), str(pro["max_pending"])),
+         str(pro["max_pending"]), str(studio["max_pending"])),
         ("Highlight clips",        str(free["max_suggested"]),
-         str(starter["max_suggested"]), str(pro["max_suggested"])),
+         str(pro["max_suggested"]), str(studio["max_suggested"])),
         # The sentinel is a number; printed raw it would read "1000000000".
-        ("Clips kept per week",    _week(free), _week(starter), _week(pro)),
-        ("VOD Scanner",            "Yes" if free["vod"] else "No",
-         "Yes" if starter["vod"] else "No", "Yes" if pro["vod"] else "No"),
+        ("Clips kept per week",    _week(free), _week(pro), _week(studio)),
+        ("VOD Scanner",            yn(free, "vod"), yn(pro, "vod"), yn(studio, "vod")),
+        ("Front of the line",      yn(free, "priority"), yn(pro, "priority"),
+         yn(studio, "priority")),
+        ("No campaign fee",        yn(free, "no_campaign_fee"), yn(pro, "no_campaign_fee"),
+         yn(studio, "no_campaign_fee")),
     )
 
 
@@ -491,8 +495,8 @@ FAQ: tuple[tuple[str, str], ...] = (
     ("It says the stream limit is reached.",
      "You are monitoring as many channels as your plan allows — "
      f"<b>{PLAN_LIMITS['free']['max_streams']}</b> on the free plan, "
-     f"<b>{PLAN_LIMITS['starter']['max_streams']}</b> on Starter, "
-     f"<b>{PLAN_LIMITS['pro']['max_streams']}</b> on Pro. Remove a channel to "
+     f"<b>{PLAN_LIMITS['pro']['max_streams']}</b> on Pro, "
+     f"<b>{PLAN_LIMITS['studio']['max_streams']}</b> on Studio. Remove a channel to "
      "free a slot, or upgrade from the Settings tab."),
 
     ("What is the green label on a Highlight clip?",

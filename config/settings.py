@@ -473,8 +473,9 @@ class Settings(BaseSettings):
     # subscriptions (mapped to the 'pro' plan) — do not reuse for new signups.
     stripe_price_id: str = ""
     # Two-tier prices (recurring Price IDs from the Stripe dashboard).
-    stripe_price_id_starter: str = ""   # $10/month
+    stripe_price_id_starter: str = ""   # $10/month (no longer sold; existing subscribers)
     stripe_price_id_pro: str = ""       # $25/month
+    stripe_price_id_studio: str = ""    # $250/month (2026-11-03)
     stripe_webhook_secret: str = ""
 
     # Trigger thresholds

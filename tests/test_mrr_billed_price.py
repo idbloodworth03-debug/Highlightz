@@ -218,7 +218,7 @@ def test_a_fifteen_dollar_subscriber_stored_as_pro_counts_as_fifteen(admin):
     d = admin.get("/admin/overview").json()
     assert d["mrr"] == 50, d["mrr"]
     assert d["mrr"] != 60, "the $15 subscriber is being priced at the Pro rate again"
-    assert d["users"]["paying_by_tier"] == {"pro": 1, "starter": 1, "legacy": 1}
+    assert d["users"]["paying_by_tier"] == {"studio": 0, "pro": 1, "starter": 1, "legacy": 1}
     assert d["mrr_unknown"] == 1
     assert d["users"]["by_plan"]["pro"] == 2, "a grandfathered subscriber keeps Pro"
     row = next(u for u in admin.get("/admin/users").json() if u["username"] == "unkn0wnballer")
@@ -242,7 +242,7 @@ def test_until_stripe_has_been_asked_the_old_rule_still_applies(admin):
     admin.people["old"] = _person("old")
     d = admin.get("/admin/overview").json()
     assert d["mrr"] == 25 + plans.LEGACY_PRICE
-    assert d["users"]["paying_by_tier"] == {"pro": 1, "starter": 0, "legacy": 1}
+    assert d["users"]["paying_by_tier"] == {"studio": 0, "pro": 1, "starter": 0, "legacy": 1}
 
 
 def test_comps_and_lapsed_subscribers_are_still_not_revenue(admin):

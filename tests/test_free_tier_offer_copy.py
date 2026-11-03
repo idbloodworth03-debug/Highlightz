@@ -135,7 +135,7 @@ def test_the_offer_is_not_set_in_the_faintest_ink_on_the_page():
 def test_the_queue_numbers_quoted_match_the_plans():
     """All three columns read PLAN_LIMITS."""
     from src.dashboard.api import LANDING_HTML
-    for key in ("free", "starter", "pro"):
+    for key in ("free", "pro", "studio"):
         assert (f"<span>Clips held for review</span><b>{PLAN_LIMITS[key]['max_pending']}</b>"
                 in LANDING_HTML), f"the {key} column's queue size is not the plan's"
 
@@ -285,12 +285,12 @@ def test_no_public_surface_credits_the_clippers_any_more():
 
 
 # ── the pricing columns (landing v4, 2026-09-02) ─────────────────────────────
-# Pricing is two tall columns, Starter and Pro, with Free stated above them as
-# the way in. No badge, no highlighted column. Every number reads PLAN_LIMITS.
+# Pricing is three columns, Free, Pro and Studio (2026-11-03). One badge, "Most
+# popular" on Pro (the owner's call). Every number reads PLAN_LIMITS.
 
 def _plan_fact(html: str, plan: str, label: str) -> str:
     """The value of one fact row in one column."""
-    cols = re.findall(r'<div class="plan">(.*?)</div>(?=<div class="plan">|</div>)', html, re.S)
+    cols = re.findall(r'<div class="plan(?: [^"]*)?">(.*?)</div>(?=<div class="plan[ "]|</div>)', html, re.S)
     col = next(c for c in cols if f'<h3 class="plan-name">{plan}</h3>' in c)
     m = re.search(r"<span>" + re.escape(label) + r"</span><b>([^<]+)</b>", col)
     assert m, f"{plan} has no {label!r} row"
@@ -310,23 +310,24 @@ def test_free_is_the_first_column_and_says_why_it_is_zero():
     assert _plan_fact(html, "Free", "Clips held for review") == str(free["max_pending"])
     assert _plan_fact(html, "Free", "Clips kept per week") == str(free["max_library_week"])
     assert _plan_fact(html, "Free", "Highlight clips") == str(free["max_suggested"])
-    col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Starter</h3>')]
+    col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Pro</h3>')]
     assert "$0" in col and "no card" in col.lower(), "the free price does not say a card is not needed"
     assert "Start free" in col
 
 
 
-def test_the_columns_are_free_then_starter_then_pro():
-    """The first rung of the ladder first: one channel, then three, then ten."""
+def test_the_columns_are_free_then_pro_then_studio():
+    """The first rung of the ladder first: one channel, then ten, then thirty.
+    Starter came off the site 2026-11-03 (owner)."""
     from src.dashboard.api import _pricing
     names = re.findall(r'<h3 class="plan-name">([^<]+)</h3>', _pricing())
-    assert names == ["Free", "Starter", "Pro"], names
+    assert names == ["Free", "Pro", "Studio"], names
 
 
 def test_each_column_quotes_its_real_limits():
     from src.dashboard.api import _pricing
     html = _pricing()
-    for plan, key in (("Starter", "starter"), ("Pro", "pro")):
+    for plan, key in (("Pro", "pro"), ("Studio", "studio")):
         lim = PLAN_LIMITS[key]
         assert _plan_fact(html, plan, "Clips held for review") == str(lim["max_pending"])
         assert _plan_fact(html, plan, "Highlight clips") == str(lim["max_suggested"])
@@ -338,8 +339,8 @@ def test_each_column_quotes_its_real_limits():
 def test_the_pricing_columns_derive_their_numbers():
     """`str(50) in html` passes whether the 50 was read or typed."""
     from src.dashboard.api import _pricing
-    with _plan_limit("starter", "max_pending", 4242):
-        assert _plan_fact(_pricing(), "Starter", "Clips held for review") == "4242"
+    with _plan_limit("studio", "max_pending", 4242):
+        assert _plan_fact(_pricing(), "Studio", "Clips held for review") == "4242"
     with _plan_limit("free", "max_pending", 3737):
         assert _plan_fact(_pricing(), "Free", "Clips held for review") == "3737"
 
@@ -347,14 +348,14 @@ def test_the_pricing_columns_derive_their_numbers():
 
 def test_only_the_free_column_says_start_free():
     """With a real free column beside them, a "Start free" button on a paid
-    column would read as if Starter and Pro were themselves free."""
+    column would read as if Pro and Studio were themselves free."""
     from src.dashboard.api import _pricing
     html = _pricing()
-    free_col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Starter</h3>')]
-    paid = html[html.index('<h3 class="plan-name">Starter</h3>'):]
+    free_col = html[html.index('<h3 class="plan-name">Free</h3>'):html.index('<h3 class="plan-name">Pro</h3>')]
+    paid = html[html.index('<h3 class="plan-name">Pro</h3>'):]
     assert "Start free" in free_col
     assert "Start free" not in paid
-    assert "Get Starter" in paid and "Get Pro" in paid
+    assert "Get Pro" in paid and "Get Studio" in paid and "Get Starter" not in paid
 
 
 

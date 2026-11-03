@@ -150,13 +150,14 @@ def test_the_plan_numbers_match_what_billing_enforces():
     # `trialing` resolves to pro. With the trial retired it is FREE, and free
     # is a tier of its own — so it carries its own numbers rather than
     # borrowing another plan's, which is what the loop below now checks.
-    assert head == ("Free", "Starter", "Pro")
+    # Free / Pro / Studio since 2026-11-03 (Starter is no longer sold).
+    assert head == ("Free", "Pro", "Studio")
     assert get_plan({"subscription_status": "none"}) == "free", \
         "a non-paying account no longer lands on free, so this column is wrong"
 
     assert rows["Price"] == ("$0, no card",
-                             f"${PLAN_LIMITS['starter']['price']}/mo",
-                             f"${PLAN_LIMITS['pro']['price']}/mo")
+                             f"${PLAN_LIMITS['pro']['price']}/mo",
+                             f"${PLAN_LIMITS['studio']['price']}/mo")
     # Each column now carries ITS OWN plan's numbers. The old version read
     # ("pro", "starter", "pro") because the first column was a trial that
     # resolved to pro — a table where two columns had to stay identical, and
@@ -166,7 +167,7 @@ def test_the_plan_numbers_match_what_billing_enforces():
                        ("Clips held for review", "max_pending"),
                        ("Highlight clips", "max_suggested")):
         assert rows[label] == tuple(
-            str(PLAN_LIMITS[p][key]) for p in ("free", "starter", "pro")), \
+            str(PLAN_LIMITS[p][key]) for p in ("free", "pro", "studio")), \
             f"the {label} row drifted from PLAN_LIMITS"
 
 

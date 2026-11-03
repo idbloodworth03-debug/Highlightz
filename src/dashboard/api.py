@@ -1650,7 +1650,19 @@ async def me(request: Request):
                                 # on screen or go stale between events.
                                 "max_library_week": limits.get("max_library_week", 0),
                                 "vod": limits["vod"],
-                                "uploads": limits["uploads"]},
+                                "uploads": limits["uploads"],
+                                # Studio's perks (2026-11-03). Settings reads
+                                # these to list them and to show the Direct
+                                # support row; without them here a Studio
+                                # subscriber's screen looks like Pro.
+                                "priority": bool(limits.get("priority")),
+                                "keep_files": bool(limits.get("keep_files")),
+                                "no_campaign_fee": bool(limits.get("no_campaign_fee")),
+                                "direct_support": bool(limits.get("direct_support")),
+                                # How long a clip video is kept: the setting
+                                # itself, so "kept N days" cannot drift from
+                                # what files.sweep() enforces.
+                                "keep_days": settings.clip_file_max_age_days},
         # Release flags — what is switched ON for everyone, separate from what
         # this user's plan entitles them to. The dashboard shows an
         # under-construction screen for anything off here.
@@ -2813,7 +2825,7 @@ def _paywall_copy(kind: str) -> dict:
             "headline": "Your trial has ended",
             "subline":  ("hope you caught some great moments. Your account is on the "
                          "free plan now — one channel and a queue of 20. Pick a plan "
-                         "to open it back up, from $10/month, cancel anytime."),
+                         "to open it back up, from $25/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     if kind == "returning":
@@ -2821,7 +2833,7 @@ def _paywall_copy(kind: str) -> dict:
             "headline": "Restart your subscription",
             "subline":  ("welcome back. You are on the free plan in the meantime, so "
                          "nothing has stopped. Pick a plan and it starts right "
-                         "away — from $10/month, cancel anytime."),
+                         "away — from $25/month, cancel anytime."),
             "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
         }
     # Says only what is open today (src/publish/release.py): this used to
@@ -2838,15 +2850,16 @@ def _paywall_copy(kind: str) -> dict:
         "subline":  ("free covers one channel and a queue of 20 clips, which is "
                      "enough to see whether the detector earns its place. Paid "
                      "plans widen both, and Pro adds the VOD Scanner for streams "
-                     "that already happened, " + _pro + " — from $10/month, "
+                     "that already happened, " + _pro + " — from $25/month, "
                      "cancel anytime."),
         "note":     "Have a promo code? Enter it at checkout for 50% off your first month.",
     }
 
 
 @app.get("/billing/paywall", response_class=HTMLResponse)
-async def paywall_page(request: Request):
+async def paywall_page(request: Request, unavailable: str = ""):
     from src.auth import users as user_store
+    from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     db_user  = user_store.get_by_id(uid) if uid else None
@@ -2857,6 +2870,10 @@ async def paywall_page(request: Request):
     else:
         kind = "new"
     copy = _paywall_copy(kind)
+    if unavailable in SELLABLE_PLANS:
+        # Checkout bounced here because this tier's Stripe price is not set yet.
+        copy["note"] = (PLAN_LIMITS[unavailable]["label"] + " is not open for checkout "
+                        "yet. Email support@highlightz.app and we will set you up.")
     import html as _html
     page = (PAYWALL_HTML
             .replace("{username}", _html.escape(username))
@@ -2876,17 +2893,23 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
     subscribed user choosing the other tier is sent to /billing/change, which
     says what the switch costs and makes it only when they confirm.
     """
-    from src.billing.stripe_billing import create_checkout_url
-    from src.billing.plans import get_plan
+    from src.billing.stripe_billing import create_checkout_url, price_id_for
+    from src.billing.plans import SELLABLE_PLANS, PAID_PLANS, get_plan
     from src.auth import users as user_store
     if not settings.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
-    if plan not in ("starter", "pro"):
+    if plan not in SELLABLE_PLANS:
+        # A tier we no longer sell (Starter, since 2026-11-03), from an old
+        # link or bookmark: show what is on sale rather than an error.
+        if plan in PAID_PLANS:
+            return RedirectResponse("/billing/paywall")
         raise HTTPException(status_code=400, detail="Unknown plan")
-    price_id = (settings.stripe_price_id_starter if plan == "starter"
-                else settings.stripe_price_id_pro)
+    price_id = price_id_for(plan)
     if not price_id:
-        raise HTTPException(status_code=503, detail=f"{plan} price not configured")
+        # On sale but its Stripe price is not set yet (STRIPE_PRICE_ID_STUDIO
+        # right after Studio shipped): say so on the plans page, not a 503.
+        log.error("checkout_price_missing", plan=plan)
+        return RedirectResponse("/billing/paywall?unavailable=" + plan)
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     if not uid:
@@ -3012,9 +3035,12 @@ def _plan_change_html(current: str, plan: str, token: str) -> str:
 @app.get("/billing/change", response_class=HTMLResponse)
 async def billing_change_page(request: Request, plan: str = ""):
     """What switching tier costs, and the button that does it."""
-    from src.billing.plans import get_plan
+    from src.billing.plans import SELLABLE_PLANS, PAID_PLANS, get_plan
     from src.auth import users as user_store
-    if plan not in ("starter", "pro"):
+    if plan not in SELLABLE_PLANS:
+        # Nobody may switch onto a tier that is no longer sold (Starter).
+        if plan in PAID_PLANS:
+            return RedirectResponse("/billing/paywall")
         raise HTTPException(status_code=400, detail="Unknown plan")
     uid = request.session.get("user_id", "")
     db_user = user_store.get_by_id(uid) if uid else None
@@ -3037,15 +3063,15 @@ async def billing_change_page(request: Request, plan: str = ""):
 async def billing_change_confirm(request: Request, plan: str = Form(""), token: str = Form("")):
     """Make the switch the person just confirmed. 303s throughout, so the
     browser follows each redirect with a GET instead of re-sending the form."""
-    from src.billing.plans import get_plan
-    from src.billing.stripe_billing import change_subscription_price
+    from src.billing.plans import SELLABLE_PLANS, get_plan
+    from src.billing.stripe_billing import change_subscription_price, price_id_for
     from src.auth import users as user_store
     uid = request.session.get("user_id", "")
     db_user = user_store.get_by_id(uid) if uid else None
     if not db_user:
         return RedirectResponse("/login", status_code=303)
     pending = request.session.pop("plan_change", None) or {}
-    known = plan in ("starter", "pro")
+    known = plan in SELLABLE_PLANS
     fresh = time.time() - float(pending.get("at") or 0) <= _PLAN_CHANGE_TTL_S
     if not (known and fresh and pending.get("plan") == plan
             and hmac.compare_digest(str(pending.get("token") or "").encode(), token.encode())):
@@ -3054,10 +3080,10 @@ async def billing_change_confirm(request: Request, plan: str = Form(""), token: 
         log.warning("plan_change_unconfirmed", user=uid, plan=plan[:16])
         return RedirectResponse(("/billing/change?plan=" + plan) if known else "/billing/paywall",
                                 status_code=303)
-    price_id = (settings.stripe_price_id_starter if plan == "starter"
-                else settings.stripe_price_id_pro)
+    price_id = price_id_for(plan)
     if not settings.stripe_secret_key or not price_id:
-        raise HTTPException(status_code=503, detail=f"{plan} price not configured")
+        log.error("plan_change_price_missing", plan=plan)
+        return RedirectResponse("/billing/paywall?unavailable=" + plan, status_code=303)
     if db_user.get("subscription_status") != "active":
         return RedirectResponse("/billing/checkout?plan=" + plan, status_code=303)
     current = get_plan(db_user)
@@ -4903,13 +4929,49 @@ def live_stream_count() -> int:
     return len(_live_slots)
 
 
+# STUDIO'S FRONT OF THE LINE (owner, 2026-11-03). This many live slots are held
+# back for accounts with `priority` (plans.uid_has_priority): everyone else may
+# fill the box only up to cap minus the reserve. The reserve is only ever as
+# big as the number of priority channels registered and not yet live, so with
+# no Studio account listing channels it is zero and nobody loses a slot to it;
+# and it never takes the last slot from everyone else.
+PRIORITY_RESERVED_SLOTS = 2
+
+
+def _priority_waiting() -> int:
+    """Channels of priority accounts that are registered, not paused, and not
+    holding a live slot: what the reserve is being kept for."""
+    from src.billing.plans import uid_has_priority
+    seen: dict[str, bool] = {}
+    n = 0
+    for key, rec in list(_streams.items()):
+        if key in _live_slots or rec.get("status") == "paused":
+            continue
+        uid = str(rec.get("user_id") or (key.split(":", 1)[0] if ":" in key else ""))
+        if uid not in seen:
+            seen[uid] = uid_has_priority(uid)
+        if seen[uid]:
+            n += 1
+    return n
+
+
 def acquire_live_slot(stream_key: str) -> bool:
-    """Take a slot for a channel that just went live. False means wait."""
+    """Take a slot for a channel that just went live. False means wait.
+    A priority (Studio) channel may take any slot; everyone else leaves the
+    reserve free while a priority channel could still need it."""
     if stream_key in _live_slots:
         return True                       # already holding one; re-entrant
-    if len(_live_slots) >= max(1, settings.max_concurrent_streams):
-        log.warning("live_slots_full", held=len(_live_slots),
-                    cap=settings.max_concurrent_streams, waiting=stream_key)
+    from src.billing.plans import uid_has_priority
+    cap = max(1, settings.max_concurrent_streams)
+    uid = stream_key.split(":", 1)[0] if ":" in stream_key else ""
+    if uid_has_priority(uid):
+        room = cap
+    else:
+        reserve = min(PRIORITY_RESERVED_SLOTS, _priority_waiting(), cap - 1)
+        room = cap - max(0, reserve)
+    if len(_live_slots) >= room:
+        log.warning("live_slots_full", held=len(_live_slots), cap=cap, room=room,
+                    waiting=stream_key)
         return False
     _live_slots.add(stream_key)
     return True
@@ -5082,8 +5144,10 @@ async def add_stream(request: Request, req: StreamRequest):
             # The moment a free user hits this is the moment upgrading means
             # something concrete to them, so name the next tier rather than
             # just refusing.
-            upgrade = {"free": " Starter ($10/mo) gives you 3 streams, Pro gives 10.",
-                       "starter": " Upgrade to Pro for up to 10 streams."}.get(plan, "")
+            from src.billing.plans import PLAN_LIMITS, next_plan
+            nxt = next_plan(plan)
+            upgrade = (f" {PLAN_LIMITS[nxt]['label']} (${PLAN_LIMITS[nxt]['price']}/mo) gives you"
+                       f" {PLAN_LIMITS[nxt]['max_streams']}." if nxt else "")
             raise HTTPException(
                 status_code=429,
                 detail=f"Stream limit reached ({limits['max_streams']} max on your plan)."
@@ -6258,14 +6322,14 @@ def _require_captions(uid: str):
 # both prohibit and which Trustpilot removes profiles for.
 
 def _next_tier(user: dict | None) -> dict | None:
-    """The plan above this user's, with its real numbers. None on Pro — there
-    is nothing above it, and an upgrade button that leads nowhere is worse
-    than no button."""
-    from src.billing.plans import PLAN_LIMITS, get_plan
-    # "locked" — a new account whose 7-day trial ran out — must map to Starter.
-    # Without it the upgrade prompt vanishes for exactly the person the paywall
-    # exists to convert, which is how a caught-by-test regression looks.
-    nxt = {"locked": "starter", "free": "starter", "starter": "pro"}.get(get_plan(user))
+    """The plan above this user's, with its real numbers. None on Studio —
+    there is nothing above it, and an upgrade button that leads nowhere is
+    worse than no button. Always a tier on sale (plans.next_plan): Free and
+    Starter are offered Pro, Pro is offered Studio (2026-11-03)."""
+    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan
+    # "locked" (a missing account) maps like free, so the prompt never
+    # vanishes for the person it exists to convert.
+    nxt = next_plan(get_plan(user))
     if not nxt:
         return None
     return {"plan": nxt, "label": PLAN_LIMITS[nxt]["label"],
@@ -6338,10 +6402,9 @@ LIBRARY_WEEK_SECS = 7 * 24 * 60 * 60
 
 
 def _library_upgrade_hint(uid: str) -> str:
-    """What the next plan up keeps a week, in the weekly-cap refusal. Names
-    Starter to a free user (owner, 2026-09-30: fix the upgrade prompts that only
-    ever offered Pro), and Pro to a Starter user. Read from PLAN_LIMITS, so the
-    numbers cannot drift from what the plans actually allow."""
+    """What the next plan up keeps a week, in the weekly-cap refusal: Pro, to
+    a free or Starter user (Starter is no longer sold, 2026-11-03). Read from
+    PLAN_LIMITS, so the numbers cannot drift from what the plans allow."""
     from src.auth import users as user_store
     from src.billing.plans import PLAN_LIMITS, get_plan, UNLIMITED_PENDING
     plan = get_plan(user_store.get_by_id(uid))
@@ -6349,11 +6412,7 @@ def _library_upgrade_hint(uid: str) -> str:
     def keeps(p: str) -> str:
         n = PLAN_LIMITS[p]["max_library_week"]
         return "as many as you like" if n >= UNLIMITED_PENDING else f"{n} a week"
-    if plan == "free":
-        return (f" Upgrade to keep more: Starter (${PLAN_LIMITS['starter']['price']}/mo)"
-                f" keeps {keeps('starter')}, Pro (${PLAN_LIMITS['pro']['price']}/mo)"
-                f" keeps {keeps('pro')}.")
-    if plan == "starter":
+    if plan in ("free", "starter"):
         return f" Upgrade to keep more: Pro (${PLAN_LIMITS['pro']['price']}/mo) keeps {keeps('pro')}."
     return ""
 
@@ -6403,7 +6462,8 @@ async def notify_clip_missed(user_id: str, channel: str, reason: str = "queue_fu
     _ss.record(_ss.MISSED, {"id": "", "user_id": user_id, "channel": channel,
                             "created_at": time.time()})
     plan = get_plan(user)
-    nxt = {"free": "starter", "starter": "pro"}.get(plan)
+    from src.billing.plans import next_plan
+    nxt = next_plan(plan)
     log.info("clip_missed_queue_full", user_id=user_id, channel=channel,
              pending=used, cap=cap, plan=plan)
     await broadcast({
@@ -8547,7 +8607,7 @@ async def admin_overview(request: Request):
                                "grace": 0, "free": 0}
     # Of the PAYING only. The "Paying" tile's own sub-line describes the people
     # in that tile rather than the whole population.
-    paying_by_tier: dict[str, int] = {"pro": 0, "starter": 0, "legacy": 0}
+    paying_by_tier: dict[str, int] = {"studio": 0, "pro": 0, "starter": 0, "legacy": 0}
     paying = trialing = mrr = legacy = comped = 0
     for u in customers:
         plan = plans.get_plan(u)
@@ -9399,7 +9459,7 @@ async def list_campaign_requests(request: Request):
     if user.get("kick_slug"):
         channels.append({"platform": "kick", "name": user["kick_slug"]})
     return {"rows": [creq.public(r) for r in creq.for_user(uid)],
-            "pricing": creq.pricing(), "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS),
+            "pricing": creq.pricing(user), "judging": camp.JUDGING, "platforms": list(camp.PLATFORMS),
             "limits": {"max_streamers": creq.MAX_STREAMERS, "max_places": creq.MAX_PLACES,
                        "min_place": creq.MIN_PLACE, "days_min": creq.DAYS_MIN,
                        "days_max": creq.DAYS_MAX, "start_lead_days": creq.START_LEAD_MAX_DAYS,
@@ -10637,7 +10697,7 @@ async def llms_txt():
     words — no internals, no counts of real users, no channel names.
     """
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
-    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    f, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def keeps(p: dict) -> str:
         n = p["max_library_week"]
@@ -10723,7 +10783,7 @@ comparison — is at https://highlightz.app/llms-full.txt.
 
 - Monitors live Twitch and Kick channels continuously and clips automatically,
   with no one watching the stream. Add a channel before it goes live and it is
-  rechecked every 30 seconds. Starter and Pro keep watching while you are away;
+  rechecked every 30 seconds. Paid plans keep watching while you are away;
   on Free, monitoring pauses after 8 hours without the dashboard being opened
   and resumes on the next visit.
 - Scores each second from seven live signals against that channel's own
@@ -10764,12 +10824,14 @@ and editors who follow several channels at once and cannot watch them all.{camp_
 - Free — $0, no card, no time limit. {f['max_streams']} channel monitored,
   {f['max_pending']}-clip review queue, {f['max_suggested']} Highlight clips,
   {keeps(f)}.
-- Starter — ${st['price']}/month. {st['max_streams']} channels at once,
-  {st['max_pending']}-clip queue, {st['max_suggested']} Highlight clips,
-  {keeps(st)}.
-- Pro — ${pro['price']}/month. {pro['max_streams']} channels at once,
+- Pro — ${pro['price']}/month, the most popular plan. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
   {_pro_extra}
+- Studio — ${sd['price']}/month. Everything in Pro, with {sd['max_streams']} channels at
+  once, a {sd['max_pending']}-clip queue and {sd['max_suggested']} Highlight clips, plus:
+  front of the line when the server is busy (its channels go live first and
+  its clips are cut first), clip videos kept the full {settings.clip_file_max_age_days} days, no fee on the
+  campaigns it runs, and direct support.
 
 Nothing is metered by the minute: a plan buys channels, and a channel is
 watched for every second it is live. Cancelling returns the account to Free
@@ -10834,7 +10896,7 @@ async def llms_full_txt():
     non-public: it is the same copy, minus the HTML."""
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
     from src.dashboard import compare_content as CC, tutorial_content as TC
-    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    f, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def week(p: dict) -> str:
         n = p["max_library_week"]
@@ -10881,17 +10943,22 @@ async def llms_full_txt():
     w("")
 
     w("## Plans (from the pricing page)\n")
-    w("| | Free | Starter | Pro |")
+    yn = lambda p, k: "Yes" if p.get(k) else "No"      # noqa: E731
+    w("| | Free | Pro (most popular) | Studio |")
     w("|---|---|---|---|")
-    w(f"| Price | $0, no card, no time limit | ${st['price']}/month | ${pro['price']}/month |")
-    w(f"| Channels at once | {f['max_streams']} | {st['max_streams']} | {pro['max_streams']} |")
-    w(f"| Clips held for review | {f['max_pending']} | {st['max_pending']} | {pro['max_pending']} |")
-    w(f"| Highlight clips | {f['max_suggested']} | {st['max_suggested']} | {pro['max_suggested']} |")
-    w(f"| Clips kept per week | {week(f)} | {week(st)} | {week(pro)} |")
-    w(f"| VOD Scanner | {'Yes' if f['vod'] else 'No'} | {'Yes' if st['vod'] else 'No'} | {'Yes' if pro['vod'] else 'No'} |")
-    w(f"| Clip Editor | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
-    w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
-    w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', st)} | {_released('uploads', pro)} |")
+    w(f"| Price | $0, no card, no time limit | ${pro['price']}/month | ${sd['price']}/month |")
+    w(f"| Channels at once | {f['max_streams']} | {pro['max_streams']} | {sd['max_streams']} |")
+    w(f"| Clips held for review | {f['max_pending']} | {pro['max_pending']} | {sd['max_pending']} |")
+    w(f"| Highlight clips | {f['max_suggested']} | {pro['max_suggested']} | {sd['max_suggested']} |")
+    w(f"| Clips kept per week | {week(f)} | {week(pro)} | {week(sd)} |")
+    w(f"| VOD Scanner | {yn(f, 'vod')} | {yn(pro, 'vod')} | {yn(sd, 'vod')} |")
+    w(f"| Clip Editor | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
+    w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
+    w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
+    w(f"| Front of the line when the server is busy | {yn(f, 'priority')} | {yn(pro, 'priority')} | {yn(sd, 'priority')} |")
+    w(f"| Clip videos kept {settings.clip_file_max_age_days} days | {yn(f, 'keep_files')} | {yn(pro, 'keep_files')} | {yn(sd, 'keep_files')} |")
+    w(f"| No fee on campaigns you run | {yn(f, 'no_campaign_fee')} | {yn(pro, 'no_campaign_fee')} | {yn(sd, 'no_campaign_fee')} |")
+    w(f"| Direct support | {yn(f, 'direct_support')} | {yn(pro, 'direct_support')} | {yn(sd, 'direct_support')} |")
     w("\nMove between plans whenever you like; cancel from the Settings tab. Cancelling "
       "returns the account to Free and keeps every approved clip. Streamers can opt out "
       "at any time and it applies everywhere at once.\n")
@@ -11783,7 +11850,7 @@ LANDING_HTML = """<!DOCTYPE html>
        4  catches  light  the category rail and the shelf of clip frames
        5  score    light  the scroll-scrubbed score timeline beside a frame
        6  watch    dark   ten channels being scored, one of them firing
-       7  pricing  light  Starter and Pro as two tall columns of facts
+       7  pricing  light  Free, Pro (most popular) and Studio, columns of facts
        8  end      dark   the closing frame, one line, one button, the footer
      Palette: black, white, the orange, and the paper of the light sections.
      The violet stays in the logo; nothing here borrows it. Type: the mono for numbers and labels, the
@@ -12172,6 +12239,13 @@ LANDING_HTML = """<!DOCTYPE html>
   .plan-facts b{font-family:var(--mono);font-weight:600;color:var(--paper-ink);
     font-variant-numeric:tabular-nums;white-space:nowrap}
   .plan .btn{margin-top:var(--s-6);align-self:flex-start}
+  /* "Most popular" (owner, 2026-11-03): the ember rule and a filled tag. Dark
+     text on ember, never ember text on paper (1.83:1, see the tokens). */
+  .plan{position:relative}
+  .plan.is-pop{border-top:4px solid var(--ember);padding-top:calc(var(--s-5) - 2px)}
+  .plan-badge{position:absolute;top:-14px;left:0;font-family:var(--mono);font-weight:600;
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;line-height:1;
+    padding:4px 8px;border-radius:99px;background:var(--ember);color:#0A0A0C}
   .price-tiny{margin:var(--s-6) 0 0;font-size:13px;color:var(--paper-ink-3);max-width:var(--measure)}
   @media(max-width:900px){
     .plan-price{font-size:clamp(40px,7vw,56px)}
@@ -12275,7 +12349,7 @@ LANDING_HTML = """<!DOCTYPE html>
     @keyframes breathe{0%,100%{opacity:.94}50%{opacity:1.0}}
   }
 </style>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch and Kick clipping: Highlightz watches live streams, catches the best moments with a transparent scoring formula \u2014 not AI \u2014 as a real Twitch clip plus the video file, then reframes them for vertical and posts them to YouTube, TikTok and Instagram.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "25.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Starter $10/month or Pro $25/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Highlightz", "url": "https://highlightz.app/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Automatic Twitch and Kick clipping: Highlightz watches live streams, catches the best moments with a transparent scoring formula \u2014 not AI \u2014 as a real Twitch clip plus the video file, then reframes them for vertical and posts them to YouTube, TikTok and Instagram.", "interactionStatistic": {"@type": "InteractionCounter", "interactionType": "https://schema.org/CreateAction", "userInteractionCount": 0, "description": "Clips created automatically by Highlightz"}, "offers": {"@type": "AggregateOffer", "lowPrice": "0.00", "highPrice": "250.00", "priceCurrency": "USD", "offerCount": "3", "description": "Free plan with no card required, then Pro $25/month or Studio $250/month. Cancel anytime."}, "publisher": {"@type": "Organization", "name": "ANTI Technology LLC", "url": "https://highlightz.app/", "logo": "https://highlightz.app/static/icon.png"}}</script>
 <!--FAQ_SCHEMA-->
 </head>
 <body>
@@ -12423,7 +12497,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <div class="watch-head">
       <h2 class="disp l-h" id="watch-h">Ten streams are live right now.</h2>
-      <p class="l-sub">Pro watches ten channels at once, Starter three, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
+      <p class="l-sub">Studio watches thirty channels at once, Pro ten, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
       <!-- Both platforms, stated once (owner, 2026-09-16: "market kick on
            the landing page"). Two tiles, not a section: the page keeps its
            eight. What differs is only what the clip IS on each platform. -->
@@ -13826,8 +13900,8 @@ def _bignums_html(total: int) -> str:
 
 
 # ── Pricing, built from plans.py ─────────────────────────────────────────────
-# Two tall columns, Starter and Pro, real limits and real prices. No badge, no
-# highlighted column. Free is the way in and is stated first, above them.
+# Free, Pro and Studio, real limits and real prices (Starter came off the site
+# 2026-11-03). Pro carries the one badge, "Most popular" (owner's call).
 def _rel_live_phrase() -> str:
     from src.publish import release
     return release.join(release.live_platforms()) or "TikTok"
@@ -13862,8 +13936,16 @@ def _released(key: str, limits: dict) -> str:
 
 
 def _pricing() -> str:
-    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
-    free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN
+    free, pro, studio = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
+
+    def fee(limits: dict) -> str:
+        # The campaign fee as configured, or None where the plan waives it.
+        if limits.get("no_campaign_fee"):
+            return "None"
+        flat, pct = settings.campaign_flat_fee_usd, settings.campaign_fee_pct
+        parts = (["$" + format(flat, "g")] if flat else []) + ([format(pct, "g") + "%"] if pct else [])
+        return " + ".join(parts) or "None"
 
     def week(limits: dict) -> str:
         w = limits.get("max_library_week", 0)
@@ -13890,23 +13972,35 @@ def _pricing() -> str:
             # Opened to Pro with the Scheduler (2026-10-05); same entitlement,
             # so it reads Soon/Yes/No in step with the two rows above.
             ("Autopilot", _released("uploads", limits)),
+            # Studio's four (2026-11-03), on every column so the difference
+            # is read across, not described.
+            ("Front of the line", "Yes" if limits.get("priority") else "No"),
+            (f"Clip videos kept {settings.clip_file_max_age_days} days", "Yes" if limits.get("keep_files") else "No"),
+            ("Fee on your campaigns", fee(limits)),
+            ("Direct support", "Yes" if limits.get("direct_support") else "No"),
         ]
-        return ('<div class="plan"><h3 class="plan-name">' + limits["label"] + "</h3>"
+        popular = limits is PLAN_LIMITS.get(POPULAR_PLAN)
+        return ('<div class="plan' + (" is-pop" if popular else "") + '">'
+                + ('<span class="plan-badge">Most popular</span>' if popular else "")
+                + '<h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
                 + '<ul class="plan-facts">'
                 + "".join("<li><span>" + k + "</span><b>" + v + "</b></li>" for k, v in facts)
                 + "</ul>"
-                + '<a href="/login" class="btn btn-dark btn-lg">' + cta + "</a></div>")
+                + '<a href="/login" class="btn ' + ("btn-go" if popular else "btn-dark")
+                + ' btn-lg">' + cta + "</a></div>")
 
     # THREE COLUMNS, Free first (owner's call: the free tier is displayed, not
     # described). Same construction for all three; the plans differ on the
-    # rows and nowhere else, and Free's price says why it is zero.
+    # rows and nowhere else, and Free's price says why it is zero. Free, Pro,
+    # Studio since 2026-11-03 (owner: Starter off the site, a $250 tier above
+    # Pro, Pro marked "Most popular").
     return (
         '<p class="price-lead"><b>Start free and stay free.</b> There is no card to '
         "enter and no time limit on it. Upgrade when you want. The plans differ on "
         "the rows below and nowhere else.</p>"
-        '<div class="plans">' + plan(free, "Start free", "no card") + plan(st, "Get Starter")
-        + plan(pro, "Get Pro") + "</div>"
+        '<div class="plans">' + plan(free, "Start free", "no card") + plan(pro, "Get Pro")
+        + plan(studio, "Get Studio") + "</div>"
         '<p class="price-tiny">Move between them whenever you like. Cancel from the Settings tab. '
         "No contracts. Streamers can opt out at any time, and it applies everywhere at once.</p>")
 
@@ -14115,7 +14209,7 @@ def _tos_plans() -> str:
     describe a product we do not sell.
     """
     from src.billing.plans import PLAN_LIMITS
-    f, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    f, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def chans(n: int) -> str:
         return str(n) + (" channel" if n == 1 else " channels")
@@ -14126,13 +14220,19 @@ def _tos_plans() -> str:
         + chans(f["max_streams"]) + " at a time, holds " + str(f["max_pending"])
         + " clips in your review queue, adds up to " + str(f["max_suggested"])
         + " suggested clips on top of those, and lets you keep "
-        + str(f["max_library_week"]) + " clips a week in your library. Starter "
-        "is $" + str(st["price"]) + "/month for " + chans(st["max_streams"])
-        + ", a " + str(st["max_pending"]) + "-clip queue and "
-        + str(st["max_library_week"]) + " clips a week. Pro is $"
+        + str(f["max_library_week"]) + " clips a week in your library. Pro is $"
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
-        "keep, the VOD Scanner, the Clip Editor and the Scheduler. Current plan details and "
+        "keep, the VOD Scanner, the Clip Editor and the Scheduler. Studio is $"
+        + str(sd["price"]) + "/month for everything in Pro with " + chans(sd["max_streams"])
+        + " and a " + str(sd["max_pending"]) + "-clip queue; in addition, when the "
+        "Service is at capacity, Studio channels are given priority for live monitoring "
+        "and Studio clips for processing, saved clip files are kept for the full retention "
+        "period described in our Privacy Policy rather than cleared early to make room, "
+        "campaigns a Studio account funds carry no campaign fee, and Studio includes "
+        "direct support by email. Priority means being served first when capacity is "
+        "short, not a guarantee of any particular capacity. Subscribers on an earlier "
+        "plan keep its terms until they change plans. Current plan details and "
         "prices are shown on our pricing page and in your Settings tab.</p>"
         "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
@@ -14145,7 +14245,7 @@ def _faq() -> str:
     one thing on the page a visitor has no way of knowing about, and the
     pricing column names them without saying what they are."""
     from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
-    free, st, pro = PLAN_LIMITS["free"], PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    free, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def week(limits: dict) -> str:
         w = limits.get("max_library_week", 0)
@@ -14196,12 +14296,12 @@ def _faq() -> str:
         ("Do I have to leave anything running?",
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
-         "until it is. On Starter and Pro it keeps watching for as long as the channel is in "
+         "until it is. On Pro and Studio it keeps watching for as long as the channel is in "
          "your list. On Free, monitoring pauses after 8 hours without you opening the dashboard "
          "and picks up again on your next visit."),
         ("How many channels can it watch at once?",
-         f"<b>{free['max_streams']}</b> on Free, <b>{st['max_streams']}</b> on Starter, "
-         f"<b>{pro['max_streams']}</b> on Pro. At the same time, not in rotation, and each one "
+         f"<b>{free['max_streams']}</b> on Free, <b>{pro['max_streams']}</b> on Pro, "
+         f"<b>{sd['max_streams']}</b> on Studio. At the same time, not in rotation, and each one "
          "carries its own profile so a busy channel and a quiet one do not interfere with each other."),
         ("Does it work for small channels?",
          "Yes, and this is the whole point of scoring each channel against itself. A five-viewer "
@@ -14218,8 +14318,8 @@ def _faq() -> str:
          "Just Chatting, IRL, Chess and more) that decides where it starts, and a sensitivity dial "
          "for a stream running hotter or quieter than usual."),
         ("What happens when my review queue fills up?",
-         f"<b>{free['max_pending']}</b> clips can sit waiting on Free, <b>{st['max_pending']}</b> on "
-         f"Starter, <b>{pro['max_pending']}</b> on Pro. When the queue is full the newest arrival is "
+         f"<b>{free['max_pending']}</b> clips can sit waiting on Free, <b>{pro['max_pending']}</b> on "
+         f"Pro, <b>{sd['max_pending']}</b> on Studio. When the queue is full the newest arrival is "
          "dropped, and nothing you have already caught is ever deleted to make room for it. The "
          "dashboard tells you how many moments were missed that way, so a full queue is something "
          "you find out about rather than something that happens silently."),
@@ -14243,14 +14343,14 @@ def _faq() -> str:
          "the reason a clip the formula caught did not land."),
         ("How many Highlight clips do I get?",
          f"They have their own budget on top of the review queue: <b>{free['max_suggested']}</b> on "
-         f"Free, <b>{st['max_suggested']}</b> on Starter, <b>{pro['max_suggested']}</b> on Pro. "
+         f"Free, <b>{pro['max_suggested']}</b> on Pro, <b>{sd['max_suggested']}</b> on Studio. "
          "Approve one and it is kept like any other clip; the Clip Library files them under their "
          "own Highlights row."),
     ]
     fine = [
         ("What does “clips kept per week” mean?",
          f"How many clips you can approve into your library in a week: <b>{week(free)}</b> on Free, "
-         f"<b>{week(st)}</b> on Starter, <b>{week(pro)}</b> on Pro. Reaching the number pauses new "
+         f"<b>{week(pro)}</b> on Pro, <b>{week(sd)}</b> on Studio. Reaching the number pauses new "
          "approvals until the week rolls over. Nothing already in your library is ever removed "
          "because of it."),
         ("What are the VOD Scanner, the Clip Editor and the Scheduler?",
@@ -14302,10 +14402,16 @@ def _faq() -> str:
          "the clip or your account. On Twitch the clip itself is also a real Twitch clip, hosted "
          "by Twitch and attributed to you. Full detail is in the <a href=\"/privacy\">Privacy Policy</a>."),
         ("How does billing work?",
-         f"Free is free: it asks for no card and it never expires. Starter is <b>${st['price']}</b> a month and Pro is "
-         f"<b>${pro['price']}</b> a month. Move between them whenever you like and cancel from the "
+         f"Free is free: it asks for no card and it never expires. Pro is <b>${pro['price']}</b> a month and Studio is "
+         f"<b>${sd['price']}</b> a month. Move between them whenever you like and cancel from the "
          "Settings tab. Cancelling puts you back on Free, and every clip you approved stays in your "
          "library."),
+        ("What does Studio add?",
+         f"Everything in Pro, with more of it: <b>{sd['max_streams']}</b> channels at once and a "
+         f"<b>{sd['max_pending']}</b>-clip queue. Then four things Pro does not have. Front of the "
+         "line: when the server is busy, Studio channels go live first and Studio clips are cut "
+         f"first. Clip videos are kept the full {settings.clip_file_max_age_days} days instead of being cleared early to make room. "
+         "Campaigns you run carry no fee. And direct support, straight to the founder."),
     ]
     return (group("Using it", using)
             + group("Highlight clips", highlights)
@@ -14529,8 +14635,8 @@ def _paywall_plans() -> str:
     weekly keep limit is now one of the main reasons to upgrade and the page
     did not mention it at all.
     """
-    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
-    st, pro = PLAN_LIMITS["starter"], PLAN_LIMITS["pro"]
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN
+    pro, studio = PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def keeps(p: dict) -> str:
         n = p["max_library_week"]
@@ -14552,12 +14658,18 @@ def _paywall_plans() -> str:
                 + '<a href="/billing/checkout?plan=' + key + '" class="cta '
                 + cta_cls + '">Choose ' + p["label"] + "</a></div>")
 
+    # Pro and Studio since 2026-11-03 (Starter is no longer sold). Pro carries
+    # the "Most popular" badge; Studio leads with what Pro does not have.
     return ('<div class="plan-row">'
-            + card(st, "starter", "", "ghost",
-                   ["Live clip detection &amp; analytics"], False)
             + card(pro, "pro", "pro", "",
                    ["VOD Scanner included", "Clip Editor included",
-                    "Scheduler included"], True)
+                    "Scheduler included"], POPULAR_PLAN == "pro")
+            + card(studio, "studio", "studio", "ghost",
+                   ["Everything in Pro",
+                    "Front of the line when the server is busy",
+                    f"Clip videos kept {settings.clip_file_max_age_days} days",
+                    "No fee on campaigns you run",
+                    "Direct support"], POPULAR_PLAN == "studio")
             + "</div>")
 
 
@@ -15152,6 +15264,7 @@ ADMIN_HTML = """<!DOCTYPE html>
      the action colour because it is the row that pays. ── */
   .plan{font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.14em;text-transform:uppercase}
   .plan-pro{color:var(--ember)}
+  .plan-studio{color:var(--good);font-weight:700}
   .plan-starter{color:var(--ink)}
   .plan-free{color:var(--ink-3)}
   .plan-note{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.02em}
@@ -15466,8 +15579,9 @@ ADMIN_HTML = """<!DOCTYPE html>
       <input class="field" id="u-search" placeholder="Search name, Twitch login, email or where they found us">
       <div class="chips" id="u-chips">
         <button class="chip on" data-f="active" title="Everyone currently on the product — free, paying, on trial and staff. Cancelled accounts keep free access but are listed under Lapsed.">Active</button>
+        <button class="chip" data-f="studio">Studio</button>
         <button class="chip" data-f="pro">Pro</button>
-        <button class="chip" data-f="starter">Starter</button>
+        <button class="chip" data-f="starter" title="No longer sold; subscribers who were already on it">Starter</button>
         <button class="chip" data-f="free">Free</button>
         <button class="chip" data-f="trialing">Trial</button>
         <button class="chip" data-f="lapsed">Lapsed</button>
@@ -15736,7 +15850,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         <input class="field" id="bo-head" maxlength="60" value="50% off your first month" placeholder="What it is (shown as the title)" style="flex:1;min-width:200px">
         <select class="btn" id="bo-plan">
           <option value="pro" selected>Pro</option>
-          <option value="starter">Starter</option>
+          <option value="studio">Studio</option>
         </select>
       </div>
       <div style="display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">
@@ -16970,7 +17084,7 @@ document.getElementById('bo-send').addEventListener('click', async function(){
   try {
     const n = (await apiJson('/admin/offers/bulk', 'POST', Object.assign({dry_run: true}, f))).count;
     if(!n){ msg.textContent = 'Nobody to send it to.'; return; }
-    const plan = f.plan === 'starter' ? 'Starter' : 'Pro';
+    const plan = f.plan === 'studio' ? 'Studio' : 'Pro';
     if(!confirm('Offer "' + f.headline + ' on ' + plan + '" with code ' + f.code.toUpperCase() + ' to ' + n + ' account' + (n === 1 ? '' : 's') + ' that are not paying?')){ msg.textContent = ''; return; }
     msg.textContent = 'Sending…';
     const r = await apiJson('/admin/offers/bulk', 'POST', f);
@@ -17093,6 +17207,7 @@ async function loadOverview(){
   // The tiers OF THE PAYING, which is what this tile counts. `legacy` are
   // $15-era subscribers whose price Stripe holds and we do not.
   const pt = [];
+  if(tier.studio)  pt.push(n0(tier.studio) + ' Studio');
   if(tier.pro)     pt.push(n0(tier.pro) + ' Pro');
   if(tier.starter) pt.push(n0(tier.starter) + ' Starter');
   if(tier.legacy)  pt.push(n0(tier.legacy) + ' legacy');
@@ -17204,12 +17319,13 @@ const U_SORTS = {
 
 // The comp-able tiers. Kept next to the table and the drawer so the two can
 // never offer different memberships; the server validates against PAID_PLANS
-// regardless, so an edit here cannot invent a plan.
-const PLAN_OPTIONS = [['starter', 'Starter'], ['pro', 'Pro']];
+// regardless, so an edit here cannot invent a plan. Starter is no longer sold
+// (2026-11-03), so it is not granted either.
+const PLAN_OPTIONS = [['pro', 'Pro'], ['studio', 'Studio']];
 const DURATIONS = [['0','Forever'],['3','3 days'],['7','1 week'],
                    ['14','2 weeks'],['30','1 month'],['90','3 months']];
 
-function planClass(p){ return p === 'pro' ? 'plan-pro' : p === 'starter' ? 'plan-starter' : 'plan-free'; }
+function planClass(p){ return p === 'studio' ? 'plan-studio' : p === 'pro' ? 'plan-pro' : p === 'starter' ? 'plan-starter' : 'plan-free'; }
 
 // One line under the plan saying WHY they are on it. Without this a row reading
 // "Pro" is ambiguous between a paying customer, a comped admin, a granted trial
@@ -17784,7 +17900,7 @@ function offerBlock(u){
   return h + '<div class="acts" style="justify-content:flex-start;flex-wrap:wrap">'
     + '<input class="field dr-offer-code" placeholder="Stripe code, e.g. CLIPPER" style="width:180px">'
     + '<input class="field dr-offer-text" placeholder="25% off your first month" style="width:200px">'
-    + '<select class="btn dr-offer-plan"><option value="pro">Pro</option><option value="starter">Starter</option></select>'
+    + '<select class="btn dr-offer-plan"><option value="pro">Pro</option><option value="studio">Studio</option></select>'
     + '<button class="btn btn-good dr-offer">Offer it</button></div>';
 }
 

@@ -99,7 +99,12 @@ def test_the_filler_sections_and_headings_stay_cut(gone):
 
 def test_pricing_is_not_three_cards_with_tick_lists():
     sec = re.search(r'<section[^>]*id="pricing".*?</section>', HTML, re.S).group(0)
-    assert "Most popular" not in sec, "the badge is back"
+    # ONE badge, on Pro, by the owner's own call (2026-11-03: "make the 25$
+    # highlighted as like 'best seller' or 'popular'"). What this still
+    # guards is the template look: a badge on every card, or ticks.
+    assert sec.count("Most popular") == 1, "more than one badge, or none"
+    after = sec[sec.index("Most popular"):]
+    assert after.split('plan-name">', 1)[1].startswith("Pro<"), "the badge is not on Pro"
     assert sec.count("price-card") == 0, "the three-card grid is back"
     assert sec.count("&#10003;") == 0 and sec.count("class=\"ck\"") == 0, \
         "tick lists are back"

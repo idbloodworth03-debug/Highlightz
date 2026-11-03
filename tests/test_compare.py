@@ -110,14 +110,15 @@ def test_our_prices_match_the_real_plans():
     about price keeps saying $25."""
     from src.billing.plans import PLAN_LIMITS
     ours = {p.name.lower(): p for p in C.HIGHLIGHTZ.plans}
-    assert f"${PLAN_LIMITS['starter']['price']}/mo" == ours["starter"].price
+    assert "starter" not in ours, "Starter is no longer sold (2026-11-03)"
     assert f"${PLAN_LIMITS['pro']['price']}/mo" == ours["pro"].price
+    assert f"${PLAN_LIMITS['studio']['price']}/mo" == ours["studio"].price
 
 
 def test_our_channel_counts_match_the_real_limits():
     from src.billing.plans import PLAN_LIMITS
     ours = {p.name.lower(): p for p in C.HIGHLIGHTZ.plans}
-    assert str(PLAN_LIMITS["starter"]["max_streams"]) in ours["starter"].note
+    assert str(PLAN_LIMITS["studio"]["max_streams"]) in ours["studio"].note
     assert str(PLAN_LIMITS["pro"]["max_streams"]) in ours["pro"].note
     assert str(PLAN_LIMITS["pro"]["max_pending"]) in ours["pro"].note
 

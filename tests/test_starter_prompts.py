@@ -15,7 +15,8 @@ import pytest
 
 
 @pytest.mark.parametrize("plan_user,expect,absent", [
-    ({"id": "u", "subscription_status": "none"}, ["Starter ($10/mo) keeps 100 a week", "Pro ($25/mo) keeps as many as you like"], []),
+    # Starter is no longer sold (2026-11-03): free and Starter are both offered Pro.
+    ({"id": "u", "subscription_status": "none"}, ["Pro ($25/mo) keeps as many as you like"], ["Starter"]),
     ({"id": "u", "subscription_status": "active", "plan": "starter"}, ["Pro ($25/mo) keeps as many as you like"], ["Starter"]),
     ({"id": "u", "subscription_status": "active", "plan": "pro"}, [], ["Starter", "Pro"]),
 ])
@@ -30,7 +31,7 @@ def test_the_weekly_limit_names_the_next_plan(monkeypatch, plan_user, expect, ab
         assert a not in hint
 
 
-def test_a_free_user_at_the_weekly_wall_is_told_about_starter(monkeypatch):
+def test_a_free_user_at_the_weekly_wall_is_told_about_pro(monkeypatch):
     import base64, json
     from fastapi.testclient import TestClient
     from itsdangerous import TimestampSigner
@@ -46,7 +47,8 @@ def test_a_free_user_at_the_weekly_wall_is_told_about_starter(monkeypatch):
         {"auth": True, "user_id": "u", "username": "u", "subscription_status": "none"}).encode())).decode())
     r = c.post("/clips/c1/approve")
     assert r.status_code == 403
-    assert "Starter ($10/mo) keeps 100 a week" in r.json()["detail"]
+    assert "Pro ($25/mo) keeps as many as you like" in r.json()["detail"]
+    assert "Starter" not in r.json()["detail"]
     assert api._clips["c1"]["status"] == "pending"
 
 
@@ -60,5 +62,6 @@ def test_the_limits_already_fixed_stay_fixed():
     from src.dashboard import api
     from src.dashboard.aurora_html import DASHBOARD_HTML as page
     src = open(api.__file__).read()
-    assert '"free": " Starter ($10/mo) gives you 3 streams, Pro gives 10."' in src
-    assert "(nextPlan === 'starter' ? 'Starter' : 'Pro') + ' holds '" in page
+    # Both name the next tier ON SALE (plans.next_plan), never Starter.
+    assert "nxt = next_plan(plan)" in src and "Starter ($10/mo)" not in src
+    assert "PLAN_NAME(nextPlan) + ' holds '" in page

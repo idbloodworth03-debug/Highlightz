@@ -359,8 +359,8 @@ def highlightz_points() -> tuple:
     pts = [
         ("It watches live channels for you",
          f"Add Twitch or Kick channels and Highlightz watches them while they "
-         f"are live — {_limit('free')} on Free, {_limit('starter')} on Starter, "
-         f"{_limit('pro')} on Pro — so you are not sitting on six streams at once."),
+         f"are live — {_limit('free')} on Free, {_limit('pro')} on Pro, "
+         f"{_limit('studio')} on Studio — so you are not sitting on six streams at once."),
         ("It catches the moment while it is happening",
          "Clips are made during the stream and land in a review queue. In a "
          "per-view campaign the first good post usually gets the views, and "

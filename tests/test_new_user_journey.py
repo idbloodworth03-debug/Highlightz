@@ -386,14 +386,15 @@ def test_the_scheduler_is_marketed_on_the_landing_page_and_sold_as_pro_only():
     for name in ("pricing", "terms plans", "llms.txt", "paywall"):
         assert "scheduler" in _visible_text(s[name]), f"{name} omits the Scheduler"
     assert "| scheduler |" in _visible_text(s["llms-full.txt"])
-    # Pro only: the entitlement is the editor's, and only Pro has it — so the
-    # pricing table says Yes on exactly the Pro column.
+    # Pro and up: the entitlement is the editor's, and Pro and Studio (since
+    # 2026-11-03) have it — so the pricing table says Yes on exactly those.
     import re
-    assert [k for k, v in PLAN_LIMITS.items() if v["uploads"]] == ["pro"]
+    assert [k for k, v in PLAN_LIMITS.items() if v["uploads"]] == ["pro", "studio"]
     rows = re.findall(r'plan-name">([^<]+)</h3>.*?<span>Scheduler</span><b>(Yes|No)</b>',
                       s["pricing"], re.S)
     assert rows, "no Scheduler row in the pricing table"
-    assert {label for label, yes in rows if yes == "Yes"} == {PLAN_LIMITS["pro"]["label"]}, rows
+    assert {label for label, yes in rows if yes == "Yes"} == {PLAN_LIMITS["pro"]["label"],
+                                                              PLAN_LIMITS["studio"]["label"]}, rows
 
 
 def test_the_clip_editor_is_marketed_on_the_landing_page():

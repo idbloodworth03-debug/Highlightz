@@ -213,8 +213,11 @@ def test_the_next_tier_reaches_me_so_the_reload_path_can_sell():
     assert "(data.next_plan||{}).price" in SRC, "the frontend ignores it on reload"
 
 
-def test_pro_has_no_next_tier():
+def test_studio_has_no_next_tier():
+    """Studio is the top (2026-11-03); Pro's next tier is Studio, and the
+    free tier is offered Pro, never Starter (no longer sold)."""
     from src.dashboard import api
-    assert api._next_tier({"subscription_status": "active", "plan": "pro"}) is None
+    assert api._next_tier({"subscription_status": "active", "plan": "studio"}) is None
+    assert api._next_tier({"subscription_status": "active", "plan": "pro"})["plan"] == "studio"
     nxt = api._next_tier({"subscription_status": "none", "grandfathered": True})
-    assert nxt["plan"] == "starter" and nxt["max_pending"] == 50 and nxt["price"] == 10
+    assert nxt["plan"] == "pro" and nxt["max_pending"] == 200 and nxt["price"] == 25

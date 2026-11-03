@@ -164,7 +164,7 @@ def test_the_chart_states_its_numbers_as_text_too():
 def test_plan_numbers_come_from_the_real_plans():
     from src.billing.plans import PLAN_LIMITS
     text = " ".join(d for _, d in B.highlightz_points())
-    for plan in ("free", "starter", "pro"):
+    for plan in ("free", "pro", "studio"):
         n = PLAN_LIMITS[plan]["max_streams"]
         assert f"{n} on {plan.capitalize()}" in text, plan
 

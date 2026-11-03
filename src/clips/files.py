@@ -346,7 +346,31 @@ def protected_ids() -> frozenset:
         return frozenset()
 
 
-def trim_to_cap(keep_ids: set | None = None) -> int:
+def kept_ids() -> frozenset:
+    """Clip ids whose owner's plan KEEPS its videos the full age ceiling
+    (Studio's `keep_files`, owner 2026-11-03): the size cap never clears them
+    early to make room; only sweep()'s age ceiling does. Same lazy upward
+    reach as protected_ids, and the same failure mode: an empty set, i.e. the
+    old behaviour."""
+    try:
+        from src.auth import users as user_store
+        from src.billing.plans import limits_for
+        from src.dashboard import api as dashboard_api
+        owners: dict = {}
+        out = set()
+        for c in list(dashboard_api._clips.values()):
+            uid = c.get("user_id")
+            if uid not in owners:
+                owners[uid] = bool(uid) and bool(
+                    limits_for(user_store.get_by_id(uid)).get("keep_files"))
+            if owners[uid] and c.get("id"):
+                out.add(c["id"])
+        return frozenset(out)
+    except Exception:                       # noqa: BLE001 - see docstring
+        return frozenset()
+
+
+def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> int:
     """Delete files until the store is back under the cap — UNREVIEWED FIRST.
 
     `keep_ids` are clip ids to evict LAST (approved ones, by default — see
@@ -416,6 +440,9 @@ def trim_to_cap(keep_ids: set | None = None) -> int:
     # protection without having to remember. An explicit empty set means
     # "protect nothing", which is what the tests pass.
     keep = protected_ids() if keep_ids is None else keep_ids
+    # Studio's videos are not evicted at all (kept_ids); the rest are ordered
+    # as below. None means "work it out", like keep_ids.
+    exempt = kept_ids() if exempt_ids is None else exempt_ids
     def _order(entry):
         mtime, _size, path = entry
         # `in keep`, NOT `not in`: False sorts before True, so an unprotected
@@ -427,6 +454,8 @@ def trim_to_cap(keep_ids: set | None = None) -> int:
     for mtime, size, p in sorted(entries, key=_order):
         if total <= target:
             break
+        if p.stem in exempt:
+            continue                         # Studio: kept the full age ceiling
         if mtime > youngest_evictable:
             # NOT a break any more. The list is no longer sorted by age alone,
             # so a too-young file here says nothing about the ones after it —

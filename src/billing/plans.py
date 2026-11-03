@@ -3,9 +3,17 @@ Membership tiers.
 
   free    — $0, no card, no time limit: 1 monitored stream, 20 pending clips,
             5 suggested clips. No VOD scanner, no Clip Editor.
-  starter — $10/month: 3 monitored streams, 50 pending clips
+  starter — $10/month: 3 monitored streams, 50 pending clips. NO LONGER SOLD
+            (owner, 2026-11-03: "remove the $10 tier from the site"). Existing
+            Starter subscribers keep it, at their price, until they change it.
   pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
-            Clip Editor
+            Clip Editor. Shown as "Most popular".
+  studio  — $250/month (owner, 2026-11-03: "a new tier that is $250, this needs
+            to be better than the highest tier"): everything in Pro, plus 30
+            streams, 1,000 pending clips, 200 Highlight clips, FRONT OF THE LINE
+            (reserved live slots, its clips cut first), clip videos KEPT the
+            full 30 days (never cleared early to make room), NO FEE on the
+            campaigns it runs, and direct support.
 
 THE 7-DAY TRIAL IS GONE (2026-08-26) AND FREE IS THE FRONT DOOR AGAIN.
 
@@ -144,30 +152,85 @@ _HL_PRIORITY = "highlight_priority"
 # ran backwards: free never paused and paid always did.
 _IDLE_PAUSE = "pauses_when_idle"
 
+# STUDIO'S FOUR (owner, 2026-11-03), each a flag so every check reads
+# limits_for() like the rest, and a trial or admin grant of Studio carries
+# them too.
+#   priority        FRONT OF THE LINE. Its channels may take the live slots
+#                   held back from everyone else (api.acquire_live_slot), and
+#                   its clips are cut ahead of the queue (main.py).
+#   keep_files      Its clip videos are never cleared early to make room
+#                   (files.trim_to_cap): they stay the full age ceiling.
+#   no_campaign_fee The campaigns it runs carry no fee, flat or percentage
+#                   (campaigns.requests.quote / pricing).
+#   direct_support  A direct line to the owner, shown in Settings.
+_PRIORITY = "priority"
+_KEEP_FILES = "keep_files"
+_NO_CAMPAIGN_FEE = "no_campaign_fee"
+_SUPPORT = "direct_support"
+_STANDARD = {_PRIORITY: False, _KEEP_FILES: False, _NO_CAMPAIGN_FEE: False, _SUPPORT: False}
+
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
     # It is not any more, and with free reopened nothing lands here at all —
     # the label survives for the one caller that can still reach it.
     "locked":  {"label": "Not subscribed", "price": 0, "max_streams": 0,
                 "max_pending": 0, _SUGGESTED: 0, _LIB_WEEK: 0,
-                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: True},
+                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: True,
+                **_STANDARD},
     # THE FRONT DOOR. No card, no clock. Deliberately the smallest version of
     # the product that still proves it works: one channel, twenty clips in the
     # queue, and five suggested clips on top of those — see _SUGGESTED.
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
                 "max_pending": 20, _SUGGESTED: 5, _LIB_WEEK: 30,
-                "vod": False, "uploads": False, _HL_PRIORITY: True, _IDLE_PAUSE: True},
+                "vod": False, "uploads": False, _HL_PRIORITY: True, _IDLE_PAUSE: True,
+                **_STANDARD},
+    # Not sold any more (SELLABLE_PLANS); kept whole for the subscribers on it.
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
                 "max_pending": 50, _SUGGESTED: 25, _LIB_WEEK: 100,
-                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: False},
+                "vod": False, "uploads": False, _HL_PRIORITY: False, _IDLE_PAUSE: False,
+                **_STANDARD},
     # Pro is the tier with no ceiling on what you keep, which is most of why
     # somebody moves up from Starter.
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
                 "max_pending": 200, _SUGGESTED: 75, _LIB_WEEK: UNLIMITED_PENDING,
-                "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False},
+                "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False,
+                **_STANDARD},
+    # Everything in Pro and more of it, plus the four above.
+    "studio":  {"label": "Studio", "price": 250, "max_streams": 30,
+                "max_pending": 1000, _SUGGESTED: 200, _LIB_WEEK: UNLIMITED_PENDING,
+                "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False,
+                _PRIORITY: True, _KEEP_FILES: True, _NO_CAMPAIGN_FEE: True, _SUPPORT: True},
 }
 
-PAID_PLANS = ("starter", "pro")
+# Every tier somebody may be PAYING for, sold or not: what entitlement, MRR and
+# the webhook recognise.
+PAID_PLANS = ("starter", "pro", "studio")
+# What can be BOUGHT or switched to today, in the order the pricing shows them.
+# Starter is out (owner, 2026-11-03); its subscribers keep it, but no checkout,
+# plan switch or offer can put anyone new on it.
+SELLABLE_PLANS = ("pro", "studio")
+# The column marked "Most popular" on the pricing (owner, 2026-11-03).
+POPULAR_PLAN = "pro"
+
+
+def uid_has_priority(uid: str) -> bool:
+    """Whether this account goes to the front of the line (Studio's
+    `priority`): reserved live slots, its clips cut first, its renders next.
+    Never raises; a lookup failure is simply no priority."""
+    if not uid:
+        return False
+    try:
+        from src.auth import users as user_store
+        return bool(limits_for(user_store.get_by_id(uid)).get(_PRIORITY))
+    except Exception:
+        return False
+
+
+def next_plan(plan: str) -> str | None:
+    """The tier an upgrade prompt offers from this one: always one that is on
+    sale (so never Starter), None from the top. Free and Starter move to Pro,
+    Pro to Studio. "locked" maps like free so no account loses its prompt."""
+    return {"locked": "pro", "free": "pro", "starter": "pro", "pro": "studio"}.get(plan)
 # What a legacy ($15-era, single-price) subscriber actually pays. Their price
 # id predates the tiers and is not stored on the record, so the admin MRR
 # used to leave them out and call itself a floor. Owner (2026-09-16): count

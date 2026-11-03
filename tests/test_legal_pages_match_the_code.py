@@ -431,9 +431,10 @@ def test_the_compare_page_describes_our_real_plans():
 def test_the_upgrade_page_names_what_upgrading_buys():
     """The weekly cap is a main reason to upgrade; the paywall never said so."""
     from src.dashboard.api import PAYWALL_HTML
-    st = PLAN_LIMITS["starter"]
-    assert f"{st['max_library_week']} clips kept a week" in PAYWALL_HTML
+    # Pro and Studio since 2026-11-03: both keep without a weekly limit,
+    # and Studio says what it adds on top.
     assert "Unlimited clips kept" in PAYWALL_HTML, "Pro's headline benefit is missing"
+    assert "Clip videos kept 30 days" in PAYWALL_HTML and "Front of the line" in PAYWALL_HTML
     assert "1000000000" not in PAYWALL_HTML, "the sentinel reached the page"
 
 

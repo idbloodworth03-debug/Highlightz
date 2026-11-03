@@ -235,7 +235,9 @@ def test_the_landing_page_sells_autopilot_now_it_is_open(tiktok_only):
     things too". Autopilot opened to Pro with the Scheduler but the landing
     page never named it."""
     t = tiktok_only["LANDING"]
-    assert "Scheduler Yes Autopilot Yes Get Pro" in t
+    # Studio's rows follow Autopilot since 2026-11-03, then the button.
+    assert "Scheduler Yes Autopilot Yes Front of the line No" in t
+    assert "Direct support No Get Pro" in t
     assert "Switch on Autopilot and every clip you approve is reframed" in t
     assert "Autopilot, also Pro" in t
 

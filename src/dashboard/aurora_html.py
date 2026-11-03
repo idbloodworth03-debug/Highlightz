@@ -3657,8 +3657,12 @@ function AnnouncementModal({ a, onSeen, onOpenCampaign }) {
 // straight to Stripe Checkout with the code already applied; the server only
 // applies it because it is this account's own offer. Same look as an
 // announcement, behind one if both are waiting.
+// Plan keys to the names on the pricing page. Starter is no longer sold
+// (2026-11-03) but old offers and subscribers can still name it.
+const PLAN_NAME = p => ({starter: 'Starter', pro: 'Pro', studio: 'Studio'})[p] || 'Pro';
+
 function OfferModal({ offer, onDismiss }) {
-  const plan = offer.plan === 'starter' ? 'Starter' : 'Pro';
+  const plan = PLAN_NAME(offer.plan);
   const what = offer.headline || 'a discount';
   return (
     <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-offer-title">
@@ -3708,7 +3712,7 @@ function InboxItem({ item, fresh, onOpenCampaign }) {
   const offer = item.kind === 'offer';
   // An offer reads the way its popup does: "50% off your first month on Pro".
   const title = offer
-    ? (item.headline || 'A discount') + ' on ' + (item.plan === 'starter' ? 'Starter' : 'Pro')
+    ? (item.headline || 'A discount') + ' on ' + PLAN_NAME(item.plan)
     : item.title;
   return (
     <li className={'rd-inbox-item' + (fresh ? ' fresh' : '')}>
@@ -4685,7 +4689,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
               ? 'A highlight was not clipped, because there was no room left in your queue.'
               : lostN + ' highlights were not clipped in the last 24 hours, because there was no room left in your queue.'}
             {nextPlan
-              ? ' ' + (nextPlan === 'starter' ? 'Starter' : 'Pro') + ' holds '
+              ? ' ' + PLAN_NAME(nextPlan) + ' holds '
                 + lost.next_limit + ' — $' + lost.next_price + '/month.'
               : ' Review or clear some to make room.'}
           </div>
@@ -5922,15 +5926,25 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
               {/* The admin cap is a large sentinel, not a real number, so it is
                   named rather than printed — "1000000000 pending clips" reads
                   as a bug, which is how anyone seeing it would report it. */}
-              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending >= 1000000000 ? 'unlimited' : me.plan_limits.max_pending} pending clips · ${me.plan_limits.max_library_week >= 1000000000 ? 'unlimited clips kept' : me.plan_limits.max_library_week + ' clips kept a week'} · VOD scanner ${me.plan_limits.vod?'included':'not included'}` : ''}</div>
+              <div className="fd">{me.plan_limits ? `${me.plan_limits.max_streams} monitored stream${me.plan_limits.max_streams===1?'':'s'} · ${me.plan_limits.max_pending >= 1000000000 ? 'unlimited' : me.plan_limits.max_pending} pending clips · ${me.plan_limits.max_library_week >= 1000000000 ? 'unlimited clips kept' : me.plan_limits.max_library_week + ' clips kept a week'} · VOD scanner ${me.plan_limits.vod?'included':'not included'}${me.plan_limits.priority ? ' · front of the line when the server is busy' : ''}${me.plan_limits.keep_files ? ` · clip videos kept ${me.plan_limits.keep_days || 30} days` : ''}${me.plan_limits.no_campaign_fee ? ' · no fee on campaigns you run' : ''}` : ''}</div>
             </div>
             <span style={{fontWeight:700,color:'var(--acc)'}}>{me.plan_label}</span>
           </div>}
           {sub==='active' && me.plan==='starter' && <div className="rd-field">
             <div><div className="fl">Upgrade to Pro</div><div className="fd">10 streams, 200 pending clips, and the VOD scanner — $25/month</div></div>
-            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
+            <a href="/billing/change?plan=pro" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade
             </a>
+          </div>}
+          {sub==='active' && me.plan==='pro' && <div className="rd-field">
+            <div><div className="fl">Go Studio</div><div className="fd">30 streams, 1,000 pending clips, front of the line when the server is busy, clip videos kept {(me.plan_limits && me.plan_limits.keep_days) || 30} days, no fee on your campaigns and direct support — $250/month</div></div>
+            <a href="/billing/change?plan=studio" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
+              <Icon name="zap" size={14}/>Upgrade
+            </a>
+          </div>}
+          {me.plan_limits && me.plan_limits.direct_support && <div className="rd-field">
+            <div><div className="fl">Direct support</div><div className="fd">Email support@highlightz.app with Studio in the subject and it comes straight to the founder.</div></div>
+            <a href="mailto:support@highlightz.app?subject=Studio%20support" className="rd-btn sm" style={{textDecoration:'none'}}>Email us</a>
           </div>}
           {/* Two kinds of trial, opposite advice. A card-up-front trial is
               already a subscription and converts on its own — telling that
@@ -5954,8 +5968,8 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
           {!isSubscribed && sub!=='trialing' && <div className="rd-field">
             <div><div className="fl">Want more?</div>
               <div className="fd">
-                Starter is $10/month for 3 streams and 50 pending clips.
-                Pro is $25 for 10 streams, 200 pending and the VOD scanner.
+                Pro is $25/month for 10 streams, 200 pending clips and the VOD scanner.
+                Studio is $250 for 30 streams and the front of the line.
               </div></div>
             <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>See plans
@@ -11421,7 +11435,8 @@ const PM_BUDGETS = [250, 500, 1000, 2500, 5000];
 const pmMoney = n => '$' + Number(n || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const pmCents = v => Math.round((Number(v) || 0) * 100);
 const pmAmt = c => c % 100 === 0 ? String(c / 100) : (c / 100).toFixed(2);
-const pmFeeText = pr => [pr.flat_fee ? campMoney(pr.flat_fee) + ' per campaign' : '',
+const pmFeeText = pr => pr.fee_waived ? 'nothing, campaigns are free to run on Studio' :
+  [pr.flat_fee ? campMoney(pr.flat_fee) + ' per campaign' : '',
   pr.fee_pct ? pr.fee_pct + '% of the budget' : ''].filter(Boolean).join(' plus ') || 'nothing';
 // campaigns.requests.quote(), in whole cents with the percentage rounded half
 // up, so the total shown is the total Stripe will be asked for.
@@ -11894,6 +11909,7 @@ function PromoteForm({ data, row, flash, onDone }) {
           <div className="pm-bill-row"><span>Prize pool, paid to clippers</span><b>{pmMoney(q.budget / 100)}</b></div>
           {q.flat > 0 && <div className="pm-bill-row"><span>Campaign fee</span><b>{pmMoney(q.flat / 100)}</b></div>}
           {q.pct > 0 && <div className="pm-bill-row"><span>Platform fee ({pr.fee_pct}%)</span><b>{pmMoney(q.pct / 100)}</b></div>}
+          {pr.fee_waived && <div className="pm-bill-row"><span>Fee</span><b>Waived on Studio</b></div>}
           <div className="pm-bill-total"><span>Total</span><b>{pmMoney(q.total / 100)}</b></div>
           <p className="cmp-muted">Nothing is charged now. You pay after we approve the request, by card through Stripe.</p>
           {err && <div className="pm-err" role="alert">{err}</div>}
@@ -12492,7 +12508,7 @@ function RdApp() {
           refetchAll();
           flash('Your account roles were updated.');
         }
-        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz. Starter and Pro keep watching while you are away.');}
+        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz. Paid plans keep watching while you are away.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is
         // indistinguishable from a bug to the person it happens to.

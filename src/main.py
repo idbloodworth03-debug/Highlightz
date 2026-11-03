@@ -823,7 +823,9 @@ async def main() -> None:
         log.error("site_restarted_unresponsive",
                   **{k: restarted.get(k) for k in ("at", "fails", "open_files") if k in restarted})
 
-    _queue = JobQueue()
+    # Studio's clips go to the front (plans.uid_has_priority).
+    from src.billing.plans import uid_has_priority
+    _queue = JobQueue(priority_of=uid_has_priority)
     await _queue.connect()
 
     redis = await redis_from_url(settings.redis_url, decode_responses=True)

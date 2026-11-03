@@ -111,20 +111,33 @@ def _cents(v) -> int:
         raise RequestError("The budget must be a number.")
 
 
-def pricing() -> dict:
-    """What the request form and /promote need to show a price."""
-    return {"flat_fee": round(settings.campaign_flat_fee_usd, 2),
-            "fee_pct": settings.campaign_fee_pct,
+def fee_waived(user: dict | None) -> bool:
+    """Studio's perk (owner, 2026-11-03): the campaigns it runs carry no fee."""
+    if not user:
+        return False
+    from src.billing.plans import limits_for
+    return bool(limits_for(user).get("no_campaign_fee"))
+
+
+def pricing(user: dict | None = None) -> dict:
+    """What the request form and /promote need to show a price. For an account
+    whose plan waives the fee (Studio) both fees read zero and `fee_waived`
+    says why, so the form's own arithmetic matches quote()."""
+    waived = fee_waived(user)
+    return {"flat_fee": 0.0 if waived else round(settings.campaign_flat_fee_usd, 2),
+            "fee_pct": 0 if waived else settings.campaign_fee_pct,
+            "fee_waived": waived,
             "min_budget": round(settings.campaign_min_budget_usd, 2),
             "max_budget": round(settings.campaign_max_budget_usd, 2)}
 
 
-def quote(budget) -> dict:
+def quote(budget, waived: bool = False) -> dict:
     """Budget + flat fee + percentage fee, in cents and in dollars. The
-    percentage is rounded half up to the cent, from whole cents."""
+    percentage is rounded half up to the cent, from whole cents. `waived`
+    (Studio) makes both fees zero: the total is the budget."""
     b = _cents(budget)
-    flat = max(0, int(round(settings.campaign_flat_fee_usd * 100)))
-    bp = max(0, int(round(settings.campaign_fee_pct * 100)))       # basis points
+    flat = 0 if waived else max(0, int(round(settings.campaign_flat_fee_usd * 100)))
+    bp = 0 if waived else max(0, int(round(settings.campaign_fee_pct * 100)))   # basis points
     pct = (b * bp + 5000) // 10000
     total = b + flat + pct
     return {"budget": b / 100, "flat_fee": flat / 100, "fee_pct": settings.campaign_fee_pct,
@@ -323,7 +336,7 @@ def submit(user: dict, raw: dict) -> dict:
     fields = clean(raw, user)
     r = {"id": uuid.uuid4().hex, "user_id": user["id"], "status": SUBMITTED,
          "created_at": now, "updated_at": now, "submitted_at": now, **fields,
-         "quote": quote(fields["budget"]), "verified_owner": _owns(user, fields["streamers"]),
+         "quote": quote(fields["budget"], fee_waived(user)), "verified_owner": _owns(user, fields["streamers"]),
          "image": "", "admin_note": "", "reviewed_at": 0, "reviewed_by": "",
          "checkout_session_id": "", "paid_at": 0, "amount_paid_cents": 0, "payment": "",
          "campaign_id": "", "history": []}
@@ -339,7 +352,7 @@ def edit(request_id: str, user: dict, raw: dict) -> dict:
         raise RequestError("This request can no longer be changed.")
     fields = clean(raw, user)
     r.update(fields)
-    r["quote"] = quote(fields["budget"])
+    r["quote"] = quote(fields["budget"], fee_waived(user))
     r["verified_owner"] = _owns(user, fields["streamers"])
     r["submitted_at"] = time.time()
     _log(r, SUBMITTED, user["id"], "edited")

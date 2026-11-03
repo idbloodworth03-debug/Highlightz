@@ -200,7 +200,9 @@ def test_the_admin_panel_offers_both_tiers_in_both_places():
     unreachable, which is indistinguishable from not having built it."""
     from src.dashboard.api import ADMIN_HTML as html
     assert "PLAN_OPTIONS" in html
-    assert "['starter', 'Starter']" in html and "['pro', 'Pro']" in html
+    # Pro and Studio since 2026-11-03; Starter is no longer sold or granted.
+    assert "['pro', 'Pro']" in html and "['studio', 'Studio']" in html
+    assert "['starter', 'Starter']" not in html
     assert "dr-plan" in html and "dr-days" in html, "the drawer has no tier/duration picker"
     assert "grant?plan=" in html, "the panel never sends a plan"
     assert 'JSON.stringify({days, plan})' in html, "the timed grant never sends a plan"
