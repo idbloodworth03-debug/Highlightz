@@ -7874,17 +7874,28 @@ on an earlier plan keep its terms until they change plans"), FAQ, llms.txt and
 llms-full.txt, JSON-LD (`highPrice` 250.00), /compare, Tutorial, blog.
 Opus Clip's own "Starter" plan on /compare is theirs and stays.
 
-**Owner's steps before Studio can be bought** (none of this is in the repo):
-1. Stripe, Product catalog: add a product "Highlightz Studio" with a
-   recurring $250/month price; copy its `price_...` id.
-2. In `/opt/highlightz/.env`: `STRIPE_PRICE_ID_STUDIO=price_...`, then deploy
-   (the restart reads it).
-3. Stripe, Settings, Billing, Customer portal: if a configuration is saved
-   there, edit its plan switching to offer Pro and Studio and remove Starter.
-   The app only builds a portal config itself when none exists, and leaves a
-   saved one untouched.
-4. Check: sign in as a Pro test account, Settings, "Go Studio", confirm page
-   shows $250. Do not complete it on a real card unless you mean to.
+**Stripe side (owner did step 1 on 2026-11-02; the script does the rest).**
+1. Done by the owner: product `prod_VYemn1IbgCQEkz`, named "Highlightz
+   Clipping Tool", description "$250 Elite Tier", one default price of
+   $250.00 USD per month. Buyers see that name and description on Checkout
+   and receipts; renaming it to "Highlightz Studio" in Stripe is cosmetic and
+   needs no code change.
+2. `scripts/setup_studio_price.py` (run on the server, `--check` to only
+   report) asks Stripe with the app's own key for that product's price,
+   refuses unless it is active, monthly, USD and exactly
+   `PLAN_LIMITS["studio"]["price"]` dollars, writes
+   `STRIPE_PRICE_ID_STUDIO=price_...` into `/opt/highlightz/.env` (backup
+   `.env.bak-studio-<time>` beside it, same permissions and owner), and
+   updates every saved Customer Portal configuration that has plan switching
+   ON so it offers exactly Pro and Studio (Starter dropped; proration setting
+   kept). A configuration with switching off is left alone. Running it twice
+   changes nothing the second time. Tests: `tests/test_setup_studio_price.py`.
+3. Restart so the app reads the new price. The deploy paste given to the
+   owner on 2026-11-03 did all three:
+   `cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff-context-n4badl && venv/bin/python scripts/setup_studio_price.py; systemctl restart highlightz`
+4. Check: `grep STRIPE_PRICE_ID_STUDIO /opt/highlightz/.env`; then as a Pro
+   test account, Settings, "Go Studio": the confirm page shows $250. Do not
+   complete it on a real card unless you mean to.
 
 **OPEN: capacity for a 30-channel customer (not changed; owner's call).**
 Recorded prod figures (2026-09-21, not re-read since): 2 vCPU, so a live
@@ -7905,4 +7916,4 @@ page. 21 older test files were updated to Free/Pro/Studio. Full suite 4296
 passed. Dashboard JSX parsed with Babel; admin script passes `node --check`
 with no backslash. Landing checked in a browser at desktop and phone width (one
 badge, on Pro; no sideways scroll; no console errors). **Not done:** a real
-Stripe checkout at $250 (no Studio price exists yet).
+Stripe checkout at $250, and the setup script against the live account (no key here).
