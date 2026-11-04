@@ -357,3 +357,64 @@ def test_the_slot_is_released_even_when_a_session_explodes():
     assert "finally:" in tail, "the session call has no finally"
     assert "release_live_slot" in tail, \
         "the release is not on the unconditional path"
+
+
+# ── paused channels (prod, 2026-11-04) ──────────────────────────────────────
+# 48 listed against a ceiling of 48, 29 of them paused by the idle reaper, so
+# every add was refused with 503 and a customer who had just bought Pro could
+# not add a channel. A paused channel runs nothing; it must not hold a slot.
+
+def _pause(uid, n):
+    for i in range(n):
+        api._streams[f"{uid}:p{i}_{uid}"] = {"channel": f"p{i}_{uid}", "user_id": uid,
+                                             "status": "paused"}
+
+
+def test_paused_channels_do_not_fill_the_server(pool):
+    """The prod shape scaled to cap 20: full on paper, mostly paused."""
+    _pause("idle1", 6)
+    _pause("idle2", 6)
+    pool("active", 8)                    # 20 listed, 8 counted
+    assert len(api._streams) == 20
+    assert _refused("newpro") is None
+    assert _refused("active") is None
+
+
+def test_a_server_full_of_running_channels_still_refuses(pool):
+    """The ceiling still means something when the channels are real."""
+    pool("a", 10)
+    pool("b", 10)
+    _pause("idle", 5)
+    assert _refused("newcomer") == 503
+
+
+def test_paused_channels_do_not_make_their_owner_the_heavy_user(pool):
+    """Fair share counts what is running. Someone whose channels are all
+    paused is not the one to cut back, and does not dilute everyone's share."""
+    pool("heavy", 9)
+    pool("mid", 8)
+    _pause("away", 10)
+    pool("light", 1)                     # 18 of 20 counted: the pool is tight
+    assert _refused("heavy") == 429      # fair = 20 // 3 users, not // 4
+    assert _refused("light") is None
+    assert api._counted_stream_keys().__len__() == 18
+
+
+def test_resuming_a_paused_user_never_asks_the_capacity_check(pool, monkeypatch):
+    """Returning users get their channels back even past the ceiling; only
+    going live is rationed, by acquire_live_slot."""
+    import asyncio
+    pool("a", 10)
+    pool("b", 10)
+    _pause("back", 3)
+    called = []
+    monkeypatch.setattr(api, "_check_server_capacity", lambda uid: called.append(uid))
+    monkeypatch.setattr(api, "_save_streams", lambda: None)
+    monkeypatch.setattr(api, "_publish_new_stream", None)
+
+    async def _bcast(msg, user_id=None):
+        pass
+    monkeypatch.setattr(api, "broadcast", _bcast)
+    assert asyncio.run(api._resume_user_streams("back")) == 3
+    assert called == []
+    assert all(r["status"] == "starting" for k, r in api._streams.items() if k.startswith("back:"))

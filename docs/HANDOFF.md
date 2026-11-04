@@ -7923,3 +7923,48 @@ passed. Dashboard JSX parsed with Babel; admin script passes `node --check`
 with no backslash. Landing checked in a browser at desktop and phone width (one
 badge, on Pro; no sideways scroll; no console errors). **Not done:** a real
 Stripe checkout at $250, and the setup script against the live account (no key here).
+
+## Paused channels no longer fill the server (2026-11-04)
+
+A customer who had just upgraded to Pro could not add a channel. Prod, read
+2026-11-04 02:56 UTC: **48 listed against a registration ceiling of 48**
+(`max_registered_streams`, derived as live ceiling x 4 = 12 x 4), so
+`_check_server_capacity` refused EVERY add with the 503 "The server is at
+capacity right now", whatever the plan. Of the 48: 9 live, 9 offline, 1
+starting, **29 paused**. Paused channels belong to idle free accounts (the
+idle reaper); they run nothing (no worker, no poll, no slot; `restore_streams`
+skips them), yet each counted as one of the 48.
+
+Fix: `_counted_stream_keys()` (everything except `status == "paused"`) is what
+the add check counts, for the total, the per-user count and the number of
+users in the fair share. `scripts/capacity.py` uses the same helper and now
+prints the paused count; its "live right now" reads the saved status (it used
+`live_stream_count()`, which is the server's in-memory slot set and always 0
+from a separate process). Unchanged: a user's own plan limit still counts their
+paused channels (they are still theirs); resuming never asked this check and
+still does not, so returning users get their channels back even past the
+ceiling (offline polls only; going live is still rationed by
+`acquire_live_slot`). Tests: 4 new in `tests/test_server_capacity.py`; the two
+that matter fail with the old count.
+
+Same read, the box itself: 2 cores, 3.8 GiB (2.2 GiB available), no swap, disk
+31 of 77 GB, load average 0.54-0.72, CPU 63-90% idle over 20 s, steal 0-3%, 0
+`live_slots_full` in 24 h, 0 OOM kills in 7 days, no ceiling overrides in
+`.env`. **No resize is needed for current load.** Resize before selling Studio
+(see the Studio section's capacity note): 4 vCPU / 8 GB doubles both ceilings.
+
+**OPEN: adinross capture outlived its session (2026-11-03).** Kick channel
+adinross went offline ~12:55 UTC; the worker logged `stream_ended` at
+13:03:36 and then nothing: no `audio_meter_stopped`, no `clip_recorder_stopped`,
+no `stream_not_live`, no error. Its audio meter and recorder kept retrying the
+dead playlist (404) every 5 minutes (backoff working; `failures_in_a_row` 44 at
+16:22). So `_cleanup` started and never reached `self._buffer.stop()`. Leading
+theory, NOT verified: `stop_worker` (remove, `stop_stream_internal`, or idle
+pause via `_publish_remove_stream`) cancelled the worker task while it was
+inside `_cleanup`, cutting it off before the capture was stopped, and
+`start()` then exits silently on CancelledError. The read-only check that
+decides it (log window 13:01-13:07 UTC for pause/remove lines, nginx DELETEs,
+adinross's saved status) was handed to the owner and not yet answered. The fix
+either way: make the capture stop unconditionally (run cleanup so a cancel
+cannot cut it off, and stop the capture before anything that can wait), with a
+test that cancels mid-cleanup. The leftovers are cleared by any restart.

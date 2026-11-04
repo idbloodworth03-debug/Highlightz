@@ -4983,6 +4983,26 @@ def release_live_slot(stream_key: str) -> None:
     _live_slots.discard(stream_key)
 
 
+def _counted_stream_keys() -> list[str]:
+    """The channels that count against the registration ceiling: every listed
+    channel EXCEPT paused ones.
+
+    A paused channel runs nothing. restore_streams skips it at startup, the
+    reaper stopped its worker, so it holds no live slot, polls nobody and
+    spawns nothing; it is a line in streams.json until its owner comes back.
+    Counting it filled the pool with absent people. Prod, 2026-11-04: 48 listed
+    against a ceiling of 48, 29 of them paused (idle free accounts), so EVERY
+    add was refused with 503, and a customer who had just paid for Pro could
+    not add a channel, on a box sitting 63-90% idle.
+
+    Resuming is unaffected: _resume_user_streams never asked this check, and
+    still does not, so a returning user always gets their channels back. That
+    can carry the listed count past the ceiling for a while, which costs only
+    offline polls; going live is still rationed by acquire_live_slot.
+    """
+    return [k for k, rec in _streams.items() if rec.get("status") != "paused"]
+
+
 def _check_server_capacity(uid: str) -> None:
     """Guard how many channels may be REGISTERED, fairly.
 
@@ -5004,12 +5024,16 @@ def _check_server_capacity(uid: str) -> None:
     literally full, and once headroom drops into the reserve, the users already
     above their fair share are the ones told to wait. Capacity still degrades,
     but it degrades onto the heaviest user instead of the newest.
+
+    Paused channels are not counted anywhere here: see _counted_stream_keys.
     """
-    cap   = max(1, settings.max_registered_streams)
-    total = len(_streams)
+    cap     = max(1, settings.max_registered_streams)
+    counted = _counted_stream_keys()
+    total   = len(counted)
 
     if total >= cap:
-        log.error("server_capacity_full", total=total, cap=cap)
+        log.error("server_capacity_full", total=total, cap=cap,
+                  paused=len(_streams) - total)
         raise HTTPException(
             status_code=503,
             detail="The server is at capacity right now. Try again in a few "
@@ -5018,13 +5042,14 @@ def _check_server_capacity(uid: str) -> None:
 
     if total >= int(cap * _CAPACITY_WARN_FRAC):
         log.warning("server_capacity_high", total=total, cap=cap,
-                    users=len({k.split(":", 1)[0] for k in _streams}))
+                    paused=len(_streams) - total,
+                    users=len({k.split(":", 1)[0] for k in counted}))
 
     if cap - total > max(1, int(cap * _CAPACITY_RESERVE_FRAC)):
         return                      # plenty of room; plan limits govern
 
-    mine  = sum(1 for k in _streams if k.startswith(f"{uid}:"))
-    users = len({k.split(":", 1)[0] for k in _streams}) or 1
+    mine  = sum(1 for k in counted if k.startswith(f"{uid}:"))
+    users = len({k.split(":", 1)[0] for k in counted}) or 1
     fair  = max(1, cap // users)
     # Somebody with no streams is never caught here: `fair` is at least 1, so
     # `mine >= fair` cannot hold at zero. That is the guarantee — a new customer

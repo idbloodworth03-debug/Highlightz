@@ -22,10 +22,16 @@ from src.dashboard import api                             # noqa: E402
 # go-live; this file's `cap` is the REGISTERED bound, which is what
 # _check_server_capacity refuses on.
 live_cap = max(1, settings.max_concurrent_streams)
-live_now = api.live_stream_count()
+# NOT api.live_stream_count(): live slots live in the running server's memory,
+# and this is a separate process, where that is always 0. The saved status is
+# what the server last wrote for each channel.
+live_now = sum(1 for r in api._streams.values() if r.get("status") == "live")
 cap   = max(1, settings.max_registered_streams)
-total = len(api._streams)
-by_user = collections.Counter(k.split(":", 1)[0] for k in api._streams)
+# The same channels the add check counts: paused ones run nothing and do not.
+counted = api._counted_stream_keys()
+total = len(counted)
+paused = len(api._streams) - total
+by_user = collections.Counter(k.split(":", 1)[0] for k in counted)
 users = len(by_user) or 1
 reserve = max(1, int(cap * api._CAPACITY_RESERVE_FRAC))
 fair = max(1, cap // users)
@@ -46,7 +52,7 @@ print(f"  live right now        : {live_now}")
 print(f"  live headroom         : {live_cap - live_now}")
 print()
 print(f"  registered ceiling    : {cap}      <- how many channels may be ADDED")
-print(f"  streams running now    : {total}")
+print(f"  streams counted now    : {total}   (paused, not counted: {paused})")
 print(f"  headroom               : {cap - total}")
 print(f"  users with streams     : {users}")
 print(f"  reserve threshold      : {reserve}   (headroom must exceed this to skip sharing)")
