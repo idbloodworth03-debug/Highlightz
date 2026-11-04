@@ -173,6 +173,29 @@ def test_streams_report_live_separately_from_registered(client):
     assert d["streams"]["live"] == 1
 
 
+def test_streams_monitored_out_of_the_max(client, monkeypatch):
+    """Owner, 2026-11-04: "33/44 streams monitored". Monitored is exactly what
+    the add-channel check counts (paused excluded) and max is its ceiling, so
+    the tile reads full at the same moment a customer is refused."""
+    from src.dashboard import api
+    monkeypatch.setattr(api.settings, "max_registered_streams", 44)
+    monkeypatch.setattr(api.settings, "max_concurrent_streams", 11)
+    api._streams["gone:idle"] = {"user_id": "gone", "channel": "idle", "status": "paused"}
+    st = _overview(client, counter=1)["streams"]
+    assert (st["monitored"], st["max"], st["paused"], st["live_max"]) == (2, 44, 1, 11)
+    assert st["registered"] == 3
+    assert st["monitored"] == len(api._counted_stream_keys())
+
+
+def test_the_tile_shows_monitored_over_max_and_says_when_full():
+    from src.dashboard import api
+    js = api.ADMIN_HTML
+    assert "n0(s.monitored) + '/' + n0(s.max) + ' streams monitored'" in js
+    assert "full, nobody can add a channel" in js
+    assert "streams registered'" not in js
+    assert "setInterval(function(){ if(!document.hidden) loadOverview(); }, 30000);" in js
+
+
 # ── revenue and population ───────────────────────────────────────────────────
 
 def test_mrr_counts_only_money_that_actually_arrives(client):

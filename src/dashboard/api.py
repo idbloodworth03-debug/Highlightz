@@ -8733,9 +8733,18 @@ async def admin_overview(request: Request):
             "expired": expired, "missed": missed,
             "keep_rate": round(kept / reviewed * 100) if reviewed else 0,
         },
+        # "monitored" is what the add-channel check counts against "max"
+        # (_counted_stream_keys: paused channels run nothing and do not count),
+        # so the admin tile and the 503 a customer gets cannot disagree.
+        # Owner, 2026-11-04: "a counter ... that shows me the max streams that
+        # can be monitored. Ex. 33/44 streams monitored".
         "streams": {
             "registered": len(_streams),
+            "monitored": len(_counted_stream_keys()),
+            "paused": sum(1 for s in _streams.values() if s.get("status") == "paused"),
+            "max": max(1, settings.max_registered_streams),
             "live": sum(1 for s in _streams.values() if s.get("status") == "live"),
+            "live_max": max(1, settings.max_concurrent_streams),
         },
     }
 
@@ -15216,6 +15225,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cell.hot .v{color:var(--ember)}
   .cell .k{margin-top:var(--s-3)}
   .cell .s{font-size:12px;color:var(--ink-2);margin-top:var(--s-1);line-height:1.5;min-height:3em}
+  .cell .s.ov-full{color:var(--bad);font-weight:600}
 
   /* ── Refusals. Only exists when something is wrong, so it is allowed the
      one red rule on the page. ── */
@@ -17249,7 +17259,16 @@ async function loadOverview(){
   set('ov-keep', c.keep_rate + '%');
   set('ov-keep-s', n0(c.kept) + ' kept of ' + n0(c.kept + c.rejected) + ' reviewed · ' + n0(c.expired) + ' aged out');
   set('ov-live', n0(s.live));
-  set('ov-live-s', n0(s.registered) + ' streams registered');
+  // "33/44 streams monitored" (owner, 2026-11-04). Monitored and max are the
+  // numbers the add-channel check uses, so at full this line and the 503 a
+  // customer sees agree. Paused channels are named, not counted.
+  const st = [n0(s.monitored) + '/' + n0(s.max) + ' streams monitored'];
+  if(s.monitored >= s.max) st.push('full, nobody can add a channel');
+  if(s.paused) st.push(n0(s.paused) + ' paused');
+  st.push('up to ' + n0(s.live_max) + ' live at once');
+  set('ov-live-s', st.join(' · '));
+  const lv = document.getElementById('ov-live-s');
+  if(lv) lv.classList.toggle('ov-full', s.monitored >= s.max);
   loadRefusals();
 }
 
@@ -18451,6 +18470,10 @@ function usersOpen(){
 }
 window.addEventListener('focus', function(){ if(usersOpen()) refresh(); });
 setInterval(function(){ if(usersOpen()) loadUsers(); }, 60000);
+// The header figures on their own clock: until 2026-11-04 they refreshed only
+// after an action or on refocus, so a counter like "33/44 streams monitored"
+// sat stale on a page left open. Cheap, and only while the page is visible.
+setInterval(function(){ if(!document.hidden) loadOverview(); }, 30000);
 
 fetch('/me').then(r => r.json()).then(m => { ME = m.user_id || ''; }).catch(() => {});
 fetch('/admin/feedback').then(r => r.json()).then(fb => {

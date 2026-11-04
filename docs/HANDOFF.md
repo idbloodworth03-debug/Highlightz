@@ -7968,3 +7968,22 @@ adinross's saved status) was handed to the owner and not yet answered. The fix
 either way: make the capture stop unconditionally (run cleanup so a cancel
 cannot cut it off, and stop the capture before anything that can wait), with a
 test that cancels mid-cleanup. The leftovers are cleared by any restart.
+
+## Admin "Live now" tile: monitored/max (2026-11-04)
+
+Owner: "add a counter ... next to streams monitored in the admin page that
+shows me the max streams that can be monitored. Ex. 33/44 streams monitored".
+The overview tile's sub-line (`ov-live-s`) was "N streams registered"; it is
+now e.g. "19/48 streams monitored · 29 paused · up to 12 live at once", and
+"48/48 ... · full, nobody can add a channel" in red (`.ov-full`) at the
+ceiling. `/admin/overview` `streams` gained `monitored`
+(`len(_counted_stream_keys())`, the exact count the add check uses, so the
+tile reads full at the moment a customer gets the 503), `paused`, `max`
+(`max_registered_streams`) and `live_max` (`max_concurrent_streams`);
+`registered` is kept (every listed row). The big number is still live now.
+The header figures now also refresh every 30 s while the page is visible
+(before: only after an action or on refocus). Both ceilings derive from the
+core count at startup, so after a resize the tile shows the new max on its own.
+Checked in a browser against a prod-shaped store (9 live, 9 offline, 1
+starting, 29 paused; ceilings 12/48), desktop and phone; tests in
+`tests/test_admin_panel.py`.
