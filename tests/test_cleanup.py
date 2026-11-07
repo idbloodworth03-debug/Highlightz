@@ -7,7 +7,8 @@ clip videos only, remove the channels, an admin button with a preview first.
 
 What these pin:
   1. the rules (src/dashboard/cleanup.py): who is in, who is never in, and
-     the week on each clock;
+     each clock: a week away for the videos, 24 hours without an approved
+     clip for the channels (owner, 2026-11-07; it was a week until then);
   2. the run clears only the video (record and picture stay, the card says
      why), removes only the confirmed accounts' channels, spares anybody who
      came back after the preview, and leaves a note in the bell;
@@ -90,7 +91,7 @@ def test_clips_with_no_video_on_disk_are_not_counted():
     assert p["files"] == [], "an account with nothing to clear was listed"
 
 
-def test_no_clip_approved_in_a_week_lists_the_channels():
+def test_no_clip_approved_in_24_hours_lists_all_the_channels():
     streams = {"a:lacy": {"user_id": "a", "channel": "lacy"},
                "a:jynxzi": {"user_id": "a", "channel": "jynxzi", "status": "paused"}}
     p = _plan([_u("a")], [_clip("c1", "a", status="approved", approved_at=NOW - 9 * DAY)],
@@ -100,18 +101,39 @@ def test_no_clip_approved_in_a_week_lists_the_channels():
     assert p["totals"]["channels"] == 2
 
 
-def test_never_approving_counts_once_the_account_is_a_week_old():
+def test_never_approving_counts_once_the_account_is_a_day_old():
     streams = {"a:lacy": {"user_id": "a", "channel": "lacy"}}
     assert [r["user_id"] for r in _plan([_u("a")], [], streams=streams)["streams"]] == ["a"]
-    young = _u("a", created_at=NOW - 3 * DAY)
-    assert _plan([young], [], streams=streams)["streams"] == [], "a new account had no week"
+    day_old = _u("a", created_at=NOW - 25 * 3600)
+    assert [r["user_id"] for r in _plan([day_old], [], streams=streams)["streams"]] == ["a"]
+    young = _u("a", created_at=NOW - 23 * 3600)
+    assert _plan([young], [], streams=streams)["streams"] == [], \
+        "an account that signed up today lost the channel it just added"
 
 
-def test_a_clip_approved_this_week_keeps_the_channels():
+def test_a_clip_approved_in_the_last_24_hours_keeps_the_channels():
     streams = {"a:lacy": {"user_id": "a", "channel": "lacy"}}
-    clips = [_clip("c1", "a", status="approved", approved_at=NOW - 2 * DAY),
+    clips = [_clip("c1", "a", status="approved", approved_at=NOW - 23 * 3600),
              _clip("c2", "a", status="pending", age_days=0)]
     assert _plan([_u("a")], clips, streams=streams)["streams"] == []
+
+
+def test_the_channel_clock_is_24_hours_not_a_week():
+    """Owner, 2026-11-07: "gets rid of all streams being monitored if you have
+    not accepted a clip in 24 hours". Two days ago used to be safe."""
+    streams = {"a:lacy": {"user_id": "a", "channel": "lacy"},
+               "a:xqc": {"user_id": "a", "channel": "xqc", "status": "paused"}}
+    for ago in (25 * 3600, 2 * DAY):
+        clips = [_clip("c1", "a", status="approved", approved_at=NOW - ago)]
+        p = _plan([_u("a")], clips, streams=streams)
+        assert p["streams"] and p["streams"][0]["channels"] == ["lacy", "xqc"], ago
+    assert cleanup.APPROVAL_S == DAY and cleanup.WEEK_S == 7 * DAY
+
+
+def test_the_videos_still_wait_a_week():
+    """Only the channel rule moved: two days away clears no videos."""
+    p = _plan([_u("a")], [_clip("c1", "a")], activity={"a": NOW - 2 * DAY}, sizes={"c1": 1000})
+    assert p["files"] == []
 
 
 def test_a_pending_clip_is_not_an_approval():
@@ -123,7 +145,7 @@ def test_a_pending_clip_is_not_an_approval():
 def test_another_accounts_channels_and_clips_stay_apart():
     streams = {"a:lacy": {"user_id": "a", "channel": "lacy"},
                "b:lacy": {"user_id": "b", "channel": "lacy"}}
-    clips = [_clip("c1", "b", status="approved", approved_at=NOW - DAY)]
+    clips = [_clip("c1", "b", status="approved", approved_at=NOW - 3600)]
     p = _plan([_u("a"), _u("b")], clips, streams=streams)
     assert [r["user_id"] for r in p["streams"]] == ["a"], "b's approval was counted for a"
 
@@ -132,6 +154,7 @@ def test_the_bell_note_says_what_happened_and_how_to_undo_it():
     assert cleanup.notice(0, []) is None
     n = cleanup.notice(0, ["lacy"])
     assert "lacy" in n["body"] and "Add them back" in n["body"]
+    assert "in the last 24 hours" in n["body"] and "for a week" not in n["body"]
     n = cleanup.notice(1, [])
     assert "1 saved clip " in n["body"] and "Twitch clips can be downloaded again" in n["body"]
     n = cleanup.notice(3, [f"ch{i}" for i in range(7)])

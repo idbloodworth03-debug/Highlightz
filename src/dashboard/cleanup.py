@@ -16,10 +16,15 @@ are away.
     their clips are cleared. The clip records stay, the cards keep their
     pictures, Twitch clips stay on Twitch and can be fetched again from the
     card; a Kick clip's video is gone for good (on Kick the file is the clip).
-  * No clip approved for a week (or never, on an account at least a week old):
-    their channels come off their list. That ends the streams, and once
-    nobody lists a Kick channel its chat subscription is pruned too, which is
-    most of what froze the site on 2026-10-29.
+  * No clip approved in the last 24 HOURS (or never, on an account at least
+    24 hours old): ALL their channels come off their list, paused or running.
+    That ends the streams, and once nobody lists a Kick channel its chat
+    subscription is pruned too, which is most of what froze the site on
+    2026-10-29. This was a week until 2026-11-07 (owner: "gets rid of all
+    streams being monitored if you have not accepted a clip in 24 hours").
+    The new-account grace moved with it: an account younger than 24 hours has
+    not had its 24 hours, and without the grace a free user who signed up an
+    hour ago would lose the channel they just added.
 
 This module only DECIDES, from plain data, so the preview and the run cannot
 disagree and the rules can be tested exactly. api.cleanup_preview and
@@ -32,7 +37,8 @@ from typing import Callable
 
 from src.billing import plans
 
-WEEK_S = 7 * 86400
+WEEK_S = 7 * 86400          # away this long: their clip videos are cleared
+APPROVAL_S = 86400          # no clip approved in this long: their channels go
 
 
 def _ts(v) -> float:
@@ -105,10 +111,10 @@ def plan(users: list[dict], clips, streams: dict, activity: dict, now: float,
     ended = []
     for uid, channels in by_user.items():
         u = free[uid]
-        if now - _ts(u.get("created_at")) < WEEK_S:
-            continue                                   # a new account has not had a week
+        if now - _ts(u.get("created_at")) < APPROVAL_S:
+            continue                                   # a new account has not had its 24 hours
         approved = last_approved(uid, clips)
-        if now - approved < WEEK_S:
+        if now - approved < APPROVAL_S:
             continue
         ended.append({"user_id": uid, "name": _name(u), "last_approved": approved,
                       "channels": sorted(channels)})
@@ -131,9 +137,9 @@ def notice(cleared_files: int, channels: list[str]) -> dict | None:
     parts = []
     if channels:
         names = ", ".join(channels[:5]) + (f" and {len(channels) - 5} more" if len(channels) > 5 else "")
-        parts.append(f"No clips were approved on your account for a week, so we stopped watching "
-                     f"{names}. Add them back on Live Streams anytime; approving clips keeps "
-                     f"them running.")
+        parts.append(f"No clips were approved on your account in the last 24 hours, so we stopped "
+                     f"watching {names}. Add them back on Live Streams anytime; approving clips "
+                     f"keeps them running.")
     if cleared_files:
         parts.append(f"After a week away, the video files of {cleared_files} saved "
                      f"clip{'s' if cleared_files != 1 else ''} were cleared to free space. Your "

@@ -7987,3 +7987,18 @@ core count at startup, so after a resize the tile shows the new max on its own.
 Checked in a browser against a prod-shaped store (9 live, 9 offline, 1
 starting, 29 paused; ceilings 12/48), desktop and phone; tests in
 `tests/test_admin_panel.py`.
+
+## Clean up: channels go after 24 hours without an approved clip (2026-11-07)
+
+Owner: "make it so that the clean up thing I added in the admin page gets rid
+of all streams being monitored if you have not accepted a clip in 24 hours".
+Only the CHANNEL rule changed (`cleanup.APPROVAL_S = 86400`, was `WEEK_S`):
+a free account with no clip approved in the last 24 hours, or never on an
+account at least 24 hours old, has every channel on its list removed, paused
+or running. The new-account grace moved with it (24 hours, was a week), so a
+free user who signed up this morning does not lose the channel they just
+added. The video rule is untouched: clip videos are cleared only after a week
+away. Still free accounts only, still preview-then-button, still a note in the
+bell (now "in the last 24 hours"). Admin tab text and the empty-state line say
+24 hours. Tests: `tests/test_cleanup.py` (the boundary at 23/25 hours, both
+clocks pinned separately).

@@ -15751,8 +15751,8 @@ ADMIN_HTML = """<!DOCTYPE html>
       <b>Away a week</b>: the video files of their clips are cleared. The clips stay
       listed with their pictures, Twitch clips can be fetched again from the card,
       a Kick clip&rsquo;s video is gone for good.
-      <b>No clip approved in a week</b> (accounts at least a week old): their channels
-      come off their list, which ends those streams. Each account gets a note in its
+      <b>No clip approved in 24 hours</b> (accounts at least a day old): all their
+      channels come off their list, paused or running, which ends those streams. Each account gets a note in its
       notifications bell saying what happened and how to undo it. Nothing runs until
       you press the red button.
     </p>
@@ -16047,7 +16047,7 @@ async function loadCleanup(){
         + r.channels.map(esc).join(', ') + '</td></tr>';
     });
     html += '</tbody></table></div>';
-  } else html += '<p class="sub">None: every free account with channels approved a clip this week.</p>';
+  } else html += '<p class="sub">None: every free account with channels approved a clip in the last 24 hours.</p>';
   wrap.className = ''; wrap.innerHTML = html;
   if((d.files || []).length || (d.streams || []).length){
     document.getElementById('cu-run-sum').textContent = 'Clears ' + n0(t.clip_files)
