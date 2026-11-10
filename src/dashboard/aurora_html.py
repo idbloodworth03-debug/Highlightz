@@ -3895,7 +3895,16 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
   const fileSrc = (!embedSrc && clip.has_file) ? '/clips/' + clip.id + '/file' : '';
   const outHref = twHref || clip.platform_url || '';
   const outName = clip.platform === 'kick' ? 'Kick' : 'Twitch';
-  const canLinkOut = !embedSrc && !fileSrc && !!outHref;
+  // A KICK CLIP IS NEVER ON KICK. It exists only as the file Highlightz cut, so
+  // with no file there is nothing to open: no tap-through, no play ring, and
+  // never the "plays on Kick" line. Until 2026-11-10 a mature-flagged Kick
+  // channel got the gated banner above in the minute between the clip being
+  // caught and its video landing, and the user followed "Watch on Kick" to a
+  // channel page with no clip on it (sexylexy____, r2m_world: "it says it's
+  // not available and to watch it on kick. Then you go on kick and it's not
+  // there either"). Every one of that channel's clips had its file.
+  const kick = clip.platform === 'kick';
+  const canLinkOut = !embedSrc && !fileSrc && !!outHref && !kick;
   const openClip = () => { if (outHref) window.open(outHref, '_blank', 'noopener'); };
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
@@ -3914,8 +3923,8 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
             : fileSrc
               ? <video src={fileSrc} poster={pic || undefined} controls playsInline preload="metadata" style={{position:'absolute',inset:0,width:'100%',height:'100%',background:'#000',objectFit:'contain'}}/>
             : thumb
-              ? <><img key={thumb + '|' + pic} src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} data-local={pic && pic!==thumb ? pic : ''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{outHref&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
-              : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/><div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div></>}
+              ? <><img key={thumb + '|' + pic} src={hiResThumb(thumb)} data-orig={hiResThumb(thumb)!==thumb?thumb:''} data-local={pic && pic!==thumb ? pic : ''} alt="" onError={e=>thumbFallback(e, clip.channel)} style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>{canLinkOut&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>
+              : <><div className="thumb" style={{background:thumbFor(clip.channel)}}/>{canLinkOut&&<div className="rd-modal-play"><span className="ring"><Icon name="play" size={26}/></span></div>}</>}
           <button className="rd-modal-close" onClick={e=>{e.stopPropagation();onClose();}}><Icon name="x" size={16}/></button>
           {sug
             ? <span className="rd-sugbadge" style={{top:14,right:60}}><Icon name="trending" size={12}/>Highlight</span>
@@ -3926,7 +3935,12 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
             local file. A Kick clip is a file Highlightz cut and plays right
             here, mature flag or not — "plays on Twitch" under a Kick clip
             was a real bug report (2026-09-15). */}
-        {gated && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
+        {kick && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:clip.file_state === 'pending' ? 'rgba(83,252,24,.08)' : 'rgba(255,255,255,.05)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+          {clip.file_state === 'pending'
+            ? <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>Cutting the video now.</b> It plays here the moment it lands, usually within a minute or two. No need to refresh.</span>
+            : <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>No video for this clip.</b> A Kick clip exists only as the file Highlightz recorded, so it is not on Kick either.</span>}
+        </div>}
+        {gated && !kick && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
           <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
             <Icon name="zap" size={13}/>Age-restricted on {outName}
           </span>
@@ -4055,6 +4069,11 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
                       ? <><b>No file for this clip.</b> Highlightz was not holding video when
                           this moment was caught, so there is nothing to download. Clips caught
                           from here on come with an MP4.</>
+                      : clip.file_state === 'expired' && clip.platform === 'kick'
+                      ? <><b>This clip's video is gone.</b> A Kick clip exists only as the file
+                          Highlightz recorded from the live stream, and videos are held for a
+                          limited time to make room for new ones. Download or post the ones you
+                          want soon after they land; approved clips are kept the longest.</>
                       : clip.file_state === 'expired' && clip.file_cleared_at
                       ? <><b>This video was cleared.</b> After a week away, saved clip videos
                           on Free are cleared to free up space. The clip itself is still

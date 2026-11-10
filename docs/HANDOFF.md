@@ -8002,3 +8002,46 @@ away. Still free accounts only, still preview-then-button, still a note in the
 bell (now "in the last 24 hours"). Admin tab text and the empty-state line say
 24 hours. Tests: `tests/test_cleanup.py` (the boundary at 23/25 hours, both
 clocks pinned separately).
+
+## A Kick clip with no file was sent to Kick (2026-11-10)
+
+Bug reports from sexylexy____ (Pro) on r2m_world, a Kick channel: "it says
+it's not available and to watch it on kick. Then you go on kick and it's not
+there either"; later "all the files are unavailable. Even when it tries to
+redirect you to kick."
+
+**Read on prod first** (2026-11-10): her 19 r2m_world clips are ALL approved
+and ALL have their file; all 19 carry `age_restricted` (the channel is flagged
+mature on Kick). Store 11.6 of 15 GB, oldest surviving file 8.5 days, 51 trims
+in 7 days, 0 approved files ever evicted. So the files were not missing and
+the cap was not the cause.
+
+**The mechanism.** A clip is stored and announced when it is caught
+(`notify_clip_ready`); its video is cut afterwards by the stream worker and
+arrives over `clip_file_ready`. In that window `has_file` is false. The modal
+treated `age_restricted` the Twitch way: with no file, it showed "Age-
+restricted on Kick. It cannot play here, but it plays on Kick. Watch on Kick"
+and made the whole player a tap-through to `platform_url`, the Kick CHANNEL
+page. A Kick clip is only the file we cut; it has never been on Kick. The
+non-mature case was quieter but the same: a play ring over the thumbnail that
+opened the channel page.
+
+**Fix (ClipModal only).** `kick = clip.platform === 'kick'`: the gated banner
+is `gated && !kick && !fileSrc`; `canLinkOut` is false on Kick; the play
+rings render only when `canLinkOut`; a Kick clip without a file gets its own
+line keyed on `file_state`: `pending` reads "Cutting the video now. It plays
+here the moment it lands, usually within a minute or two. No need to
+refresh." (clip_file_ready already flips the open modal via `setModalClip`),
+anything else reads "No video for this clip. A Kick clip exists only as the
+file Highlightz recorded, so it is not on Kick either." The expired download
+note has a Kick branch that no longer says "the clip itself is unaffected".
+Tests: `tests/test_kick_clip_without_a_file.py`; the gated-banner assertion
+in `tests/test_age_restricted_clips.py` moved to the new condition.
+
+**Still open: the second report** ("earlier available, now all unavailable").
+Not explained by the window above. Candidates, unverified: the cut landing
+hours after the clip (recorder wedged, cf. the adinross capture leak above;
+check file mtime minus created_at on her clips), or `files._read_store`
+returning an empty set on an OSError from scandir (an open-file exhaustion
+would make EVERY clip read "no file" at once and is never cached). The
+read-only check for both was handed to the owner.

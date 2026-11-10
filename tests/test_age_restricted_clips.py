@@ -107,9 +107,10 @@ def test_a_gated_clip_opens_on_twitch_instead():
     assert "Age-restricted on {outName}" in body, "the reason is never stated"
     assert "Watch on {outName}" in body, "there is no way to actually watch it"
     # And only when the flag really stops playback: a Kick clip is a captured
-    # file that plays here, and "plays on Twitch" under it was a bug.
-    assert "gated && !fileSrc && <div" in body, \
-        "the age-restricted banner shows over a clip that is playing right there"
+    # file that plays here, and "plays on Twitch" under it was a bug. Nor on a
+    # Kick clip WITHOUT a file (2026-11-10): the clip is not on Kick at all.
+    assert "gated && !kick && !fileSrc && <div" in body, \
+        "the age-restricted banner shows over a Kick clip, or over one playing right there"
 
 
 def test_the_gated_notice_does_not_claim_something_is_broken():

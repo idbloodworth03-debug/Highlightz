@@ -132,9 +132,15 @@ def test_the_card_offers_nothing_when_there_is_no_file():
 
 def _modal():
     """The modal's download block, ending at the approve/reject row — the one
-    landmark below it that does not change shape when the buttons above do."""
+    landmark below it that does not change shape when the buttons above do.
+    Developer comments ({/* ... */}) are dropped: these tests are about the
+    copy a person reads, and a comment explaining WHY a phrase is banned must
+    not trip the ban (it did, 2026-11-10, once a Kick line above the block
+    moved the slice's start up over one)."""
+    import re
     i = SRC.index("clip.file_state === 'pending'")
-    return SRC[i:SRC.index("clip.status==='pending' && <div className=\"rd-modal-actions\"", i)]
+    block = SRC[i:SRC.index("clip.status==='pending' && <div className=\"rd-modal-actions\"", i)]
+    return re.sub(r"\{/\*.*?\*/\}", "", block, flags=re.S)
 
 
 def test_the_modal_always_answers():
