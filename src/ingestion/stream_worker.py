@@ -34,6 +34,37 @@ from src.profiles.profile import StreamerProfile
 
 log = structlog.get_logger(__name__)
 
+# Capture shutdowns in flight, held so a shielded stop is never collected
+# half-way (asyncio keeps only weak references to tasks).
+_CAPTURE_STOPS: set = set()
+
+
+async def _finish_capture_stop(buf, release_channel: str | None) -> None:
+    """The awaitable half of stopping a session's capture: reap the meter's
+    processes, then drop this session's hold on the channel's recorder. Runs
+    as its own task under asyncio.shield, so a cancel that lands on the worker
+    mid-cleanup cannot cut it off."""
+    if buf is not None:
+        try:
+            await buf.stop()
+        except Exception as exc:
+            log.warning("audio_meter_stop_failed", channel=getattr(buf, "channel", ""),
+                        error=str(exc))
+    if release_channel:
+        from src.ingestion import clip_recorder
+        try:
+            await clip_recorder.release(release_channel)
+        except Exception as exc:
+            log.warning("clip_recorder_release_failed", channel=release_channel,
+                        error=str(exc))
+
+
+def _spawn_capture_stop(buf, release_channel: str | None) -> asyncio.Task:
+    t = asyncio.ensure_future(_finish_capture_stop(buf, release_channel))
+    _CAPTURE_STOPS.add(t)
+    t.add_done_callback(_CAPTURE_STOPS.discard)
+    return t
+
 # How many chat messages are stored alongside a clip, so the user can see why it
 # was flagged. NAMED because the Privacy Policy quotes this number: it is the
 # one place we say how much chat we retain, and a literal here plus a literal
@@ -347,7 +378,11 @@ class StreamWorker:
         # Audio-only loudness probe (no recording). Disabled if the operator
         # turns off audio detection — the engine then runs chat-only.
         if settings.enable_audio_detection:
-            self._buffer = AudioMeter(channel, self._stream_info.stream_url)
+            from src.ingestion.restart import kick_url_refresher
+            self._buffer = AudioMeter(
+                channel, self._stream_info.stream_url,
+                refresh_url=(kick_url_refresher(channel)
+                             if self._stream_info.platform == "kick" else None))
             self._shared_buffers[channel] = self._buffer
             await self._buffer.start()
         else:
@@ -777,11 +812,49 @@ class StreamWorker:
         except Exception as exc:
             log.warning("clip_file_broadcast_failed", clip_id=clip_id, error=str(exc))
 
+    async def _stop_capture(self) -> None:
+        """Stop this session's capture, FIRST and unconditionally.
+
+        CAPTURE OUTLIVED ITS SESSION, twice on prod. 2026-11-03: adinross went
+        offline, the worker logged stream_ended, and its meter and recorder
+        retried a dead playlist every five minutes for hours. 2026-11-10: of
+        2,789 audio-meter deaths in 24 h, 2,499 were on channels nobody listed
+        any more (r2m_world: two meters and a recorder, removed from every
+        list, restarting all day). Capture used to be stopped LAST in _cleanup,
+        after awaits a cancel could cut short (stop_worker cancels the worker
+        task; it is how remove, pause and the admin Clean up stop a channel),
+        and a skipped release() leaves the shared recorder's count above zero
+        for good.
+
+        So: the meter is halted synchronously (no restart can follow even if
+        nothing after this line runs), the references are dropped so nothing
+        can stop or release them twice, and the awaitable half runs as its own
+        shielded task, which completes even if this worker is cancelled while
+        waiting on it. The orphan reaper (src/ingestion/orphans.py) backs this
+        up for any path that still slips through.
+        """
+        buf, self._buffer = self._buffer, None
+        rec, self._recorder = self._recorder, None
+        if buf is not None:
+            buf.halt()
+            self._shared_buffers.pop(self._config.channel, None)
+        if buf is None and rec is None:
+            return
+        await asyncio.shield(_spawn_capture_stop(
+            buf, self._config.channel if rec is not None else None))
+
     async def _cleanup(self) -> None:
         # Cancel subtasks — guards against the case where CancelledError skips
         # the normal pending-task teardown in _run_session's try block.
         for t in self._tasks:
             t.cancel()
+        # In-flight cuts are cancelled (not yet awaited) BEFORE the recorder
+        # is released, so none starts reading a ring that is being wiped.
+        for t in self._cut_tasks:
+            t.cancel()
+        # Capture first: see _stop_capture. Everything below may wait, or be
+        # interrupted, and none of it may decide whether capture stops.
+        await self._stop_capture()
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
@@ -799,21 +872,9 @@ class StreamWorker:
             await asyncio.gather(*self._cut_tasks, return_exceptions=True)
         self._cut_tasks.clear()
 
-        if self._buffer:
-            await self._buffer.stop()
-            self._shared_buffers.pop(self._config.channel, None)
-            self._buffer = None
-        if self._recorder is not None:
-            # Release our share rather than stopping outright: another user may
-            # still be monitoring this channel, and they should not lose their
-            # buffer because we stopped watching.
-            from src.ingestion import clip_recorder
-            try:
-                await clip_recorder.release(self._config.channel)
-            except Exception as exc:
-                log.warning("clip_recorder_release_failed",
-                            channel=self._config.channel, error=str(exc))
-            self._recorder = None
+        # The meter and this session's recorder hold were stopped and released
+        # at the top (_stop_capture). Released, not stopped outright: another
+        # user may still be monitoring this channel, and they keep their buffer.
         if self._engine:
             self._engine.stop()
             self._engine = None
@@ -835,6 +896,19 @@ class StreamWorker:
             self._engine.stop()
         for t in self._tasks:
             t.cancel()
+        # And the capture, right here, before stop_worker cancels this worker:
+        # the meter is halted now, and the recorder hold is released by a task
+        # of its own, so neither depends on the cleanup surviving the cancel.
+        buf, self._buffer = self._buffer, None
+        rec, self._recorder = self._recorder, None
+        if buf is not None:
+            buf.halt()
+            self._shared_buffers.pop(self._config.channel, None)
+        if buf is not None or rec is not None:
+            try:
+                _spawn_capture_stop(buf, self._config.channel if rec is not None else None)
+            except RuntimeError:
+                pass                     # no running loop: nothing is running either
 
 
 async def _land_for_user(ripe, uid: str, info, platform_name: str) -> None:

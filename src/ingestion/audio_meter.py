@@ -13,7 +13,7 @@ import struct
 import structlog
 
 from config.settings import settings
-from src.ingestion.restart import Backoff, redact
+from src.ingestion.restart import Backoff, launch_url, redact
 
 log = structlog.get_logger(__name__)
 
@@ -33,10 +33,26 @@ def _rms_db(data: bytes) -> float:
     return max(_SILENCE_DB, 20.0 * math.log10(math.sqrt(mean_sq) / 32768.0))
 
 
+# Every meter that has been started and not stopped or halted. The orphan
+# reaper (src/ingestion/orphans.py) compares it with the meters the running
+# workers hold: anything nobody holds is capture that outlived its session.
+_running: set = set()
+
+
+def running() -> list:
+    return list(_running)
+
+
 class AudioMeter:
-    def __init__(self, channel: str, stream_url: str) -> None:
+    def __init__(self, channel: str, stream_url: str, refresh_url=None) -> None:
         self.channel    = channel
         self.stream_url = stream_url
+        # Kick only (restart.kick_url_refresher): asked for a fresh link before
+        # every relaunch, because the one we started with expires.
+        self._refresh   = refresh_url
+        # Set while the platform says the channel is offline: nothing is
+        # launched and the wait between checks grows like any failed start.
+        self._waiting   = False
         self._level_db: float = _SILENCE_DB
         self._sl: asyncio.subprocess.Process | None = None
         self._ff: asyncio.subprocess.Process | None = None
@@ -48,6 +64,7 @@ class AudioMeter:
 
     async def start(self) -> None:
         self._running = True
+        _running.add(self)
         await self._launch()
         self._monitor = asyncio.create_task(
             self._monitor_loop(), name=f"audiometer-monitor-{self.channel}"
@@ -142,17 +159,30 @@ class AudioMeter:
             sl_dead = self._sl is None or self._sl.returncode is not None
             ff_dead = self._ff is None or self._ff.returncode is not None
             if sl_dead or ff_dead:
-                log.warning("audio_meter_process_died", channel=self.channel,
-                            streamlink_rc=self._sl.returncode if self._sl else "n/a",
-                            ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
+                if not self._waiting:
+                    log.warning("audio_meter_process_died", channel=self.channel,
+                                streamlink_rc=self._sl.returncode if self._sl else "n/a",
+                                ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
                 await self._kill_procs()
                 self._level_db = _SILENCE_DB
                 delay = self._backoff.next_delay()
                 log.info("audio_meter_restarting", channel=self.channel, delay=delay,
-                         failures_in_a_row=self._backoff.failures)
+                         failures_in_a_row=self._backoff.failures,
+                         waiting_offline=self._waiting)
                 await asyncio.sleep(delay)
                 if self._running:
-                    await self._launch()
+                    url = await launch_url(self._refresh, self.stream_url,
+                                           channel=self.channel, kind="audio_meter")
+                    if url is None:
+                        if not self._waiting:
+                            log.info("audio_meter_waiting_channel_offline", channel=self.channel)
+                        self._waiting = True
+                        self._backoff.started()     # a failed start: the wait grows
+                    else:
+                        self._waiting = False
+                        self.stream_url = url
+                        if self._running:
+                            await self._launch()
             await asyncio.sleep(5)
 
     async def _kill_procs(self) -> None:
@@ -175,8 +205,27 @@ class AudioMeter:
     async def get_audio_level_db(self) -> float:
         return self._level_db
 
+    def halt(self) -> None:
+        """Stop NOW, without awaiting anything: no restart can follow, the
+        processes are asked to exit. For paths that must not be interruptible
+        (a worker's stop(), its cancelled cleanup, the orphan reaper); stop()
+        still runs afterwards to reap the processes and log."""
+        self._running = False
+        _running.discard(self)
+        for task in (self._monitor, self._reader, self._sl_log):
+            if task:
+                task.cancel()
+        self._monitor = None
+        for proc in (self._ff, self._sl):
+            if proc and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+
     async def stop(self) -> None:
         self._running = False
+        _running.discard(self)
         if self._monitor:
             self._monitor.cancel()
             self._monitor = None

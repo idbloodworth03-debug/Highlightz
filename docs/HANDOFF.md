@@ -8113,3 +8113,57 @@ Kick-only condition removed, the Twitch test fails).
 
 Still open, next: the recorder deaths (334 restarts in 4 days on r2m_world,
 953 audio-meter deaths site-wide in 8 h) and the 2026-11-03 capture leak.
+
+## Capture stops with its session; Kick restarts use a fresh link (2026-11-10)
+
+Read on prod over 24 h (after the r2m_world reports above):
+- streamlink failed **5,124 times with "403 Forbidden"** on Kick playback
+  URLs (187 "404 Not Found", 7 "No playable streams"). Every r2m_world
+  recorder restart (280) lived six seconds.
+- **2,499 of 2,789 audio-meter deaths were on channels nobody listed any
+  more** (r2m_world 508/day = two meters; seven other removed channels at
+  ~281/day = one each), and r2m_world's recorder kept restarting too.
+- Two channels that WERE live lost capture repeatedly (soymalegonzalez 185,
+  mrstiventc 90).
+
+**Cause 1, the dead link.** A Kick stream URL is the IVS playlist with a
+signed `token=` that expires. AudioMeter and ClipRecorder kept the URL they
+started with and retried it forever: a token expiring mid-stream cost every
+clip's video for the rest of that stream; an ended stream retried a dead link
+every 5 min. Twitch is unaffected (its URL is the channel page; streamlink
+resolves a fresh token each launch).
+**Fix:** `restart.kick_url_refresher(channel)` (own short-lived KickPlatform,
+closed every call) and `restart.launch_url()`: before every RELAUNCH a Kick
+pipeline asks for a fresh URL; `ChannelOffline` means do not launch, wait
+(`*_waiting_channel_offline` logged once, backoff keeps growing, no
+`*_process_died` spam while waiting); a failed lookup falls back to the old URL.
+Wired in `StreamWorker._run_session` (meter) and `clip_recorder.ensure`
+(recorder, `platform == "kick"` only).
+
+**Cause 2, capture outliving its session** (also the 2026-11-03 adinross
+open item, closed by this). Capture was stopped LAST in `_cleanup`, after
+awaits that a cancel can cut short (`stop_worker` cancels the worker task;
+remove, idle pause, admin Clean up all go through it); a skipped
+`clip_recorder.release()` leaves the shared recorder's count above zero for
+good. The exact await that was interrupted on prod was never pinned down; the
+fix does not depend on it.
+**Fix:** (a) `StreamWorker.stop()` halts the meter synchronously
+(`AudioMeter.halt()`: `_running=False`, tasks cancelled, processes terminated,
+no await) and schedules the awaitable half (`_finish_capture_stop`: reap
+processes, release the recorder hold) as its own task; (b) `_cleanup` calls
+`_stop_capture()` FIRST, which halts synchronously and awaits the rest under
+`asyncio.shield`, so a cancel mid-cleanup cannot cut it off; references are
+dropped first so nothing double-stops or double-releases; (c) backstop:
+`src/ingestion/orphans.py` `reap_orphan_capture(workers)`, every 5 min from
+main.py (`reap_orphan_capture_task`, first pass 2 min after start): any
+running meter (`audio_meter.running()`) or recorder no live worker holds, by
+identity, is halted, stopped and forgotten (`clip_recorder.reap`), logged
+`capture_orphan_reaped`. On prod it should stay silent; if it logs, a leak
+path still exists and the log names the channel.
+
+Tests: `tests/test_capture_lifecycle.py` (14). Unshielding the capture stop
+fails the cancelled-cleanup test; ignoring the refresher fails 4.
+
+**To check after deploy** (read-only): 403s and deaths on unlisted channels
+should fall to near zero within a day:
+`journalctl -u highlightz --since "6 hours ago" -o cat | grep -cE 'Forbidden|capture_orphan_reaped'`

@@ -21,6 +21,10 @@ from __future__ import annotations
 import re
 import time
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 BASE_S = 15.0
 MAX_S = 300.0
 HEALTHY_S = 60.0
@@ -54,3 +58,50 @@ _SECRET_Q = re.compile(r"([?&](?:token|sig|signature|auth|access_token|key|polic
 
 def redact(line: str) -> str:
     return _SECRET_Q.sub(r"\1<redacted>", line)
+
+
+# ── A KICK LINK GOES STALE; A RESTART MUST NOT REUSE IT ─────────────────────
+#
+# Prod, 2026-11-10 (24 h): streamlink failed 5,124 times with "403 Client
+# Error: Forbidden" on Kick playback URLs, and every r2m_world recorder
+# restart lived six seconds. A Kick stream URL is the IVS playlist with a
+# signed `token=` that expires; the pipelines kept the URL they were started
+# with and retried it forever, so a channel whose token expired mid-stream
+# lost its capture (and every clip's video) until the stream ended, and a
+# channel that had ended retried a dead link every five minutes. Twitch is not
+# affected: its URL is the channel page, which streamlink resolves afresh on
+# every launch.
+
+def kick_url_refresher(channel: str):
+    """An async callable returning a fresh stream URL for a Kick channel, or
+    raising ChannelOffline. Uses its own short-lived client, closed every time,
+    so it never depends on (or leaks) the worker's HTTP session."""
+    async def fresh() -> str:
+        from src.ingestion.platform.kick import KickPlatform
+        p = KickPlatform()
+        try:
+            return (await p.get_stream_info(channel)).stream_url
+        finally:
+            try:
+                await p.close()
+            except Exception:
+                pass
+    return fresh
+
+
+async def launch_url(refresh, current: str, *, channel: str, kind: str) -> str | None:
+    """The URL to relaunch with. A fresh one when there is a refresher; None
+    when the platform says the channel is offline (do not launch, wait); the
+    current one when there is no refresher or the lookup itself failed."""
+    if refresh is None:
+        return current
+    from src.ingestion.platform.base import ChannelOffline
+    try:
+        url = await refresh()
+    except ChannelOffline:
+        return None
+    except Exception as exc:
+        log.warning("capture_url_refresh_failed", kind=kind, channel=channel,
+                    error=redact(str(exc))[:200])
+        return current
+    return url or current

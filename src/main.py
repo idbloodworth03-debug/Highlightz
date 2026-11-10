@@ -168,6 +168,24 @@ async def stop_worker(channel: str, user_id: str = "") -> None:
     SHARED_BUFFERS.pop(channel, None)
 
 
+async def reap_orphan_capture_task(interval_s: float = 300.0) -> None:
+    """Every five minutes, stop capture no running worker holds. See
+    src/ingestion/orphans.py; the first pass after a deploy has nothing to do,
+    since a restart starts every pipeline from scratch."""
+    from src.ingestion import orphans
+    await asyncio.sleep(120)
+    while True:
+        try:
+            n = await orphans.reap_orphan_capture(_worker_instances.values())
+            if n:
+                log.warning("capture_orphans_reaped", count=n)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("capture_orphan_reap_error", error=str(exc))
+        await asyncio.sleep(interval_s)
+
+
 async def restore_streams() -> int:
     """At startup, start a worker for every saved channel except paused ones.
 
@@ -914,6 +932,7 @@ async def main() -> None:
         asyncio.create_task(sweep_dead_clips_task(), name="dead-clip-sweep"),
         asyncio.create_task(dashboard_api.sweep_videoless_kick_clips_task(),
                             name="videoless-kick-sweep"),
+        asyncio.create_task(reap_orphan_capture_task(), name="capture-orphan-reaper"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
         # Campaigns go live, close and finish their grace period on the clock;

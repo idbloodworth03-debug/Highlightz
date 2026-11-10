@@ -55,7 +55,7 @@ from pathlib import Path
 import structlog
 
 from config.settings import settings
-from src.ingestion.restart import Backoff, redact
+from src.ingestion.restart import Backoff, kick_url_refresher, launch_url, redact
 
 log = structlog.get_logger(__name__)
 
@@ -139,9 +139,12 @@ class ClipRecorder:
     if either process dies (streams end, tokens expire, CDNs rotate).
     """
 
-    def __init__(self, channel: str, stream_url: str) -> None:
+    def __init__(self, channel: str, stream_url: str, refresh_url=None) -> None:
         self.channel = channel
         self.stream_url = stream_url
+        # Kick only: a fresh link before every relaunch (restart.py).
+        self._refresh = refresh_url
+        self._waiting = False
         self.dir = buffer_dir(channel)
         self._sl: asyncio.subprocess.Process | None = None
         self._ff: asyncio.subprocess.Process | None = None
@@ -254,16 +257,29 @@ class ClipRecorder:
             sl_dead = self._sl is None or self._sl.returncode is not None
             ff_dead = self._ff is None or self._ff.returncode is not None
             if sl_dead or ff_dead:
-                log.warning("clip_recorder_process_died", channel=self.channel,
-                            streamlink_rc=self._sl.returncode if self._sl else "n/a",
-                            ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
+                if not self._waiting:
+                    log.warning("clip_recorder_process_died", channel=self.channel,
+                                streamlink_rc=self._sl.returncode if self._sl else "n/a",
+                                ffmpeg_rc=self._ff.returncode if self._ff else "n/a")
                 await self._kill_procs()
                 delay = self._backoff.next_delay()
                 log.info("clip_recorder_restarting", channel=self.channel, delay=delay,
-                         failures_in_a_row=self._backoff.failures)
+                         failures_in_a_row=self._backoff.failures,
+                         waiting_offline=self._waiting)
                 await asyncio.sleep(delay)
                 if self._running:
-                    await self._launch()
+                    url = await launch_url(self._refresh, self.stream_url,
+                                           channel=self.channel, kind="clip_recorder")
+                    if url is None:
+                        if not self._waiting:
+                            log.info("clip_recorder_waiting_channel_offline", channel=self.channel)
+                        self._waiting = True
+                        self._backoff.started()     # a failed start: the wait grows
+                    else:
+                        self._waiting = False
+                        self.stream_url = url
+                        if self._running:
+                            await self._launch()
             await asyncio.sleep(5)
 
     async def _prune_loop(self) -> None:
@@ -323,6 +339,21 @@ class ClipRecorder:
                 except ProcessLookupError:
                     pass
         self._ff = self._sl = None
+
+    def halt(self) -> None:
+        """Stop restarting NOW, without awaiting anything (see AudioMeter.halt).
+        stop() still runs afterwards to reap the processes and wipe the ring."""
+        self._running = False
+        for task in (self._monitor, self._pruner, self._sl_log):
+            if task:
+                task.cancel()
+        self._monitor = self._pruner = None
+        for proc in (self._ff, self._sl):
+            if proc and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
 
     async def stop(self, wipe: bool = True) -> None:
         self._running = False
@@ -502,7 +533,8 @@ async def ensure(channel: str, stream_url: str, platform: str = "",
     async with _lock:
         rec = _recorders.get(key)
         if rec is None:
-            rec = ClipRecorder(key, stream_url)
+            rec = ClipRecorder(key, stream_url,
+                               refresh_url=kick_url_refresher(key) if platform == "kick" else None)
             _recorders[key] = rec
             _refs[key] = 0
             await rec.start()
@@ -521,6 +553,30 @@ async def release(channel: str) -> None:
             rec = _recorders.pop(key)
             _refs.pop(key, None)
             await rec.stop()
+
+
+async def reap(keep) -> list[str]:
+    """Stop every recorder not in `keep` (the ones running workers hold) and
+    forget it, whatever its reference count says. Returns their channels.
+
+    The count is only as good as every session's release(), and a release a
+    cancelled cleanup skipped leaves a recorder that nothing will ever stop:
+    prod, 2026-11-10, r2m_world's recorder restarted 280 times in 24 hours
+    after nobody listed the channel any more."""
+    gone = []
+    async with _lock:
+        for key, rec in list(_recorders.items()):
+            if rec not in keep:
+                _recorders.pop(key, None)
+                _refs.pop(key, None)
+                gone.append(rec)
+    for rec in gone:
+        rec.halt()
+        try:
+            await rec.stop()
+        except Exception as exc:
+            log.warning("clip_recorder_reap_stop_failed", channel=rec.channel, error=str(exc))
+    return [rec.channel for rec in gone]
 
 
 async def stop_all() -> None:
