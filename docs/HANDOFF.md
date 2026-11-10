@@ -8045,3 +8045,42 @@ check file mtime minus created_at on her clips), or `files._read_store`
 returning an empty set on an OSError from scandir (an open-file exhaustion
 would make EVERY clip read "no file" at once and is never cached). The
 read-only check for both was handed to the owner.
+
+## The clip store was turning unreviewed Kick clips into duds (2026-11-10)
+
+The second half of the sexylexy____ reports (section above). Read on prod:
+**111 of her 285 r2m_world videos were deleted to make room**, after 13 to
+40 hours (typically 15.5). Site-wide: 938 over-cap deletions in 8 hours
+against 891 new files; 3,165 unreviewed clips, 2,781 already without a video,
+1,580 of them Kick; an unreviewed video lasted about 7 hours. Deletions went
+from 137/day (Nov 3) to ~1,000/day from Nov 4, when the paused-channel fix
+and the resize let more channels run. Store 11.6 of 15 GB; approved files were
+never evicted (0 `clip_file_swept_approved`).
+
+Why it hurt Kick users: a Twitch clip can be fetched from Twitch again after
+its file goes; a Kick clip is ONLY our file. Oldest-first within pending
+treated them alike.
+
+**Change** (`files.eviction_ranks`, used by `trim_to_cap`): over the cap, the
+order is now: no clip record (orphan) → pending before approved → free
+accounts before paying (admins/trials resolve to a paid plan) → Twitch before
+Kick → oldest first. `_TRIM_MIN_AGE_S` (1 h) and Studio's exemption are
+unchanged. `clip_file_store_trimmed` now logs `kick=` and `paid=`: how many
+Kick files and paying customers' files the trim had to take; both should sit
+near zero while free-account Twitch files remain. Tests:
+`tests/test_eviction_order.py`.
+
+**Owner step, not in the repo:** raise the cap. Disk is 77 GB with 43 GB
+free; `CLIP_FILE_MAX_TOTAL_MB=30720` (30 GB) in `/opt/highlightz/.env` roughly
+doubles how long a file lasts. Neither change makes an unreviewed Kick clip
+last a day at ~2,700 new files/day; what they do is spend the space on
+paying customers' Kick clips first.
+
+**OPEN, owner's call:** (1) the review queues are mostly duds (2,781 of 3,165
+unreviewed clips have no video). A pending Kick clip whose file is gone can
+never be reviewed with video; removing those from the queue (or hiding them
+behind a "video gone" filter) would make the queue honest. Not done: it makes
+clips disappear from a list, which is a product decision. (2) The r2m_world
+recorder died and restarted 334 times in 4 days (and 953 audio-meter deaths
+site-wide in 8 h); 33 r2m clips got no file at all. Kick HLS stability and the
+2026-11-03 capture leak (adinross) are the suspects; not investigated here.

@@ -346,6 +346,46 @@ def protected_ids() -> frozenset:
         return frozenset()
 
 
+def eviction_ranks() -> dict:
+    """Per clip id, (paid_owner, kick): after the approved/pending split, what
+    the trim evicts FIRST when the store is over its cap. Lower goes first.
+
+    MEASURED ON PROD 2026-11-10, after a Pro user's "nothing but dud videos":
+    938 files deleted to make room in 8 hours against 891 new ones; 3,165
+    unreviewed clips on the site, 2,781 already without a video, 1,580 of them
+    Kick; an unreviewed video lasted about 7 hours. Oldest-first treated a
+    paying customer's Kick clip, which exists ONLY as our file, the same as a
+    free account's Twitch clip, which can be fetched from Twitch again any
+    time. So, within each of pending and approved:
+      * free accounts' files go before paying accounts' (admins and trials
+        resolve to a paid plan, so they count as paying);
+      * Twitch files go before Kick files;
+      * then oldest first, as before.
+    A file with no clip record at all (rejected, deleted) ranks lowest and
+    goes first, which is what should happen to an orphan.
+
+    Same lazy upward reach as protected_ids, same failure mode: an empty dict,
+    i.e. oldest first within approved/pending, the old behaviour.
+    """
+    try:
+        from src.auth import users as user_store
+        from src.billing import plans
+        from src.dashboard import api as dashboard_api
+        paid: dict = {}
+        out: dict = {}
+        for c in list(dashboard_api._clips.values()):
+            cid, uid = c.get("id"), c.get("user_id")
+            if not cid:
+                continue
+            if uid not in paid:
+                paid[uid] = bool(uid) and plans.get_plan(user_store.get_by_id(uid)) not in (
+                    "free", plans.LOCKED_PLAN)
+            out[cid] = (int(paid[uid]), int(c.get("platform") == "kick"))
+        return out
+    except Exception:                       # noqa: BLE001 - see docstring
+        return {}
+
+
 def kept_ids() -> frozenset:
     """Clip ids whose owner's plan KEEPS its videos the full age ceiling
     (Studio's `keep_files`, owner 2026-11-03): the size cap never clears them
@@ -370,8 +410,10 @@ def kept_ids() -> frozenset:
         return frozenset()
 
 
-def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> int:
-    """Delete files until the store is back under the cap — UNREVIEWED FIRST.
+def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None,
+                ranks: dict | None = None) -> int:
+    """Delete files until the store is back under the cap — UNREVIEWED FIRST,
+    and within that free accounts' and Twitch's first (`eviction_ranks`).
 
     `keep_ids` are clip ids to evict LAST (approved ones, by default — see
     `protected_ids`). They are not exempt: if freeing every evictable pending
@@ -415,6 +457,7 @@ def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> i
     target = cap * _TRIM_TARGET
     youngest_evictable = time.time() - _TRIM_MIN_AGE_S
     removed = 0
+    gone_kick = gone_paid = 0
 
     # APPROVED CLIPS GO LAST, and this is the whole point of `keep_ids`.
     #
@@ -443,13 +486,18 @@ def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> i
     # Studio's videos are not evicted at all (kept_ids); the rest are ordered
     # as below. None means "work it out", like keep_ids.
     exempt = kept_ids() if exempt_ids is None else exempt_ids
+    rank = eviction_ranks() if ranks is None else ranks
     def _order(entry):
         mtime, _size, path = entry
         # `in keep`, NOT `not in`: False sorts before True, so an unprotected
         # file must evaluate False. Writing this the other way round evicts
         # approved clips FIRST — the exact bug being fixed, restored. The
         # test above it is what caught that on the first run.
-        return (path.stem in keep, mtime)          # pending first, then oldest
+        # pending first; then free accounts; then Twitch (fetchable again);
+        # then oldest. An id with NO RECORD ranks below everything: the clip
+        # was rejected or deleted and nobody can reach the file any more.
+        paid, kick = rank.get(path.stem, (-1, 0))
+        return (path.stem in keep, paid, kick, mtime)
 
     for mtime, size, p in sorted(entries, key=_order):
         if total <= target:
@@ -470,6 +518,9 @@ def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> i
             continue
         total -= size
         removed += 1
+        _paid, _kick = rank.get(p.stem, (0, 0))
+        gone_kick += _kick
+        gone_paid += max(0, _paid)
         # Say WHICH kind went. An approved file being evicted means the store
         # is so full that protecting it was not possible, which is a different
         # and much louder problem than routine housekeeping.
@@ -482,7 +533,10 @@ def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None) -> i
                                "left; a clip somebody kept has lost its video")
     if removed:
         _forget_scan()
-        log.info("clip_file_store_trimmed", removed=removed,
+        # kick/paid say what the order cost: a Kick file is gone for good and a
+        # paid file belonged to a customer. Both should stay near zero while
+        # the store has free-account Twitch files to give up first.
+        log.info("clip_file_store_trimmed", removed=removed, kick=gone_kick, paid=gone_paid,
                  now_mb=round(total / MB), cap_mb=settings.clip_file_max_total_mb)
     elif total >= cap:
         # Worth saying: the store is full of files too new to evict, which is
