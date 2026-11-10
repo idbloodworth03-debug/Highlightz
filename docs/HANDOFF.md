@@ -8084,3 +8084,32 @@ clips disappear from a list, which is a product decision. (2) The r2m_world
 recorder died and restarted 334 times in 4 days (and 953 audio-meter deaths
 site-wide in 8 h); 33 r2m clips got no file at all. Kick HLS stability and the
 2026-11-03 capture leak (adinross) are the suspects; not investigated here.
+
+## Videoless Kick clips leave the review queue on their own (2026-11-10)
+
+Owner, on the figures in the section above (2,781 of 3,165 unreviewed clips
+with no video, 1,580 of them Kick): "Remove them. Investigate it after."
+
+`api.sweep_videoless_kick_clips()` removes every clip that is **pending**,
+**Kick**, has **no file** in the store, and is **older than 15 minutes**
+(`_VIDEO_GONE_GRACE_S`; the cut lands ~30 s after the catch on prod and
+`_file_state` calls a clip pending for 2 min, so 15 min is far outside both).
+Twitch clips are never touched (theirs can be fetched again). Approved clips
+are never touched. Same shape as `sweep_dead_twitch_clips`: pop under the
+lock, one save, then announce. Each removal: `_delete_clip_file` (the picture),
+ledger `VIDEO_GONE` (new in `stream_stats`; NOT `EXPIRED`, which
+`evictions_since` counts for the queue-full notice, and NOT `REJECTED`, which
+teaches the formula; counted in sessions, `_summarise`, `totals_by_user`),
+`clip_removed` to the owner's tabs (existing handler), log
+`videoless_kick_clip_removed`. One bell note per account per day
+(`_video_gone_noticed`, in memory, so a restart may allow a second one),
+plus `inbox_changed`. Runs every 10 minutes from a minute after start
+(`sweep_videoless_kick_clips_task`, started in main.py), so the first pass
+after this deploy clears the backlog; expect `videoless_kick_sweep_done
+removed=~1500` once and a bell note on many accounts. Admin overview
+`clips.video_gone` and the Keep-rate tile's line "N Kick removed, video gone"
+show what it has taken. Tests: `tests/test_videoless_kick_clips.py` (with the
+Kick-only condition removed, the Twitch test fails).
+
+Still open, next: the recorder deaths (334 restarts in 4 days on r2m_world,
+953 audio-meter deaths site-wide in 8 h) and the 2026-11-03 capture leak.

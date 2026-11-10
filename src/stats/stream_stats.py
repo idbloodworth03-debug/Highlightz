@@ -61,6 +61,13 @@ MISSED   = "missed"
 # sum of its outcomes; a cleared clip is accounted for, just not blamed on
 # anyone.
 CLEARED  = "cleared"
+# A Kick clip removed from the queue UNREVIEWED because its video was gone
+# (evicted by the size cap, or never cut) and a Kick clip is nothing but its
+# video (owner, 2026-11-10: "Remove them"). Its own event for the same two
+# reasons as CLEARED: not a rejection (nobody judged it), and not EXPIRED
+# (evictions_since counts those for "your queue filled up", which is a
+# different thing and was not what happened). Counted so CAUGHT reconciles.
+VIDEO_GONE = "video_gone"
 # A destructive action was taken back within the undo window. The rows it
 # already wrote stay — this is append-only telemetry and rewriting history is
 # how ledgers start disagreeing with themselves — so this marks them as
@@ -155,6 +162,7 @@ def _sessions(events: list[dict]) -> list[dict]:
                    # recorded "so CAUGHT still reconciles against the sum of
                    # its outcomes" — which it could not, because it vanished.
                    "cleared": 0,
+                   "video_gone": 0,
                    "missed": 0}
             sessions.append(cur)
         cur["ended_at"] = max(cur["ended_at"], at)
@@ -185,6 +193,7 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
     rejected = sum(s["rejected"] for s in sessions)
     expired = sum(s["expired"] for s in sessions)
     cleared = sum(s.get("cleared", 0) for s in sessions)
+    video_gone = sum(s.get("video_gone", 0) for s in sessions)
     missed = sum(s.get("missed", 0) for s in sessions)
     return {
         "user_id": user_id,
@@ -193,6 +202,9 @@ def _summarise(user_id: str, channel: str, events: list[dict]) -> dict:
         "approved": approved,
         "rejected": rejected,
         "expired": expired,
+        # Kick clips removed unreviewed because their video was gone. Not a
+        # judgement on the formula either way, so not in rejected.
+        "video_gone": video_gone,
         # Thrown away in bulk with the clear-queue button rather than judged
         # one at a time. Deliberately NOT folded into rejected: clearing says
         # nothing about whether the formula was right.
@@ -374,7 +386,7 @@ def totals_by_user() -> dict[str, dict]:
     out: dict[str, dict] = {}
     for uid, by_channel in per.items():
         tot = {"caught": 0, "approved": 0, "rejected": 0,
-               "cleared": 0, "expired": 0}
+               "cleared": 0, "expired": 0, "video_gone": 0}
         for events in by_channel.values():
             undone = _retracted_clip_ids(events)
             for r in events:

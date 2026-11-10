@@ -1078,6 +1078,107 @@ def prune_showcase(clip_ids: set[str]) -> None:
 _SWEEP_MIN_AGE_SECS = 900.0
 
 
+# A Kick clip is nothing but the video Highlightz cut: no clip page, nothing to
+# fetch again. Once that video is gone (evicted by the size cap, cleared, or
+# never cut), a pending one can never be reviewed with video and sits in the
+# queue as a dud. Prod, 2026-11-10: 2,781 of 3,165 unreviewed clips had no
+# video, 1,580 of them Kick, behind a Pro user's "nothing but dud videos".
+# Owner: "Remove them." Twitch clips are NOT touched: theirs can be fetched
+# from Twitch again and reviewed there.
+#
+# `grace_s` is how long a clip gets to receive its video before "no file"
+# means "gone": the cut lands ~30 s after the catch on prod and _file_state
+# calls it pending for _CLIP_FILE_WAIT_S; fifteen minutes is far outside both.
+_VIDEO_GONE_GRACE_S = 900.0
+# One bell note per account per day, however many passes remove something.
+_VIDEO_GONE_NOTICE_EVERY_S = 86400.0
+_video_gone_noticed: dict[str, float] = {}
+
+
+async def sweep_videoless_kick_clips(grace_s: float = _VIDEO_GONE_GRACE_S,
+                                     now: float | None = None) -> int:
+    """Remove pending Kick clips whose video is gone. Returns how many.
+
+    Same shape as sweep_dead_twitch_clips below: decide, pop under the lock,
+    save once, then announce outside the lock. Recorded in the ledger as
+    VIDEO_GONE (not EXPIRED, which would fire the queue-full notice, and not
+    REJECTED, which would teach the formula something nobody said).
+    """
+    from src.clips import files as clip_files
+    from src.stats import stream_stats
+    now = time.time() if now is None else now
+    listing = clip_files.existing_ids()
+    gone = [c for c in list(_clips.values())
+            if c.get("status") == "pending" and c.get("platform") == "kick"
+            and c.get("id") and c["id"] not in listing
+            and now - float(c.get("created_at") or 0) > grace_s]
+    if not gone:
+        return 0
+    removed = []
+    async with _data_lock:
+        for c in gone:
+            clip = _clips.pop(c["id"], None)
+            if clip:
+                removed.append(clip)
+        if removed:
+            _save_clips()
+    per_user: dict[str, int] = {}
+    for clip in removed:
+        _delete_clip_file(clip)                 # the picture, if one was kept
+        try:
+            stream_stats.record(stream_stats.VIDEO_GONE, clip)
+        except Exception:
+            pass
+        uid = clip.get("user_id") or ""
+        per_user[uid] = per_user.get(uid, 0) + 1
+        # Realtime contract: the card leaves every open tab now.
+        await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
+        log.info("videoless_kick_clip_removed", clip_id=clip["id"],
+                 channel=clip.get("channel"), user_id=uid,
+                 age_h=round((now - float(clip.get("created_at") or 0)) / 3600, 1))
+    # Say so in the bell, at most once a day per account, so clips do not just
+    # vanish from a list. Failure here must not fail the sweep.
+    try:
+        from src.auth import users as user_store
+        notes = {}
+        for uid, n in per_user.items():
+            if not uid or now - _video_gone_noticed.get(uid, 0) < _VIDEO_GONE_NOTICE_EVERY_S:
+                continue
+            _video_gone_noticed[uid] = now
+            notes[uid] = {
+                "title": "Some Kick clips were removed from your queue",
+                "body": (f"{n} unreviewed Kick clip{'s' if n != 1 else ''} had no video left, "
+                         "so we took them off your queue. A Kick clip exists only as the "
+                         "video Highlightz records, and unreviewed videos are kept for a "
+                         "limited time to make room for new ones. Review or approve Kick "
+                         "clips soon after they land; approved clips are kept the longest."),
+            }
+        if notes:
+            user_store.add_notices(notes)
+            for uid in notes:
+                await broadcast({"event": "inbox_changed"}, user_id=uid)
+    except Exception as exc:
+        log.warning("videoless_kick_notice_failed", error=str(exc))
+    return len(removed)
+
+
+async def sweep_videoless_kick_clips_task(interval_s: float = 600.0) -> None:
+    """Every ten minutes, from a minute after start. Its own clock rather than
+    the six-hourly file sweep's: the size cap evicts files all day, and a dud
+    should not sit in somebody's queue for six hours."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            n = await sweep_videoless_kick_clips()
+            if n:
+                log.info("videoless_kick_sweep_done", removed=n)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("videoless_kick_sweep_error", error=str(exc))
+        await asyncio.sleep(interval_s)
+
+
 async def sweep_dead_twitch_clips(fetch_existing) -> int:
     """Remove stored Twitch clips that were deleted on Twitch's side after
     creation (broadcasters/mods can — and on some channels routinely do —
@@ -8689,6 +8790,7 @@ async def admin_overview(request: Request):
     kept = sum(r.get("approved", 0) for r in rows)
     rejected = sum(r.get("rejected", 0) for r in rows)
     expired = sum(r.get("expired", 0) for r in rows)
+    video_gone = sum(r.get("video_gone", 0) for r in rows)
     missed = sum(r.get("missed", 0) for r in rows)
     reviewed = kept + rejected
 
@@ -8731,6 +8833,10 @@ async def admin_overview(request: Request):
             # From the ledger, so these survive the clip being deleted.
             "caught": caught, "kept": kept, "rejected": rejected,
             "expired": expired, "missed": missed,
+            # Kick clips removed unreviewed because their video was gone
+            # (sweep_videoless_kick_clips). Shown so the owner can see what
+            # the automation is taking.
+            "video_gone": video_gone,
             "keep_rate": round(kept / reviewed * 100) if reviewed else 0,
         },
         # "monitored" is what the add-channel check counts against "max"
@@ -17257,7 +17363,8 @@ async function loadOverview(){
   // The gap between lifetime and stored is the whole point of showing both.
   set('ov-clips-s', n0(c.stored) + ' in storage now · ' + n0(c.pending) + ' awaiting review');
   set('ov-keep', c.keep_rate + '%');
-  set('ov-keep-s', n0(c.kept) + ' kept of ' + n0(c.kept + c.rejected) + ' reviewed · ' + n0(c.expired) + ' aged out');
+  set('ov-keep-s', n0(c.kept) + ' kept of ' + n0(c.kept + c.rejected) + ' reviewed · ' + n0(c.expired) + ' aged out'
+    + (c.video_gone ? ' · ' + n0(c.video_gone) + ' Kick removed, video gone' : ''));
   set('ov-live', n0(s.live));
   // "33/44 streams monitored" (owner, 2026-11-04). Monitored and max are the
   // numbers the add-channel check uses, so at full this line and the 503 a
