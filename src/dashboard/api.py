@@ -8735,6 +8735,7 @@ async def admin_overview(request: Request):
     # in that tile rather than the whole population.
     paying_by_tier: dict[str, int] = {"studio": 0, "pro": 0, "starter": 0, "legacy": 0}
     paying = trialing = mrr = legacy = comped = 0
+    paying_ids: set = set()
     for u in customers:
         plan = plans.get_plan(u)
         by_plan[plan] = by_plan.get(plan, 0) + 1
@@ -8771,6 +8772,7 @@ async def admin_overview(request: Request):
                 continue
             stored = u.get("plan")
             paying += 1
+            paying_ids.add(u.get("id"))
             segment["paying"] += 1
             mrr += plans.billed_monthly(u)
             on_legacy_price = bool(settings.stripe_price_id
@@ -8784,6 +8786,28 @@ async def admin_overview(request: Request):
     now = time.time()
     new_7d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 7 * 86400)
     new_30d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 30 * 86400)
+
+    # ACTIVE USERS (owner, 2026-11-11: "how many people have been online in
+    # the last hour, couple hours, 24 hours, etc."). "Online" means used the
+    # site: _user_last_active is stamped on every authenticated request and on
+    # opening a tab, NOT on the 30 s socket keepalive, so a tab forgotten
+    # overnight does not count; it is saved to disk, so a deploy does not
+    # reset it. The sign-in time is folded in for accounts the activity file
+    # predates. "Tab open now" is the open sockets instead: who could see a
+    # change this second. Staff are not counted, as everywhere above.
+    ws_open = {uid for uid, socks in _ws_clients.items() if socks}
+    last_seen = {u.get("id"): max(float(_user_last_active.get(u.get("id"), 0) or 0),
+                                  float(u.get("last_login_at") or 0))
+                 for u in customers}
+    active = [{"key": "now", "label": "Tab open now",
+               "users": sum(1 for uid in last_seen if uid in ws_open),
+               "paying": sum(1 for uid in last_seen if uid in ws_open and uid in paying_ids)}]
+    for key, label, secs in (("1h", "Last hour", 3600), ("6h", "Last 6 hours", 6 * 3600),
+                             ("24h", "Last 24 hours", 86400), ("7d", "Last 7 days", 7 * 86400),
+                             ("30d", "Last 30 days", 30 * 86400)):
+        hit = [uid for uid, t in last_seen.items() if t and now - t <= secs]
+        active.append({"key": key, "label": label, "users": len(hit),
+                       "paying": sum(1 for uid in hit if uid in paying_ids)})
 
     rows = stream_stats.all_rows()
     caught = sum(r.get("caught", 0) for r in rows)
@@ -8813,6 +8837,7 @@ async def admin_overview(request: Request):
             "paying_by_tier": paying_by_tier,
             "new_7d": new_7d, "new_30d": new_30d,
         },
+        "active": active,
         "mrr": round(mrr, 2),
         # Legacy ($15-era) subscribers: on the old price, or with no stored
         # tier. Counted in `mrr` at what they are charged. Kept under this
@@ -15332,6 +15357,11 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cell .k{margin-top:var(--s-3)}
   .cell .s{font-size:12px;color:var(--ink-2);margin-top:var(--s-1);line-height:1.5;min-height:3em}
   .cell .s.ov-full{color:var(--bad);font-weight:600}
+  .act-head{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-2);margin:var(--s-6) 0 0}
+  .act-head span{text-transform:none;letter-spacing:0;color:var(--ink-3);margin-left:var(--s-2)}
+  .act-rail{margin-top:var(--s-2)}
+  .act-rail .cell .v{font-size:clamp(22px,2vw,28px)}
 
   /* ── Refusals. Only exists when something is wrong, so it is allowed the
      one red rule on the page. ── */
@@ -15549,6 +15579,10 @@ ADMIN_HTML = """<!DOCTYPE html>
     .tlink + .tlink{padding-left:var(--s-2)}
     .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
     .cell{padding:var(--s-4) var(--s-3) var(--s-4) var(--s-3)}
+    /* The 980px rule strips the 4th tile's padding and divider for its three
+       columns, and as the more specific selector it won here too: on a phone
+       the 4th tile sat flush against the 3rd (2026-11-11). */
+    .cell:nth-child(4){padding-left:var(--s-3);border-left:1px solid var(--hair)}
     .cell:nth-child(odd){padding-left:0;border-left:none}
     .cell:nth-child(-n+4){border-bottom:1px solid var(--hair)}
     .cell .s{min-height:0}
@@ -15689,6 +15723,15 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="cell hot"><div class="v" id="ov-clips">&mdash;</div><div class="k">Clips caught</div><div class="s" id="ov-clips-s"></div></div>
     <div class="cell"><div class="v" id="ov-keep">&mdash;</div><div class="k">Keep rate</div><div class="s" id="ov-keep-s"></div></div>
     <div class="cell"><div class="v" id="ov-live">&mdash;</div><div class="k">Live now</div><div class="s" id="ov-live-s"></div></div>
+  </div>
+
+  <!-- Active users (owner, 2026-11-11). From /admin/overview `active`: people
+       who USED the site in each window (requests, not socket keepalives), and
+       who has a tab open right now. Staff not counted. Refreshed with the
+       tiles above, every 30 s while this page is visible. -->
+  <div class="act-head">Active users <span>staff not counted &middot; updates every 30 seconds</span></div>
+  <div class="rail act-rail" id="act-rail">
+    <div class="cell"><div class="v">&mdash;</div><div class="k">Tab open now</div><div class="s"></div></div>
   </div>
 
   <!-- Channels Twitch is refusing to clip. HIDDEN when there are none, because
@@ -17376,6 +17419,14 @@ async function loadOverview(){
   set('ov-live-s', st.join(' · '));
   const lv = document.getElementById('ov-live-s');
   if(lv) lv.classList.toggle('ov-full', s.monitored >= s.max);
+  // Active users: one tile per window, in the order the server sends them.
+  const ar = document.getElementById('act-rail');
+  if(ar && (d.active || []).length){
+    ar.innerHTML = d.active.map(function(r){
+      return '<div class="cell"><div class="v">' + n0(r.users) + '</div><div class="k">' + esc(r.label)
+        + '</div><div class="s">' + (r.paying ? n0(r.paying) + ' paying' : 'none paying') + '</div></div>';
+    }).join('');
+  }
   loadRefusals();
 }
 

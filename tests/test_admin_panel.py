@@ -680,3 +680,47 @@ def test_the_optout_table_stacks_with_labels_on_a_phone():
     assert 'data-l="Platform"' in h and 'data-l="Opted out"' in h
     assert "attr(data-l)" in h
     assert '<div class="tw"><div id="wrap">' in h
+
+
+# ── active users (owner, 2026-11-11) ─────────────────────────────────────────
+
+def test_active_users_by_window(client, monkeypatch):
+    """'how many people have been online in the last hour, couple hours, 24
+    hours, etc.' Counted from the persisted last-activity map (or the sign-in
+    time), staff excluded, paying called out."""
+    from src.dashboard import api
+    now = time.time()
+    monkeypatch.setattr(api, "_user_last_active", {
+        "nova": now - 600,              # paying, 10 min ago
+        "kat": now - 3 * 3600,          # paying, 3 h ago
+        "lurker": now - 20 * 3600,      # free, 20 h ago
+        "drift": now - 5 * 86400,       # free, 5 days ago
+        "moon": now - 60 * 86400,       # trial, two months ago: in no window
+    })
+    monkeypatch.setitem(PEOPLE, "pending", {**PEOPLE["pending"], "last_login_at": now - 1800})
+    monkeypatch.setattr(api, "_ws_clients", {"nova": {object()}, "boss": {object()}, "kat": set()})
+    rows = {r["key"]: r for r in _overview(client)["active"]}
+    assert [r for r in rows] == ["now", "1h", "6h", "24h", "7d", "30d"]
+    assert (rows["now"]["users"], rows["now"]["paying"]) == (1, 1), "an open tab is 'now'; staff are not"
+    assert (rows["1h"]["users"], rows["1h"]["paying"]) == (2, 1), "nova, and pending by sign-in"
+    assert (rows["6h"]["users"], rows["6h"]["paying"]) == (3, 2)
+    assert rows["24h"]["users"] == 4 and rows["7d"]["users"] == 5 and rows["30d"]["users"] == 5
+    assert "boss" not in api._user_last_active or all(
+        r["users"] <= len(PEOPLE) - 1 for r in rows.values()), "the admin's own visit was counted"
+
+
+def test_the_keepalive_ping_is_not_activity():
+    """Otherwise a tab left open overnight reads as somebody online."""
+    import inspect
+    from src.dashboard import api
+    src = inspect.getsource(api)
+    ws = src[src.index("msg = await ws.receive_text()"):]
+    ws = ws[:ws.index("finally:")]
+    assert "_user_last_active[" not in ws
+
+
+def test_the_admin_page_renders_the_active_tiles():
+    from src.dashboard import api
+    h = api.ADMIN_HTML
+    assert 'id="act-rail"' in h and "Active users" in h and "staff not counted" in h
+    assert "d.active.map(function(r){" in h and "' paying'" in h

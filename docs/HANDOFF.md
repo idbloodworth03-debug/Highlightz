@@ -8167,3 +8167,29 @@ fails the cancelled-cleanup test; ignoring the refresher fails 4.
 **To check after deploy** (read-only): 403s and deaths on unlisted channels
 should fall to near zero within a day:
 `journalctl -u highlightz --since "6 hours ago" -o cat | grep -cE 'Forbidden|capture_orphan_reaped'`
+
+## Admin: Active users row (2026-11-11)
+
+Owner: "a tracker in the admin tab that shows active users ... how many
+people have been online in the last hour, couple hours, 24 hours, etc."
+
+`/admin/overview` gained `active`: six rows, `{key, label, users, paying}`
+for `now` ("Tab open now", accounts with an open socket in `_ws_clients`) and
+1 h / 6 h / 24 h / 7 d / 30 d. "Online in a window" = the latest of
+`_user_last_active` (stamped on every authenticated request and on opening a
+socket, NOT on the 30 s keepalive, persisted to `user_activity.json` every 5
+min so a deploy does not reset it) and `last_login_at`. Staff (`is_admin`)
+are excluded, as in every other overview figure; `paying` uses the same
+definition as the Paying tile (active, with a Stripe customer, not granted).
+Rendered as a second `.rail` under the main tiles (`#act-rail`), refreshed
+with them every 30 s while the page is visible.
+
+Also fixed: on phones the 980px rule `.cell:nth-child(4){padding-left:0;
+border-left:none}` (meant for the 3-column layout) beat the phone `.cell`
+reset, so the 4th tile of every rail sat flush against the 3rd; the 700px
+block now restores it.
+
+Checked in a browser against a seeded store (23 accounts spread over two
+months, 4 paying): every window's count matched the seed, desktop and phone,
+no page errors. Tests in `tests/test_admin_panel.py` (windows, staff, open
+tab, keepalive not counted, markup).
