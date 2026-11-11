@@ -36,9 +36,20 @@ def world(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "_video_gone_noticed", {})
     monkeypatch.setattr(api, "_save_clips", lambda: saves.append(1))
     monkeypatch.setattr(api, "_delete_clip_file", lambda c: deleted.append(c["id"]))
-    monkeypatch.setattr(clip_files, "existing_ids", lambda: frozenset(on_disk))
+    store = tmp_path / "clipfiles"
+    store.mkdir()
+    monkeypatch.setattr(clip_files, "_ROOT", store)
+    clip_files._forget_scan()
     monkeypatch.setattr(user_store, "add_notices", lambda notes: notices.append(dict(notes)) or len(notes))
-    saves, deleted, notices, sent, on_disk = [], [], [], [], set()
+    saves, deleted, notices, sent = [], [], [], []
+
+    class _OnDisk:
+        """`add(cid)` puts a real video in the store: the sweep now confirms
+        each candidate against its own file, not a listing."""
+        def add(self, cid, size=4096):
+            (store / f"{cid}.mp4").write_bytes(b"v" * size)
+            clip_files._forget_scan()
+    on_disk = _OnDisk()
 
     async def _bcast(msg, user_id=None):
         sent.append((msg["event"], msg.get("clip_id"), user_id))
@@ -48,6 +59,7 @@ def world(monkeypatch, tmp_path):
         pass
     w = W()
     w.saves, w.deleted, w.notices, w.sent, w.on_disk = saves, deleted, notices, sent, on_disk
+    w.store, w.files = store, clip_files
     w.run = lambda **kw: asyncio.run(api.sweep_videoless_kick_clips(now=NOW, **kw))
     return w
 
@@ -109,3 +121,47 @@ def test_the_loop_is_started_and_the_admin_tile_shows_the_count():
     main_src = pathlib.Path("src/main.py").read_text()
     assert "sweep_videoless_kick_clips_task()" in main_src
     assert "Kick removed, video gone" in api.ADMIN_HTML
+
+
+# ── "no file" must be CONFIRMED before anything is deleted (2026-11-11) ──────
+# Found in the 2026-11-11 audit and reproduced: the directory listing reads as
+# EMPTY when the read fails (open-file exhaustion, as on 2026-10-29), and the
+# sweep deleted a clip whose video was on disk. It would have taken every
+# pending Kick clip on the site in one pass.
+
+def test_a_failed_directory_read_removes_nothing(world, monkeypatch):
+    import os
+    api._clips["good"] = _clip("good")
+    world.on_disk.add("good")
+
+    def broken(path):
+        raise OSError(24, "Too many open files")
+    monkeypatch.setattr(os, "scandir", broken)
+    world.files._forget_scan()
+    assert set(world.files.existing_ids()) == set(), "the listing does read as empty"
+    assert world.run() == 0
+    assert "good" in api._clips and world.sent == [] and world.saves == []
+
+
+def test_a_missing_store_folder_removes_nothing(world, monkeypatch, tmp_path):
+    """An unmounted or misconfigured store is not thousands of missing videos."""
+    api._clips["a"] = _clip("a"); api._clips["b"] = _clip("b")
+    monkeypatch.setattr(world.files, "_ROOT", tmp_path / "not-there")
+    world.files._forget_scan()
+    assert world.run() == 0 and set(api._clips) == {"a", "b"}
+
+
+def test_confirmed_missing_only_says_yes_when_it_can_see(world, monkeypatch):
+    f = world.files
+    assert f.confirmed_missing("nope") is True                    # folder there, file not
+    world.on_disk.add("here")
+    assert f.confirmed_missing("here") is False
+    world.on_disk.add("empty", size=0)
+    assert f.confirmed_missing("empty") is True                   # a cut that failed
+    assert f.confirmed_missing("../../etc/passwd") is False       # not a safe id
+
+    class Denied:
+        def stat(self):
+            raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(f, "path_for", lambda cid: Denied())
+    assert f.confirmed_missing("here") is False                   # cannot tell: keep

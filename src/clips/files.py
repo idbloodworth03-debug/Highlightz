@@ -63,6 +63,40 @@ def exists(clip_id: str) -> bool:
         return False
 
 
+def confirmed_missing(clip_id: str) -> bool:
+    """True only when we can SEE that this clip has no video. For anything
+    about to DELETE on the strength of "no file".
+
+    `exists()` and `existing_ids()` answer False / empty when they cannot
+    tell: a directory read that fails (open-file exhaustion, the 2026-10-29
+    freeze), a permission error, a storage folder that is not there. That is
+    the right default for showing a Download button and the wrong one for
+    deleting: reproduced 2026-11-11, a failed scandir made the videoless-Kick
+    sweep remove a clip whose video was sitting on disk, and it would have
+    removed every pending Kick clip on the site in one pass.
+
+    So this looks at the one file, and "cannot tell" is False:
+      * the store folder must exist (an unmounted or misconfigured store is
+        not thousands of missing videos);
+      * FileNotFoundError on the file is the only "gone";
+      * a zero-byte file is a cut that failed, which is also no video;
+      * any other error, or an id that is not a safe name: not confirmed.
+    stat() needs no file descriptor, so it still answers when scandir cannot.
+    """
+    p = path_for(clip_id)
+    if p is None:
+        return False
+    try:
+        if not _ROOT.is_dir():
+            return False
+        st = p.stat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return st.st_size == 0
+
+
 # A clip's picture, for clips that arrive without one (Kick): one frame of its
 # video, made by src/clips/thumbs.py and kept beside it. It deliberately
 # OUTLIVES the MP4 under the size cap — a few tens of KB that keep the card

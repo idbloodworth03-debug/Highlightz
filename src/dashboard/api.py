@@ -1112,6 +1112,16 @@ async def sweep_videoless_kick_clips(grace_s: float = _VIDEO_GONE_GRACE_S,
             if c.get("status") == "pending" and c.get("platform") == "kick"
             and c.get("id") and c["id"] not in listing
             and now - float(c.get("created_at") or 0) > grace_s]
+    # THE LISTING ONLY NOMINATES. It reads as empty when the directory cannot
+    # be read, and deleting on that would take every pending Kick clip on the
+    # site while their videos sit on disk (reproduced 2026-11-11). Each
+    # candidate is confirmed against its own file, and "cannot tell" keeps it.
+    nominated = len(gone)
+    gone = [c for c in gone if clip_files.confirmed_missing(c["id"])]
+    if nominated and not gone:
+        log.warning("videoless_kick_sweep_unconfirmed", nominated=nominated,
+                    detail="the listing said no video but the files could not be "
+                           "confirmed missing; nothing was removed")
     if not gone:
         return 0
     removed = []

@@ -8193,3 +8193,75 @@ Checked in a browser against a seeded store (23 accounts spread over two
 months, 4 paying): every window's count matched the seed, desktop and phone,
 no page errors. Tests in `tests/test_admin_panel.py` (windows, staff, open
 tab, keepalive not counted, markup).
+
+## Quick audit (2026-11-11); fixed: the videoless-Kick sweep deleting on a failed directory read
+
+Scope: everything since the 2026-10-24 quick audit (62 commits; 43 app files,
++4,726/-872). Read-only except the one finding reproduced below.
+
+**Clean.**
+- Full suite 4,363 passed; dashboard JSX parses (Babel); admin script: one
+  block, no backslash, `node --check` OK.
+- Auth map: 230 routes. Every `/admin/*` route reaches `_require_admin`
+  (directly or via `_admin_campaign` / `_admin_review` /
+  `_own_clip_for_admin`), which checks the DB, not the session. Every
+  state-changing route outside the open list resolves the session user
+  (`_current_user_id`, `_campaign_viewer`, `_promote_viewer`) and checks
+  ownership. Open paths are public pages, OAuth/billing prefixes and signed
+  webhooks (Stripe: `construct_event`; Kick: RSA signature, 64 KB cap, also
+  on the fast path in front of the middleware).
+- Realtime contract: 59 events sent, 59 handled, none orphaned either way;
+  `ws.onopen` → `refetchAll()` intact; no "refresh the page" copy.
+- New user-supplied text: campaign entry links are parsed against a strict
+  host/path allowlist and rebuilt from the matched groups, never fetched (no
+  SSRF, no `javascript:` hrefs). Admin page: nothing user-typed is spliced
+  into markup without `esc()` (the six unescaped splices are constant labels
+  and numbers).
+- Secrets: nothing in the diff; no `.env`, key or data file tracked.
+- `deploy/healthcheck.sh`: 3 missed checks → one restart, counter reset, so it
+  cannot restart in a loop.
+
+**FIXED (reproduced first).** `sweep_videoless_kick_clips` (shipped
+2026-11-10) nominated clips from `files.existing_ids()`, which reads as EMPTY
+when the directory read fails (`_read_store` returns `frozenset()` on
+OSError: open-file exhaustion as on 2026-10-29, a permission error). Repro:
+with a video on disk and `os.scandir` raising EMFILE, the sweep removed the
+clip. In production that is every pending Kick clip on the site, permanently,
+in one 10-minute pass. Now `files.confirmed_missing(clip_id)` checks each
+nominee's own file: only FileNotFoundError (with the store folder present) or
+a zero-byte file counts as gone; any other error, a missing store folder or
+an unsafe id means "cannot tell" and the clip stays; a pass that nominates
+but confirms nothing logs `videoless_kick_sweep_unconfirmed`. `stat()` needs
+no descriptor, so it still answers when scandir cannot. Tests: 3 new in
+`tests/test_videoless_kick_clips.py` (fixture now uses real files); removing
+the confirmation fails 2. **Rule for the future: `exists()` /
+`existing_ids()` are for showing things; anything that DELETES on "no file"
+must use `confirmed_missing`.**
+
+**Open, not changed.**
+1. *Dependencies.* `pip-audit -r requirements.txt`: clean. `pip-audit -r
+   requirements.lock --no-deps --disable-pip` (the lock = the droplet's
+   freeze): new advisories since the last patch round for urllib3 2.7.0
+   (→2.8.0; streaming decompression of chunked responses, proxy TLS config),
+   pyasn1 0.6.4 (→0.6.5; CPU cost decoding hostile ASN.1), oauthlib 3.3.1
+   (→4.0.1; flaws in oauthlib's SERVER side, we only use the client via
+   google-auth-oauthlib), python-jose 3.5.0 and ecdsa 0.19.2 (no fix; nothing
+   in `src/` imports either), filelock 3.32.2 (→4.2.1; local-user symlink
+   attacks, single-user box), setuptools 83.0.0 (Windows only). None is
+   directly reachable in how the site uses them as far as the advisories
+   read. Worth doing at the next maintenance window, as its own change with
+   the suite run and `pip install -r requirements.lock` on prod: pyasn1
+   (patch release) and urllib3. **urllib3 2.8.0 broke two streamlink tests in
+   the dev container on 2026-11-03**, so that bump needs testing, not a blind
+   pin. What prod has installed today is unverified from here.
+2. *Campaign fee waiver timing.* The Studio waiver is fixed into the quote at
+   submit/edit (`creq.quote(..., fee_waived(user))`); checkout charges the
+   stored quote. A request quoted while on Studio keeps the waiver if the plan
+   lapses before paying (and one quoted before upgrading keeps the fee until
+   edited). Bounded: every request is approved by an admin first, flat fee is
+   0, the percentage is 5%. Owner's call whether to re-quote at checkout.
+3. *Temp files on prod.* Diagnostics handed over on 2026-11-10 wrote
+   `/tmp/hz_r2m.log`, `/tmp/hz_rec.log`, `/tmp/hz_since.log` (journal
+   excerpts, tokens already redacted). Harmless on a root-only box; delete.
+4. *Still to confirm on prod:* the Kick 403 fix under live streams (since-
+   restart count; see the capture section above).
