@@ -799,3 +799,86 @@ def test_the_admin_page_asks_in_its_own_time_zone_and_shows_the_week():
     assert "api('/admin/overview?tz=' + encodeURIComponent(tzName))" in h
     assert "' joined this week'" in h and "' last week'" in h and "(since Sun, " in h
     assert "n0(u.new_7d) + ' joined this week'" not in h, "the rolling 7 days is still what is shown"
+
+
+# ── who is online: the list behind each Active users tile (2026-11-12) ───────
+
+@pytest.fixture
+def online(client, monkeypatch):
+    from src.dashboard import api
+    now = time.time()
+    monkeypatch.setattr(api, "_user_last_active", {
+        "nova": now - 600, "kat": now - 3 * 3600, "lurker": now - 20 * 3600,
+        "drift": now - 5 * 86400, "moon": now - 60 * 86400, "boss": now - 30})
+    monkeypatch.setattr(api, "_ws_clients", {"nova": {object(), object()}, "lurker": {object()},
+                                              "boss": {object()}, "kat": set()})
+    return client
+
+
+def _who(client, window):
+    r = client.login("boss").get("/admin/active-users?window=" + window)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_tab_open_now_lists_who_has_the_site_open(online):
+    d = _who(online, "now")
+    assert d["label"] == "Tab open now" and d["count"] == 2
+    assert [r["name"] for r in d["rows"]] == ["nova", "lurker"], "most recently active first; staff not listed"
+    nova = d["rows"][0]
+    assert nova["tabs"] == 2 and nova["paying"] is True and nova["plan_label"] == "Pro"
+    assert nova["channels"] == 2                         # novafps and other, from the fixture
+    assert d["rows"][1]["paying"] is False and d["paying"] == 1
+
+
+def test_a_window_lists_who_used_the_site_in_it_open_tabs_first(online):
+    d = _who(online, "24h")
+    assert [r["name"] for r in d["rows"]] == ["nova", "lurker", "kat"], \
+        "lurker has a tab open, so sits above kat who was active more recently"
+    assert _who(online, "1h")["count"] == 1 and _who(online, "7d")["count"] == 4
+    assert all(r["name"] != "boss" for r in _who(online, "30d")["rows"])
+
+
+def test_the_list_and_the_tiles_agree(online):
+    """Same windows, same people, same idea of 'paying', or the tile says 3
+    and the list under it shows 4."""
+    tiles = {r["key"]: r for r in _overview(online)["active"]}
+    for key, tile in tiles.items():
+        d = _who(online, key)
+        assert (d["count"], d["paying"], d["label"]) == (tile["users"], tile["paying"], tile["label"]), key
+
+
+def test_only_an_admin_can_see_who_is_online_and_windows_are_checked(online):
+    assert online.login("nova").get("/admin/active-users").status_code == 403
+    assert online.login("boss").get("/admin/active-users?window=forever").status_code == 400
+
+
+def test_the_list_is_capped_and_says_how_many_were_left_off(online, monkeypatch):
+    from src.dashboard import api
+    monkeypatch.setattr(api, "_ACTIVE_LIST_MAX", 2)
+    d = _who(online, "7d")
+    assert d["count"] == 4 and len(d["rows"]) == 2 and d["more"] == 2
+
+
+def test_the_admin_page_shows_the_list_and_lets_a_tile_be_picked():
+    from src.dashboard import api
+    h = api.ADMIN_HTML
+    assert 'id="act-list"' in h and "let ACT_WIN = 'now';" in h
+    assert "api('/admin/active-users?window=' + encodeURIComponent(want))" in h
+    assert 'data-win="' in h and "function pickActive(el){" in h
+    assert "Nobody has the site open right now." in h
+    assert "esc(r.name)" in h, "a name is spliced into the page unescaped"
+    assert "onclick=" not in h[h.index('id="act-rail"'):h.index('id="act-list"')]
+
+
+def test_tables_that_arrive_with_their_wrapper_get_phone_labels():
+    """Under 700px every table stacks into cards and each cell shows its
+    column's name, copied from the header by the page. That only happened for
+    tables drawn INSIDE an existing wrapper; the Active users list and the
+    Clean up tables write the wrapper and the table together, and their cards
+    had no names on a phone."""
+    from src.dashboard import api
+    h = api.ADMIN_HTML
+    obs = h[h.index("new MutationObserver(ms => {"):]
+    obs = obs[:obs.index(".observe(document.body")]
+    assert "m.addedNodes.forEach(" in obs and "n.querySelectorAll('.tw').forEach(label)" in obs

@@ -8290,3 +8290,40 @@ Checked in a browser with accounts created either side of Sunday midnight:
 New York 5/3, a UTC browser 6/3, Los Angeles 3/4 on the same data. Tests in
 `tests/test_admin_panel.py` (bounds incl. the clock-change week, the exact
 turn-over second, bad zone names, the endpoint, the page).
+
+## Admin: who is online, under the Active users tiles (2026-11-12)
+
+Owner: "make it so I can see the online users on the new active thing".
+The tiles gave counts only.
+
+`GET /admin/active-users?window=now|1h|6h|24h|7d|30d` (admin only; 400 for
+any other window) returns the accounts behind one tile: `name` (Twitch login,
+Kick slug or username), `platform`, `plan` / `plan_label`, `trial`, `paying`,
+`last_active`, `tabs` (open sockets), `channels` (listed), sorted tabs-open
+first then most recently active, capped at `_ACTIVE_LIST_MAX` (300) with
+`more`. It shares `_ACTIVE_WINDOWS`, `_last_seen()` and the staff exclusion
+with the overview's counts, and `_counts_as_paying()` restates the Paying
+tile's rule for one account; a test asserts the list's `count`/`paying` equal
+the tile's for every window.
+
+Admin page: the tiles are pickable (`data-win`, click or Enter/Space, the
+picked one underlined); `#act-list` under them starts on "Tab open now" and
+shows Account (green dot = tab open; the name opens the same account panel as
+Details), Plan, Last active, Tab open, Channels. Re-read with the tiles every
+30 s and at once on a pick; a stale answer for a tile no longer picked is
+dropped. Empty states: "Nobody has the site open right now." / "Nobody used
+the site in this window." Delegated listeners only; no inline handlers.
+
+Also fixed: the phone labeller (`labelCells` via the MutationObserver) only
+saw tables drawn inside an existing `.tw`; a render that writes
+`<div class="tw"><table>` into a plain container was skipped, so the Clean up
+tables and this list stacked into cards with no column names under 700px. The
+observer now also labels `.tw` wrappers among the added nodes.
+
+Browser run (throwaway server): two users' sockets open → both listed with
+green dots within the same load; picking Last 24 hours switched the list;
+a name opened that account; closing a tab removed it within 1 s server-side;
+empty state; phone cards labelled. **Test-environment note:** the real
+dashboard loads React/Babel from unpkg.com, which the dev sandbox blocks, so a
+headless dashboard never boots or opens its socket here; the run opens
+`/ws` from a same-origin page instead (scratchpad `online/flow.cjs`).

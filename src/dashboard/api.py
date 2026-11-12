@@ -8692,6 +8692,77 @@ async def admin_cleanup_run(request: Request):
     return result
 
 
+# The Active users windows, shared by the overview's counts and the list of
+# who is in each, so the two cannot disagree about what "last hour" means.
+_ACTIVE_WINDOWS = (("1h", "Last hour", 3600), ("6h", "Last 6 hours", 6 * 3600),
+                   ("24h", "Last 24 hours", 86400), ("7d", "Last 7 days", 7 * 86400),
+                   ("30d", "Last 30 days", 30 * 86400))
+_ACTIVE_NOW_LABEL = "Tab open now"
+_ACTIVE_LIST_MAX = 300
+
+
+def _last_seen(u: dict) -> float:
+    """When this account last USED the site: the persisted activity stamp
+    (authenticated requests and newly opened tabs, never the 30 s keepalive)
+    or its last sign-in, whichever is later."""
+    return max(float(_user_last_active.get(u.get("id"), 0) or 0),
+               float(u.get("last_login_at") or 0))
+
+
+def _counts_as_paying(u: dict) -> bool:
+    """The Paying tile's definition, for one account: an active subscription
+    with a Stripe customer behind it that nobody granted."""
+    return (u.get("subscription_status") == "active" and bool(u.get("stripe_customer_id"))
+            and u.get("plan_source") != "granted")
+
+
+@app.get("/admin/active-users")
+async def admin_active_users(request: Request, window: str = "now"):
+    """WHO is behind one Active users tile (owner, 2026-11-12: "make it so I
+    can see the online users"). Same rules as the counts in /admin/overview:
+    staff are not listed; `now` is accounts with a tab open this second; the
+    other windows are accounts that used the site within them. Tabs open
+    first, then most recently active. Capped, with `more` saying how many
+    were left off."""
+    _require_admin(request)
+    import collections
+    from src.auth import users as user_store
+    from src.billing import plans
+    labels = {"now": _ACTIVE_NOW_LABEL, **{k: lab for k, lab, _ in _ACTIVE_WINDOWS}}
+    if window not in labels:
+        raise HTTPException(status_code=400, detail="Unknown window")
+    secs = {k: s for k, _, s in _ACTIVE_WINDOWS}.get(window, 0)
+    now = time.time()
+    listed = collections.Counter(k.split(":", 1)[0] for k in _streams if ":" in k)
+    rows = []
+    for u in user_store.get_all():
+        uid = u.get("id")
+        if not uid or u.get("is_admin"):
+            continue
+        tabs = len(_ws_clients.get(uid) or ())
+        seen = _last_seen(u)
+        if window == "now":
+            if not tabs:
+                continue
+        elif not (seen and now - seen <= secs):
+            continue
+        plan = plans.get_plan(u)
+        rows.append({
+            "id": uid,
+            "name": str(u.get("twitch_login") or u.get("kick_slug") or u.get("username") or uid[:8]),
+            "platform": ("kick" if u.get("kick_id") and not u.get("twitch_id")
+                         else "twitch" if u.get("twitch_id") else ""),
+            "plan": plan, "plan_label": plans.PLAN_LIMITS.get(plan, {}).get("label", plan),
+            "trial": u.get("subscription_status") == "trialing",
+            "paying": _counts_as_paying(u),
+            "last_active": seen, "tabs": tabs, "channels": listed.get(uid, 0),
+        })
+    rows.sort(key=lambda r: (0 if r["tabs"] else 1, -r["last_active"], r["name"].lower()))
+    return {"window": window, "label": labels[window], "count": len(rows),
+            "paying": sum(1 for r in rows if r["paying"]),
+            "rows": rows[:_ACTIVE_LIST_MAX], "more": max(0, len(rows) - _ACTIVE_LIST_MAX)}
+
+
 _TZ_NAME_RE = re.compile(r"^[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,2}$")
 
 
@@ -8849,15 +8920,11 @@ async def admin_overview(request: Request, tz: str = ""):
     # predates. "Tab open now" is the open sockets instead: who could see a
     # change this second. Staff are not counted, as everywhere above.
     ws_open = {uid for uid, socks in _ws_clients.items() if socks}
-    last_seen = {u.get("id"): max(float(_user_last_active.get(u.get("id"), 0) or 0),
-                                  float(u.get("last_login_at") or 0))
-                 for u in customers}
-    active = [{"key": "now", "label": "Tab open now",
+    last_seen = {u.get("id"): _last_seen(u) for u in customers}
+    active = [{"key": "now", "label": _ACTIVE_NOW_LABEL,
                "users": sum(1 for uid in last_seen if uid in ws_open),
                "paying": sum(1 for uid in last_seen if uid in ws_open and uid in paying_ids)}]
-    for key, label, secs in (("1h", "Last hour", 3600), ("6h", "Last 6 hours", 6 * 3600),
-                             ("24h", "Last 24 hours", 86400), ("7d", "Last 7 days", 7 * 86400),
-                             ("30d", "Last 30 days", 30 * 86400)):
+    for key, label, secs in _ACTIVE_WINDOWS:
         hit = [uid for uid, t in last_seen.items() if t and now - t <= secs]
         active.append({"key": key, "label": label, "users": len(hit),
                        "paying": sum(1 for uid in hit if uid in paying_ids)})
@@ -15417,6 +15484,15 @@ ADMIN_HTML = """<!DOCTYPE html>
   .act-head span{text-transform:none;letter-spacing:0;color:var(--ink-3);margin-left:var(--s-2)}
   .act-rail{margin-top:var(--s-2)}
   .act-rail .cell .v{font-size:clamp(22px,2vw,28px)}
+  .act-rail .cell{cursor:pointer}
+  .act-rail .cell:hover .k{color:var(--ink)}
+  .act-rail .cell:focus-visible{outline:2px solid var(--ember);outline-offset:-2px}
+  .act-rail .cell.on{box-shadow:inset 0 -2px 0 var(--ember)}
+  .act-rail .cell.on .k{color:var(--ember)}
+  .act-list{margin-top:var(--s-3)}
+  .act-list h3{font-size:14px;margin:0 0 var(--s-2)}
+  .act-list h3 span{color:var(--ink-3);font-weight:400}
+  .act-name{display:inline-flex;align-items:center;gap:var(--s-2)}
 
   /* ── Refusals. Only exists when something is wrong, so it is allowed the
      one red rule on the page. ── */
@@ -15788,6 +15864,10 @@ ADMIN_HTML = """<!DOCTYPE html>
   <div class="rail act-rail" id="act-rail">
     <div class="cell"><div class="v">&mdash;</div><div class="k">Tab open now</div><div class="s"></div></div>
   </div>
+  <!-- WHO is in the selected tile (owner, 2026-11-12: "see the online
+       users"). Starts on "Tab open now"; pressing a tile switches it.
+       /admin/active-users, re-read with the tiles. -->
+  <div id="act-list" class="act-list"></div>
 
   <!-- Channels Twitch is refusing to clip. HIDDEN when there are none, because
        an empty panel on a healthy box is noise that trains you to ignore the
@@ -17490,12 +17570,66 @@ async function loadOverview(){
   const ar = document.getElementById('act-rail');
   if(ar && (d.active || []).length){
     ar.innerHTML = d.active.map(function(r){
-      return '<div class="cell"><div class="v">' + n0(r.users) + '</div><div class="k">' + esc(r.label)
+      return '<div class="cell' + (r.key === ACT_WIN ? ' on' : '') + '" role="button" tabindex="0" data-win="'
+        + esc(r.key) + '" title="Show who"><div class="v">' + n0(r.users) + '</div><div class="k">' + esc(r.label)
         + '</div><div class="s">' + (r.paying ? n0(r.paying) + ' paying' : 'none paying') + '</div></div>';
     }).join('');
   }
+  loadActiveList();
   loadRefusals();
 }
+
+// WHO is in the selected Active users tile. Starts on "Tab open now". Read
+// again whenever the tiles are (every 30 s), and at once on picking a tile.
+let ACT_WIN = 'now';
+async function loadActiveList(){
+  const box = document.getElementById('act-list');
+  if(!box) return;
+  const want = ACT_WIN;
+  let d;
+  try { d = await api('/admin/active-users?window=' + encodeURIComponent(want)); } catch(e){ return; }
+  if(want !== ACT_WIN) return;                    // a newer pick is already on its way
+  const rows = d.rows || [];
+  let html = '<h3>' + esc(d.label) + ' &middot; ' + n0(d.count) + (d.count === 1 ? ' account' : ' accounts')
+    + (d.paying ? ' <span>&middot; ' + n0(d.paying) + ' paying</span>' : '') + '</h3>';
+  if(!rows.length){
+    html += '<p class="sub">' + (want === 'now' ? 'Nobody has the site open right now.'
+      : 'Nobody used the site in this window.') + '</p>';
+  } else {
+    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Plan</th><th>Last active</th><th>Tab open</th><th>Channels</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      html += '<tr><td><span class="act-name"><span class="' + (r.tabs ? 'dot dot-live' : 'dot dot-offline') + '"></span>'
+        + '<button class="btn act-open" data-uid="' + esc(r.id) + '" title="Open this account">' + esc(r.name) + '</button>'
+        + (r.platform === 'kick' ? ' <span class="sub">Kick</span>' : '') + '</span></td>'
+        + '<td><span class="' + planClass(r.plan) + '">' + esc(r.plan_label) + '</span>'
+        + (r.trial ? ' <span class="sub">trial</span>' : r.paying ? ' <span class="sub">paying</span>' : '') + '</td>'
+        + '<td>' + (r.last_active ? esc(ago(r.last_active)) : '&mdash;') + '</td>'
+        + '<td>' + (r.tabs ? (r.tabs > 1 ? n0(r.tabs) + ' tabs' : 'Yes') : 'No') + '</td>'
+        + '<td class="num">' + n0(r.channels) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    if(d.more) html += '<p class="sub">and ' + n0(d.more) + ' more not shown.</p>';
+  }
+  box.innerHTML = html;
+}
+function pickActive(el){
+  const cell = el && el.closest ? el.closest('#act-rail .cell[data-win]') : null;
+  if(!cell) return;
+  ACT_WIN = cell.getAttribute('data-win');
+  document.querySelectorAll('#act-rail .cell').forEach(function(c){ c.classList.toggle('on', c === cell); });
+  loadActiveList();
+}
+document.getElementById('act-rail').addEventListener('click', function(e){ pickActive(e.target); });
+document.getElementById('act-rail').addEventListener('keydown', function(e){
+  if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pickActive(e.target); }
+});
+// A name opens the same account panel as Details in the Users list.
+document.getElementById('act-list').addEventListener('click', function(e){
+  const b = e.target.closest ? e.target.closest('.act-open') : null;
+  if(!b) return;
+  const u = USERS.find(function(x){ return x.id === b.getAttribute('data-uid'); });
+  if(u) openUser(u);
+});
 
 // Which channels are currently un-clippable, and why. Three different causes
 // with three different fixes, so the reason is spelled out rather than left as
@@ -18667,9 +18801,19 @@ function labelCells(root){
 }
 new MutationObserver(ms => {
   const seen = new Set();
+  const label = tw => { if(tw && !seen.has(tw)){ seen.add(tw); labelCells(tw); } };
   ms.forEach(m => {
-    const tw = m.target.nodeType === 1 ? m.target.closest('.tw') : null;
-    if(tw && !seen.has(tw)){ seen.add(tw); labelCells(tw); }
+    label(m.target.nodeType === 1 ? m.target.closest('.tw') : null);
+    // And a wrapper that ARRIVED with its table already in it. A render that
+    // writes '<div class="tw"><table>…' into a plain container changes that
+    // container, which is not inside a .tw, so the line above never saw it:
+    // the Clean up tables and the Active users list stacked into cards with
+    // no column names on a phone (2026-11-12).
+    m.addedNodes.forEach(n => {
+      if(n.nodeType !== 1) return;
+      if(n.classList.contains('tw')) label(n);
+      n.querySelectorAll('.tw').forEach(label);
+    });
   });
 }).observe(document.body, {childList:true, subtree:true});
 
