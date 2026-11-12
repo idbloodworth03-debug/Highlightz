@@ -724,3 +724,78 @@ def test_the_admin_page_renders_the_active_tiles():
     h = api.ADMIN_HTML
     assert 'id="act-rail"' in h and "Active users" in h and "staff not counted" in h
     assert "d.active.map(function(r){" in h and "' paying'" in h
+
+
+# ── "joined this week" is a calendar week, Sunday to Sunday (2026-11-12) ─────
+
+def _utc(y, mo, d, h=0, mi=0):
+    import calendar
+    return float(calendar.timegm((y, mo, d, h, mi, 0)))
+
+
+def test_the_week_starts_sunday_midnight_where_the_viewer_is():
+    """Owner: "starts from Sunday and ends when the next Sunday starts". On a
+    Thursday afternoon in New York the week began Sunday 12:00 AM Eastern,
+    which is 05:00 UTC; the server's own Sunday began five hours earlier."""
+    from src.dashboard import api
+    thursday = _utc(2026, 11, 12, 20, 0)                 # Thu Nov 12, 3 PM Eastern
+    start, prev, used = api._week_bounds(thursday, "America/New_York")
+    assert used == "America/New_York"
+    assert start == _utc(2026, 11, 8, 5, 0)              # Sun Nov 8, 12:00 AM EST
+    # The week before held the clock change (Nov 1, 2026): it began at
+    # 12:00 AM EDT, an hour earlier in UTC, and so was 169 hours long.
+    assert prev == _utc(2026, 11, 1, 4, 0)
+    assert (start - prev) / 3600 == 169
+    ustart, uprev, uused = api._week_bounds(thursday, "")
+    assert (ustart, uprev, uused) == (_utc(2026, 11, 8), _utc(2026, 11, 1), "UTC")
+
+
+@pytest.mark.parametrize("now, expect_start", [
+    (_utc(2026, 11, 8, 4, 59), _utc(2026, 11, 1, 4, 0)),   # Sat 11:59 PM Eastern: still last week
+    (_utc(2026, 11, 8, 5, 0), _utc(2026, 11, 8, 5, 0)),    # Sun 12:00 AM Eastern: the new week
+    (_utc(2026, 11, 15, 4, 59), _utc(2026, 11, 8, 5, 0)),  # the next Sat 11:59 PM: same week
+    (_utc(2026, 11, 15, 5, 0), _utc(2026, 11, 15, 5, 0)),  # and it ends when the next Sunday starts
+])
+def test_the_week_turns_over_exactly_at_sunday_midnight(now, expect_start):
+    from src.dashboard import api
+    assert api._week_bounds(now, "America/New_York")[0] == expect_start
+
+
+@pytest.mark.parametrize("bad", ["Not/AZone", "../../etc/passwd", "America/New York", "x" * 80, "<script>"])
+def test_an_unknown_time_zone_falls_back_to_utc_and_says_so(bad):
+    from src.dashboard import api
+    start, prev, used = api._week_bounds(_utc(2026, 11, 12, 20, 0), bad)
+    assert used == "UTC" and start == _utc(2026, 11, 8) and prev == _utc(2026, 11, 1)
+
+
+def test_the_overview_counts_this_week_and_last_week(client, monkeypatch):
+    """Sign-ups either side of the viewer's Sunday midnight land in different
+    weeks; older ones in neither; staff in none."""
+    from src.dashboard import api
+    from src.auth import users as user_store
+    now = time.time()
+    start, prev, _ = api._week_bounds(now, "America/New_York")
+    people = [
+        dict(PEOPLE["boss"], created_at=start + 1),                       # staff: never counted
+        {"id": "w1", "username": "w1", "created_at": start + 1},          # this week, just after midnight
+        {"id": "w2", "username": "w2", "created_at": min(now, start + 2)},
+        {"id": "l1", "username": "l1", "created_at": start - 1},          # Saturday 11:59:59 PM: last week
+        {"id": "l2", "username": "l2", "created_at": prev},               # last week's first second
+        {"id": "o1", "username": "o1", "created_at": prev - 1},           # the week before: neither
+    ]
+    monkeypatch.setattr(user_store, "get_all", lambda: [dict(p) for p in people])
+    u = client.login("boss").get("/admin/overview?tz=America/New_York").json()["users"]
+    assert (u["new_this_week"], u["new_last_week"]) == (2, 2)
+    assert u["week_start"] == start and u["week_tz"] == "America/New_York"
+    # No zone sent: the same people, counted against the server's (UTC) Sunday.
+    u2 = client.login("boss").get("/admin/overview").json()["users"]
+    assert u2["week_tz"] == "UTC"
+
+
+def test_the_admin_page_asks_in_its_own_time_zone_and_shows_the_week():
+    from src.dashboard import api
+    h = api.ADMIN_HTML
+    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in h
+    assert "api('/admin/overview?tz=' + encodeURIComponent(tzName))" in h
+    assert "' joined this week'" in h and "' last week'" in h and "(since Sun, " in h
+    assert "n0(u.new_7d) + ' joined this week'" not in h, "the rolling 7 days is still what is shown"

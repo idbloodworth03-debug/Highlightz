@@ -8692,8 +8692,45 @@ async def admin_cleanup_run(request: Request):
     return result
 
 
+_TZ_NAME_RE = re.compile(r"^[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+){0,2}$")
+
+
+def _week_bounds(now: float, tz_name: str = "") -> tuple[float, float, str]:
+    """(when this week began, when last week began, the time zone used).
+
+    A WEEK RUNS SUNDAY 12:00 AM TO THE NEXT SUNDAY 12:00 AM (owner,
+    2026-11-12: "starts from Sunday and ends when the next Sunday starts so I
+    have an accurate count"). The "joined this week" figure used to be the
+    last 7 x 24 hours, which on a Wednesday still held last Thursday's
+    sign-ups and never matched a week anyone could name.
+
+    Midnight is in the VIEWER'S time zone, sent by the admin page (the
+    browser's IANA name, e.g. America/New_York). The server runs on UTC, where
+    "Sunday" starts on Saturday evening in the US: a sign-up at 9 PM Eastern
+    on Saturday would have been counted in the wrong week. zoneinfo gets
+    daylight saving right, so the week of a clock change is 167 or 169 hours
+    long, as it is on the wall. An unknown or missing zone falls back to UTC
+    and says so in the third value, so the page can show which Sunday it used.
+    """
+    from datetime import datetime, timedelta, timezone as _timezone
+    zone, used = _timezone.utc, "UTC"
+    name = str(tz_name or "").strip()
+    if name and len(name) <= 64 and _TZ_NAME_RE.match(name):
+        try:
+            from zoneinfo import ZoneInfo
+            zone, used = ZoneInfo(name), name
+        except Exception:
+            pass
+    today = datetime.fromtimestamp(now, zone).date()
+    sunday = today - timedelta(days=(today.weekday() + 1) % 7)      # Monday is 0
+    last = sunday - timedelta(days=7)
+    start = datetime(sunday.year, sunday.month, sunday.day, tzinfo=zone).timestamp()
+    prev = datetime(last.year, last.month, last.day, tzinfo=zone).timestamp()
+    return start, prev, used
+
+
 @app.get("/admin/overview")
-async def admin_overview(request: Request):
+async def admin_overview(request: Request, tz: str = ""):
     """Platform totals, computed on the server from the real ledgers.
 
     WHY THIS EXISTS. The admin header used to derive its figures in the browser
@@ -8796,6 +8833,12 @@ async def admin_overview(request: Request):
     now = time.time()
     new_7d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 7 * 86400)
     new_30d = sum(1 for u in customers if (u.get("created_at") or 0) >= now - 30 * 86400)
+    # The calendar week, Sunday to Sunday in the viewer's zone (_week_bounds).
+    # new_7d stays for anything that reads it, but the page shows these.
+    week_start, prev_week_start, week_tz = _week_bounds(now, tz)
+    new_this_week = sum(1 for u in customers if (u.get("created_at") or 0) >= week_start)
+    new_last_week = sum(1 for u in customers
+                        if prev_week_start <= (u.get("created_at") or 0) < week_start)
 
     # ACTIVE USERS (owner, 2026-11-11: "how many people have been online in
     # the last hour, couple hours, 24 hours, etc."). "Online" means used the
@@ -8846,6 +8889,8 @@ async def admin_overview(request: Request):
             # no stored tier), priced at what Stripe charges them.
             "paying_by_tier": paying_by_tier,
             "new_7d": new_7d, "new_30d": new_30d,
+            "new_this_week": new_this_week, "new_last_week": new_last_week,
+            "week_start": week_start, "week_tz": week_tz,
         },
         "active": active,
         "mrr": round(mrr, 2),
@@ -17376,7 +17421,11 @@ document.getElementById('fn-days').addEventListener('change', loadFunnel);
 // admin-owned clips were filtered out on top of that.
 async function loadOverview(){
   let d;
-  try { d = await api('/admin/overview'); } catch(e){ return; }
+  // The browser's own time zone, so "this week" starts at Sunday 12:00 AM
+  // where the person reading it is (the server runs on UTC).
+  let tzName = '';
+  try { tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+  try { d = await api('/admin/overview?tz=' + encodeURIComponent(tzName)); } catch(e){ return; }
   const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
   const u = d.users || {}, c = d.clips || {}, s = d.streams || {};
   const seg = u.segment || {}, tier = u.paying_by_tier || {};
@@ -17394,9 +17443,17 @@ async function loadOverview(){
   if(seg.trialing) parts.push(n0(seg.trialing) + ' on trial');
   if(seg.comped)   parts.push(n0(seg.comped) + ' comped');
   if(seg.grace)    parts.push(n0(seg.grace) + ' card failing');
-  parts.push(n0(u.new_7d) + ' joined this week');
+  // A calendar week: Sunday 12:00 AM to the next Sunday 12:00 AM, viewer's
+  // time. The date says which Sunday, so the count can be checked.
+  const wk = u.week_start ? new Date(u.week_start * 1000).toLocaleDateString('en-US',
+    {month:'short', day:'numeric', timeZone: u.week_tz || 'UTC'}) : '';
+  parts.push(n0(u.new_this_week) + ' joined this week' + (wk ? ' (since Sun, ' + wk + ')' : ''));
+  parts.push(n0(u.new_last_week) + ' last week');
   if(u.admins) parts.push(n0(u.admins) + ' staff');
   set('ov-users-s', parts.join(' · '));
+  const us = document.getElementById('ov-users-s');
+  if(us) us.title = 'Weeks run Sunday 12:00 AM to the next Sunday 12:00 AM, '
+    + (u.week_tz === 'UTC' ? 'UTC' : (u.week_tz || 'UTC').split('_').join(' ') + ' time') + '. Staff are not counted.';
   set('ov-paying', n0(u.paying));
   // The tiers OF THE PAYING, which is what this tile counts. `legacy` are
   // $15-era subscribers whose price Stripe holds and we do not.

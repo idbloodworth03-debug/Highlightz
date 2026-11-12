@@ -8265,3 +8265,28 @@ must use `confirmed_missing`.**
    excerpts, tokens already redacted). Harmless on a root-only box; delete.
 4. *Still to confirm on prod:* the Kick 403 fix under live streams (since-
    restart count; see the capture section above).
+
+## "Joined this week" is a calendar week, Sunday to Sunday (2026-11-12)
+
+Owner: "make it so that it says how many people that joined this week starts
+from Sunday and ends when the next Sunday starts so I have an accurate count".
+The Users tile's "N joined this week" was `new_7d`, the last 7 x 24 hours.
+
+`api._week_bounds(now, tz_name)` → (this week's start, last week's start,
+zone used): Sunday 12:00 AM to the next Sunday 12:00 AM **in the viewer's time
+zone**. The admin page sends the browser's IANA zone
+(`/admin/overview?tz=America/New_York`); the server runs on UTC, where Sunday
+starts on Saturday evening in the US, so a Saturday 9 PM Eastern sign-up would
+land in the wrong week. zoneinfo handles daylight saving (the week of Nov 1,
+2026 is 169 hours). A missing, malformed or unknown zone falls back to UTC and
+is reported as `week_tz: "UTC"`. `/admin/overview` `users` gained
+`new_this_week`, `new_last_week`, `week_start`, `week_tz`; `new_7d` and
+`new_30d` are unchanged and no longer shown. The tile reads "5 joined this
+week (since Sun, Nov 8) · 3 last week"; hovering says which zone. Staff are
+excluded, as before. Last week is shown because a calendar-week count is
+near zero every Sunday morning.
+
+Checked in a browser with accounts created either side of Sunday midnight:
+New York 5/3, a UTC browser 6/3, Los Angeles 3/4 on the same data. Tests in
+`tests/test_admin_panel.py` (bounds incl. the clock-change week, the exact
+turn-over second, bad zone names, the endpoint, the page).
