@@ -418,3 +418,114 @@ def test_resuming_a_paused_user_never_asks_the_capacity_check(pool, monkeypatch)
     assert asyncio.run(api._resume_user_streams("back")) == 3
     assert called == []
     assert all(r["status"] == "starting" for k, r in api._streams.items() if k.startswith("back:"))
+
+
+# ── The disk budgets follow the machine too (2026-11-13, the 16 GB resize) ────
+# The live ceiling grows with the cores, and two budgets it leans on were typed
+# for the old box: 4 GB for every live channel's rolling video buffer (a FUSE:
+# past it capture stops, and a Kick clip is nothing but a cut from that buffer)
+# and 15 GB of cut clips (past it the oldest unreviewed videos are deleted).
+# A bigger ceiling with the same 4 GB blows the fuse on a healthy box.
+
+from config.settings import (_CAPTURE_FLOOR_MB, _CAPTURE_MB_PER_LIVE,
+                             _CLIP_STORE_FLOOR_MB, _disk_total_mb,
+                             default_clip_capture_max_total_mb,
+                             default_clip_file_max_total_mb)
+
+_GB = 1024
+
+
+def test_the_old_box_keeps_its_buffer_budget_and_a_bigger_one_gets_more():
+    assert default_clip_capture_max_total_mb(12, 77 * _GB) == 4096
+    big = default_clip_capture_max_total_mb(48, 320 * _GB)
+    assert big == 48 * _CAPTURE_MB_PER_LIVE == 9600
+
+
+def test_the_fuse_cannot_blow_with_every_live_slot_at_its_fattest():
+    """The point of deriving it: at ANY ceiling the cores produce, every live
+    channel can hold a full ring without the total reaching the fuse."""
+    for cores in (1, 2, 4, 8, 16, 32):
+        live = cores * _STREAMS_PER_CPU
+        budget = default_clip_capture_max_total_mb(live, 320 * _GB)
+        assert budget >= live * _CAPTURE_MB_PER_LIVE, (cores, budget)
+
+
+def test_the_buffers_can_never_be_promised_most_of_the_disk():
+    """400 live slots on the small disk would ask for 80 GB of a 77 GB disk."""
+    budget = default_clip_capture_max_total_mb(400, 77 * _GB)
+    assert budget <= 0.15 * 77 * _GB
+    assert budget >= _CAPTURE_FLOOR_MB
+
+
+def test_the_clip_store_is_a_share_of_the_disk():
+    assert default_clip_file_max_total_mb(77 * _GB) == int(77 * _GB * 0.40)     # ~30.8 GB
+    assert default_clip_file_max_total_mb(320 * _GB) == 128 * _GB
+
+
+@pytest.mark.parametrize("live", [0, 6, 12, 48, 400])
+@pytest.mark.parametrize("disk_gb", [0, 10, 25, 77, 320, 2000])
+def test_no_box_ever_gets_less_than_it_had(live, disk_gb):
+    """The old numbers are floors. A derivation that could LOWER a budget would
+    delete videos, or stop capture, on a box that was working."""
+    assert default_clip_capture_max_total_mb(live, disk_gb * _GB) >= 4096
+    assert default_clip_file_max_total_mb(disk_gb * _GB) >= 15360
+
+
+def test_a_disk_nobody_could_read_keeps_the_old_numbers():
+    assert default_clip_capture_max_total_mb(48, 0) == _CAPTURE_FLOOR_MB
+    assert default_clip_file_max_total_mb(0) == _CLIP_STORE_FLOOR_MB
+
+
+def test_the_disk_is_found_for_a_folder_that_does_not_exist_yet(tmp_path):
+    """First start: clips/ is created later. It is the same disk as its parent."""
+    assert _disk_total_mb(str(tmp_path / "not" / "made" / "yet")) == _disk_total_mb(str(tmp_path)) > 0
+
+
+def test_settings_derives_both_budgets_from_this_machine(monkeypatch):
+    monkeypatch.delenv("CLIP_CAPTURE_MAX_TOTAL_MB", raising=False)
+    monkeypatch.delenv("CLIP_FILE_MAX_TOTAL_MB", raising=False)
+    monkeypatch.delenv("MAX_CONCURRENT_STREAMS", raising=False)
+    monkeypatch.setattr("config.settings._usable_cpus", lambda: 8)
+    monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 320 * _GB)
+    s = Settings()
+    assert s.max_concurrent_streams == 48 and s.max_registered_streams == 192
+    assert s.clip_capture_max_total_mb == 9600
+    assert s.clip_file_max_total_mb == 128 * _GB
+
+
+def test_the_buffer_budget_follows_a_pinned_ceiling_too(monkeypatch):
+    """Pin 60 live in .env and the fuse has to cover 60, not what the cores say."""
+    monkeypatch.delenv("CLIP_CAPTURE_MAX_TOTAL_MB", raising=False)
+    monkeypatch.setenv("MAX_CONCURRENT_STREAMS", "60")
+    monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 320 * _GB)
+    assert Settings().clip_capture_max_total_mb == 60 * _CAPTURE_MB_PER_LIVE
+
+
+@pytest.mark.parametrize("pinned", ["777", "0"])
+def test_a_budget_set_in_env_still_wins(monkeypatch, pinned):
+    """0 included: it means "no cap" to the code that enforces these, and an
+    owner who chose that must not have it replaced by a derived number."""
+    monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 320 * _GB)
+    monkeypatch.setenv("CLIP_CAPTURE_MAX_TOTAL_MB", pinned)
+    monkeypatch.setenv("CLIP_FILE_MAX_TOTAL_MB", pinned)
+    s = Settings()
+    assert s.clip_capture_max_total_mb == int(pinned)
+    assert s.clip_file_max_total_mb == int(pinned)
+
+
+def test_the_resolved_limits_reach_the_journal(monkeypatch):
+    """The derivations log through the stdlib at import, before logging is set
+    up, so those lines never appeared anywhere: "the resolved number is logged"
+    was not true. The startup line is what a deploy check greps for."""
+    import pathlib
+    from config.settings import capacity_summary
+    monkeypatch.delenv("MAX_CONCURRENT_STREAMS", raising=False)
+    monkeypatch.setenv("CLIP_FILE_MAX_TOTAL_MB", "50000")
+    monkeypatch.setattr("config.settings._usable_cpus", lambda: 8)
+    monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 320 * _GB)
+    got = capacity_summary(Settings())
+    assert got == {"cores": 8, "disk_mb": 320 * _GB, "live": 48, "listed": 192,
+                   "capture_mb": 9600, "clip_store_mb": 50000,
+                   "pinned": ["clip_file_max_total_mb"]}
+    main_src = pathlib.Path("src/main.py").read_text()
+    assert 'log.info("capacity_limits", **capacity_summary(settings))' in main_src

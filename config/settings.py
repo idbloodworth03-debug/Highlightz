@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
 from typing import Literal
@@ -87,6 +88,89 @@ def default_max_concurrent_streams() -> int:
     tracks the hardware in both directions."""
     n = _usable_cpus() * _STREAMS_PER_CPU
     return max(_MIN_CONCURRENT_STREAMS, min(_MAX_CONCURRENT_STREAMS, n))
+
+
+# ── THE DISK BUDGETS FOLLOW THE MACHINE TOO ──────────────────────────────────
+# Two budgets share the one disk, and both were typed as constants for the
+# 2-vCPU droplet's 77 GB: 4 GB for every live channel's rolling video buffer
+# and 15 GB for the cut clips. The ceilings above grow with a resize; these did
+# not, which made the bigger ceiling a promise the disk budget would break:
+#
+#   * THE BUFFER BUDGET IS A FUSE (see ClipRecorder._prune_loop): past it,
+#     capture stops. A live channel's ring is the newest ~190 s of whatever
+#     rendition it has, 80 to 200 MB (720p60 at 3.5 Mbps to a 1080p60 source at
+#     8.5). At 12 live that is at most 2.4 GB and the 4 GB fuse never blew. At
+#     the 48 live an 8-core box derives it is up to 9.6 GB, so the fuse would
+#     blow on a healthy box and take Kick's video with it (a Kick clip is
+#     nothing but the file cut from that ring).
+#   * THE CLIP STORE evicts the oldest unreviewed videos once it is over its
+#     cap (files.trim_to_cap). At 15 GB that was already costing clips their
+#     video (prod, 2026-11-10: 2,781 of 3,165 unreviewed clips had none), and
+#     more live channels fill it faster.
+#
+# So both derive from the disk they sit on, the same way the ceilings derive
+# from the cores. THE OLD NUMBERS ARE FLOORS: nothing here can lower a budget
+# below what it was, on any box. A value set in .env (CLIP_CAPTURE_MAX_TOTAL_MB,
+# CLIP_FILE_MAX_TOTAL_MB) still wins, 0 included, which means "no cap" to the
+# code that enforces them.
+_CAPTURE_FLOOR_MB = 4096         # what it was: 4 GB across every buffer
+_CAPTURE_MB_PER_LIVE = 200       # one live channel's ring at its fattest
+_CAPTURE_DISK_FRAC = 0.15        # ...but never more of the disk than this
+_CLIP_STORE_FLOOR_MB = 15360     # what it was: 15 GB of cut clips
+_CLIP_STORE_DISK_FRAC = 0.40     # 77 GB disk -> 30 GB; 320 GB disk -> 128 GB
+
+
+def _disk_total_mb(path: str) -> int:
+    """Size in MB of the disk holding `path`, or 0 when it cannot be read.
+
+    The folder may not exist yet on a first start, so this walks up to the
+    nearest parent that does: it is the same disk either way."""
+    p = os.path.abspath(path or ".")
+    while True:
+        try:
+            return int(shutil.disk_usage(p).total // (1024 * 1024))
+        except OSError:
+            parent = os.path.dirname(p)
+            if parent == p:
+                return 0
+            p = parent
+
+
+def default_clip_capture_max_total_mb(live_ceiling: int, disk_mb: int) -> int:
+    """Room for every live slot's ring at its fattest, within a share of the
+    disk, and never under the old 4 GB. An unreadable disk keeps the old
+    number: a budget is not raised on a disk nobody could measure."""
+    if disk_mb <= 0:
+        return _CAPTURE_FLOOR_MB
+    want = max(0, int(live_ceiling)) * _CAPTURE_MB_PER_LIVE
+    return max(_CAPTURE_FLOOR_MB, min(want, int(disk_mb * _CAPTURE_DISK_FRAC)))
+
+
+def default_clip_file_max_total_mb(disk_mb: int) -> int:
+    """A share of the disk for cut clips, never under the old 15 GB."""
+    if disk_mb <= 0:
+        return _CLIP_STORE_FLOOR_MB
+    return max(_CLIP_STORE_FLOOR_MB, int(disk_mb * _CLIP_STORE_DISK_FRAC))
+
+
+_CAPACITY_FIELDS = ("max_concurrent_streams", "max_registered_streams",
+                    "clip_capture_max_total_mb", "clip_file_max_total_mb")
+
+
+def capacity_summary(s) -> dict:
+    """The limits in force and what they were worked out from, for the startup
+    log line and the capacity scripts. The derivations above log through the
+    stdlib at import, before logging is configured, so those lines never reach
+    the journal; this is the one that does (src/main.py, `capacity_limits`)."""
+    return {
+        "cores": _usable_cpus(),
+        "disk_mb": _disk_total_mb(s.local_storage_path),
+        "live": s.max_concurrent_streams,
+        "listed": s.max_registered_streams,
+        "capture_mb": s.clip_capture_max_total_mb,
+        "clip_store_mb": s.clip_file_max_total_mb,
+        "pinned": sorted(f for f in _CAPACITY_FIELDS if f in s.model_fields_set),
+    }
 
 
 class Settings(BaseSettings):
@@ -184,8 +268,9 @@ class Settings(BaseSettings):
     # BUFFER_S has to cover the longest pre-roll the rules can ask for plus
     # the settle window the engine waits out before firing (see
     # _monitor_and_fire), with room for a late viewer-clip pairing. Three
-    # minutes is comfortably past all of it; it is also what bounds disk, at
-    # roughly 45 MB per channel at 720p60.
+    # minutes is comfortably past all of it; it is also what bounds disk:
+    # one channel's ring is roughly 45 MB at a thin 720p and up to 200 MB
+    # for a 1080p60 source (scripts/stream_cost.py prints the real figure).
     #
     # SEGMENT_S is the cut precision. Twitch emits ~2s HLS segments with a
     # keyframe at each boundary, so 2 aligns with the source and makes the
@@ -197,7 +282,9 @@ class Settings(BaseSettings):
     clip_capture_quality: str = "720p60,720p,best"
     clip_capture_buffer_s: int = 180
     clip_capture_segment_s: int = 2
-    clip_capture_max_total_mb: int = 4096      # 4 GB across every buffer
+    # Unset = derived at startup from the live ceiling and the disk (see
+    # default_clip_capture_max_total_mb). This number is its floor.
+    clip_capture_max_total_mb: int = _CAPTURE_FLOOR_MB
 
     # ── Autopilot (src/autopilot) ──────────────────────────────────────────
     # Pro, per user, off by default: an approved clip is rendered to 9:16
@@ -213,7 +300,9 @@ class Settings(BaseSettings):
     # we promise to keep. Clips are deleted with their record and with the
     # account regardless of this.
     clip_file_max_age_days: int = 30
-    clip_file_max_total_mb: int = 15360         # 15 GB of cut clips
+    # Unset = derived at startup from the disk (see
+    # default_clip_file_max_total_mb). This number is its floor.
+    clip_file_max_total_mb: int = _CLIP_STORE_FLOOR_MB
 
     # Fetching a clip's video FROM TWITCH, for clips the live capture did not
     # produce a file for. Owner's decision, 2026-09-15, made with the risk in
@@ -513,6 +602,26 @@ class Settings(BaseSettings):
                 self.max_registered_streams, self.max_concurrent_streams,
                 _REGISTERED_PER_LIVE_SLOT,
             )
+        # The two disk budgets, unless .env pins them. model_fields_set is
+        # "what was given", so an explicit value wins whatever it is, and the
+        # object.__setattr__ below does not mark the field as given.
+        disk_mb = _disk_total_mb(self.local_storage_path)
+        if "clip_capture_max_total_mb" not in self.model_fields_set:
+            object.__setattr__(
+                self, "clip_capture_max_total_mb",
+                default_clip_capture_max_total_mb(self.max_concurrent_streams, disk_mb))
+            _log.info(
+                "clip_capture_max_total_mb derived: %d MB for the rolling "
+                "buffers (%d live slots, %d MB disk). Set "
+                "CLIP_CAPTURE_MAX_TOTAL_MB in .env to pin it.",
+                self.clip_capture_max_total_mb, self.max_concurrent_streams, disk_mb)
+        if "clip_file_max_total_mb" not in self.model_fields_set:
+            object.__setattr__(self, "clip_file_max_total_mb",
+                               default_clip_file_max_total_mb(disk_mb))
+            _log.info(
+                "clip_file_max_total_mb derived: %d MB for cut clips (%d MB "
+                "disk). Set CLIP_FILE_MAX_TOTAL_MB in .env to pin it.",
+                self.clip_file_max_total_mb, disk_mb)
         if self.dashboard_secret_key == _DEFAULT_SECRET:
             _log.critical(
                 "SECURITY: DASHBOARD_SECRET_KEY is using the default value. "

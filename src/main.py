@@ -834,6 +834,10 @@ async def main() -> None:
         log.warning("open_file_limit_low", soft=soft, hard=hard)
     else:
         log.info("open_file_limit", soft=soft, hard=hard)
+    # The limits this box resolved to, where the journal can show them: they
+    # follow the cores and the disk, so a resize changes them on this restart.
+    from config.settings import capacity_summary
+    log.info("capacity_limits", **capacity_summary(settings))
     restarted = take_health_restart_marker()
     if restarted is not None:
         # An error, so the alert tap emails the owner: the site had stopped

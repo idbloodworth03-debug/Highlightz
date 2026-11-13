@@ -47,7 +47,12 @@ except Exception as exc:
 print("=" * 68)
 print("SERVER CAPACITY")
 print("=" * 68)
-print(f"  LIVE ceiling          : {live_cap}      <- the hardware limit (cores x 6)")
+from config import settings as cfg                        # noqa: E402
+_cores = cfg._usable_cpus()
+_why = ("pinned by MAX_CONCURRENT_STREAMS in .env"
+        if "max_concurrent_streams" in settings.model_fields_set
+        else f"{_cores} cores x {cfg._STREAMS_PER_CPU}, derived at startup")
+print(f"  LIVE ceiling          : {live_cap}      <- the hardware limit ({_why})")
 print(f"  live right now        : {live_now}")
 print(f"  live headroom         : {live_cap - live_now}")
 print()
@@ -57,6 +62,14 @@ print(f"  headroom               : {cap - total}")
 print(f"  users with streams     : {users}")
 print(f"  reserve threshold      : {reserve}   (headroom must exceed this to skip sharing)")
 print(f"  fair share per user    : {fair}   (cap // users)")
+
+_gb = 1024
+_pin = lambda f: "pinned in .env" if f in settings.model_fields_set else "derived from the disk"  # noqa: E731
+print()
+print(f"  rolling video buffers : up to {settings.clip_capture_max_total_mb / _gb:.1f} GB"
+      f"   ({_pin('clip_capture_max_total_mb')})")
+print(f"  cut clips on disk     : up to {settings.clip_file_max_total_mb / _gb:.1f} GB"
+      f"   ({_pin('clip_file_max_total_mb')})")
 
 print()
 print("  per user:")
@@ -69,10 +82,10 @@ print("=" * 68)
 print("WHAT HAPPENS ON THE NEXT ADD")
 print("=" * 68)
 if total >= cap:
-    print("  503 THE BOX IS FULL. Nobody can add a stream, whatever their plan.")
-    print("  Raising MAX_CONCURRENT_STREAMS is the only thing that changes this,")
-    print("  and every stream costs a chat socket, an evaluation loop and (with")
-    print("  audio on) a streamlink + ffmpeg on ONE vCPU. Check load first.")
+    print("  503 THE BOX IS FULL. Nobody can add a channel, whatever their plan.")
+    print("  This is the LISTED limit (live ceiling x 4). It follows the live")
+    print("  ceiling, which follows the cores: measure what the live channels cost")
+    print("  with scripts/stream_cost.py before raising either in .env.")
 elif cap - total > reserve:
     print("  ALLOWED for everyone — there is plenty of room, so plan limits")
     print("  govern and the sharing rule does not run at all.")

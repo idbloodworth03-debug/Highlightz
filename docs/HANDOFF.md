@@ -27,6 +27,12 @@ grep before relying on either. Every public page — /compare, /llms.txt,
 
 - Prod runs at `/opt/highlightz` on a DigitalOcean droplet, IP
   137.184.24.121. Operator is **root** — never use sudo in commands.
+- **RESIZED 2026-11-13 (owner: "I got a 16 gb server"); NOT YET READ BACK.**
+  The figures in this block are the pre-resize box. A 16 GB DigitalOcean
+  plan is 2, 4 or 8 vCPUs depending on the family, and the disk only grows
+  if the resize included it, so do not assume either: replace this block
+  from the owner's pasted `scripts/capacity.py` + `scripts/stream_cost.py`
+  output (see "The limits follow the 16 GB resize" at the end).
 - **2 vCPU / 3.8 GiB RAM / NO SWAP**, measured on the box 2026-09-21
   (`nproc`, `free -h`). This block said 1vCPU/2GB until then, which was the
   pre-resize size and had been wrong since Aug 2026 — the droplet's
@@ -8357,3 +8363,88 @@ back from the box; until the check output says so, the "Production
 environment" block at the top (2 vCPU / 3.8 GiB, ceilings 12 / 48) is the last
 verified state. Expected after a move to 4 vCPU / 8 GB: live ceiling 24,
 listed ceiling 96, both derived at startup.
+
+## The limits follow the 16 GB resize (2026-11-13)
+
+Owner: "update the sites benchmarks now so I can hold more streams ... I got a
+16 gb server I should be able to hold much more". Nothing here was read from
+the new box (the dev container is not production); every number below is
+worked out by the app at startup from the machine it finds itself on.
+
+**What already followed the resize, with no change:** the LIVE ceiling (usable
+cores x 6) and the listed ceiling (live x 4). They are re-derived at every
+start, and they follow CORES, not RAM: 16 GB with 8 vCPUs is 48 live / 192
+listed, with 4 vCPUs 24 / 96, with 2 vCPUs still 12 / 48.
+
+**What did not follow, and now does (`config/settings.py`):**
+- `clip_capture_max_total_mb` was a fixed 4 GB for every live channel's rolling
+  video buffer. It is a FUSE: past it `ClipRecorder._prune_loop` logs
+  `clip_capture_over_global_cap` and stops the recorder, and a Kick clip is
+  nothing but a cut from that buffer. A ring is the newest ~190 s of the
+  channel's rendition, 80 to 200 MB; 48 live is up to 9.6 GB, so the bigger
+  ceiling would have blown the fuse on a healthy box. Now:
+  `max(4096, min(live ceiling x 200, 15% of the disk))`.
+- `clip_file_max_total_mb` was a fixed 15 GB of cut clips, past which
+  `files.trim_to_cap` deletes the oldest unreviewed videos (prod 2026-11-10:
+  2,781 of 3,165 unreviewed clips had no video). Now `max(15360, 40% of the
+  disk)`: 30.8 GB on the old 77 GB disk, 128 GB on a 320 GB one.
+- **The old numbers are floors**, an unreadable disk keeps them, and a value in
+  `.env` (`CLIP_CAPTURE_MAX_TOTAL_MB`, `CLIP_FILE_MAX_TOTAL_MB`) still wins, 0
+  included (0 means "no cap" to the code that enforces them). "Was it set" is
+  `model_fields_set`, not a sentinel, for that reason. The buffer budget uses
+  the RESOLVED live ceiling, so pinning `MAX_CONCURRENT_STREAMS` moves it too.
+- New startup log line `capacity_limits` (cores, disk_mb, live, listed,
+  capture_mb, clip_store_mb, pinned). The older "derived ..." lines log through
+  the stdlib at import, before logging is configured, and never reached the
+  journal; this one does.
+
+**`_STREAMS_PER_CPU` is still 6, on purpose.** It was measured on the 1-vCPU
+box before video capture existed (a live channel now runs four processes, not
+two), and `tests/test_server_capacity.py` holds it to 4..8. It moves only on a
+reading from the new box at a busy hour.
+
+**`scripts/stream_cost.py` was rewritten, because its answer was wrong in the
+direction that matters.** It counted live channels as "streamlink processes
+running"; since capture each live channel runs two, so it reported twice the
+channels at half the cost each and a ceiling twice what the box could take. It
+now tells processes apart by what they were started to do (meter streamlink /
+meter ffmpeg / recorder streamlink / recorder ffmpeg / other ffmpeg / the app)
+from `/proc/<pid>/cmdline`, never printing one (a playlist URL carries a signed
+token). It also measures **the app's one loop**: the main thread of
+`python -m src.main` (`/proc/<pid>/task/<pid>/stat`). Chat scoring, every Kick
+webhook, every socket and the dashboard run on that one thread, which can use
+one core however many the box has. **A resize does not move that limit**, so on
+a bigger box it can bind before CPU or memory do; the script prints room by
+memory, by CPU across all cores, and by the loop, and takes the smallest. Its
+verdicts: NOT PRODUCTION, TOO THIN (under 5 live), RAISING IT LOOKS SUPPORTED,
+THE LIMIT IS HIGHER THAN THIS SAMPLE SUPPORTS (pin `MAX_CONCURRENT_STREAMS`),
+THE LIMIT FITS. `scripts/capacity.py` now says where each number comes from
+and prints both disk budgets.
+
+**OPEN, in this order:**
+1. The owner pastes the check below from the new box. Then rewrite the
+   "Production environment" block from it (cores, RAM, swap, disk, ceilings).
+2. At a busy hour, `venv/bin/python scripts/stream_cost.py --sample=20`. If it
+   says the limit is higher than the sample supports, pin
+   `MAX_CONCURRENT_STREAMS` to its number in `.env`. If it says raising is
+   supported and the loop is not what binds, `_STREAMS_PER_CPU` can move (the
+   test's 4..8 window moves with it, with the reading recorded there).
+3. Not changed, still sized for one core: one caption at a time with
+   `cpu_threads=1` (`src/captions/transcribe.py`), one render at a time
+   (`src/autopilot/render.py`), one clip fetch at a time (`src/clips/fetch.py`).
+   Detection has to win over all three, so they wait for the reading too.
+
+Check after deploy (read-only, prints no secrets):
+`cd /opt/highlightz && nproc && free -h | sed -n 2p && df -h / | tail -1 && grep -E '^(MAX_CONCURRENT_STREAMS|MAX_REGISTERED_STREAMS|CLIP_CAPTURE_MAX_TOTAL_MB|CLIP_FILE_MAX_TOTAL_MB)=' .env; venv/bin/python scripts/capacity.py 2>/dev/null | sed -n 4,16p; venv/bin/python scripts/stream_cost.py --sample=20 2>/dev/null | sed -n '/WHAT IS RUNNING/,$p'`
+
+Verified here: 30 tests in `tests/test_server_capacity.py` and
+`tests/test_stream_cost.py` are new; each change was broken on purpose and a
+test failed (the 4 GB fuse, the disk share, the store floor, both `.env` pins,
+the double count, the loop scaled by cores, a thin sample recommending). The
+script was run against a stand-in box in this container: the real app plus six
+"live channels", each a pass-through named `streamlink` with the real arguments
+feeding the real ffmpeg with the meter's and the recorder's arguments, writing
+real 2 s segments. It reported 6 live (the old count: 12), the four process
+kinds, 31 MB per ring, and refused a verdict as NOT PRODUCTION. Those costs are
+a test pattern's, not a stream's: they say the script reads a box correctly,
+nothing about what the droplet can carry.
