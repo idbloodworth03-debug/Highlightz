@@ -8327,3 +8327,33 @@ empty state; phone cards labelled. **Test-environment note:** the real
 dashboard loads React/Babel from unpkg.com, which the dev sandbox blocks, so a
 headless dashboard never boots or opens its socket here; the run opens
 `/ws` from a same-origin page instead (scratchpad `online/flow.cjs`).
+
+## Packages after the 2026-11-11 audit: pyasn1 updated, urllib3 stays (2026-11-13)
+
+Owner, after resizing the droplet: "lets update everything now".
+
+- **pyasn1 0.6.4 → 0.6.5** in `requirements.lock` (four advisories, all CPU
+  exhaustion on hostile ASN.1; a patch release). The dev container has run
+  0.6.5 for every suite run this week. Prod needs
+  `venv/bin/pip install -r requirements.lock` once; the deploy command given
+  to the owner on 2026-11-13 includes it.
+- **urllib3 stays 2.7.0.** Re-checked today rather than assumed: with 2.8.0
+  installed to the side, `tests/test_streamlink_urllib3.py` fails exactly as
+  in the 2026-10-22 incident (streamlink 8.4.0's `_PERCENT_RE` stand-in has no
+  `.sub`). Do NOT bump it alone. The route is still streamlink 8.6.x +
+  urllib3 2.8.0 together, tried against a live Twitch AND a live Kick stream
+  before the lock changes (8.6 changes both plugins). The dev container cannot
+  reach Kick's IVS hosts, so that trial has to run on the droplet in a
+  throwaway venv, not in the app's.
+- **Left as they are, with the reason:** oauthlib 3.3.1 (the flaws are in its
+  server side; we use the client through google-auth-oauthlib; 4.x is a major
+  bump), filelock 3.32.2 (local-user symlink attacks; root-only box; 4.x is a
+  major bump under huggingface_hub), python-jose 3.5.0 and ecdsa 0.19.2 (no fix
+  published; nothing in `src/` imports either), setuptools 83.0.0 (Windows
+  only).
+
+**Droplet resize:** the owner reports it was done on 2026-11-13. NOT yet read
+back from the box; until the check output says so, the "Production
+environment" block at the top (2 vCPU / 3.8 GiB, ceilings 12 / 48) is the last
+verified state. Expected after a move to 4 vCPU / 8 GB: live ceiling 24,
+listed ceiling 96, both derived at startup.

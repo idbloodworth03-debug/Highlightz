@@ -4,6 +4,8 @@
 # advisories"): starlette, aiohttp, cryptography and 8 more. urllib3 stays
 # at 2.7.0: 2.8.0 broke streamlink 8.4.0, so every recorder failed the same day
 # (HANDOFF, "Incident: urllib3 2.8.0 broke streamlink").
+# 2026-11-13: pyasn1 0.6.4 -> 0.6.5 (four CPU-exhaustion advisories; a patch
+# release). urllib3 still 2.7.0 for the reason above.
 # The full suite (3500 tests) passes on this set under Python 3.12.
 # It includes a few packages nothing imports any more (aioredis, rq,
 # twitchAPI, ...) because the point is to reproduce what is running.
@@ -81,7 +83,7 @@ pluggy==1.6.0
 propcache==0.5.2
 proto-plus==1.28.0
 protobuf==7.34.1
-pyasn1==0.6.4
+pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pycountry==26.2.16
 pycparser==3.0
