@@ -23,16 +23,18 @@ says `UPLOADS_ENABLED` was down, and nobody has re-read prod since. Run the
 grep before relying on either. Every public page — /compare, /llms.txt,
 /blog — reads the flag itself, so their copy follows prod whichever it is.)**
 
-## Production environment (facts, hardware re-verified 2026-09-21)
+## Production environment (facts, hardware re-verified 2026-11-13)
 
 - Prod runs at `/opt/highlightz` on a DigitalOcean droplet, IP
   137.184.24.121. Operator is **root** — never use sudo in commands.
-- **RESIZED 2026-11-13 (owner: "I got a 16 gb server"); NOT YET READ BACK.**
-  The figures in this block are the pre-resize box. A 16 GB DigitalOcean
-  plan is 2, 4 or 8 vCPUs depending on the family, and the disk only grows
-  if the resize included it, so do not assume either: replace this block
-  from the owner's pasted `scripts/capacity.py` + `scripts/stream_cost.py`
-  output (see "The limits follow the 16 GB resize" at the end).
+- **4 vCPU / 15.6 GiB RAM / NO SWAP since the 2026-11-13 resize**, read from
+  the box that day (the owner pasted `scripts/stream_cost.py`): 4 cores,
+  15.62 GB total, 14.54 GB available, no swap, load 0.01 / 0.06 / 0.07 with
+  38 channels listed and 2 live. Derived ceilings 24 live / 96 listed;
+  **`MAX_CONCURRENT_STREAMS=36` is being pinned in `.env`** (144 listed),
+  see "The limits follow the 16 GB resize" at the end. DISK SIZE NOT YET
+  READ BACK (the resize may or may not have grown it from 77 GB). The
+  bullets below are the PRE-resize box, kept for the history they explain.
 - **2 vCPU / 3.8 GiB RAM / NO SWAP**, measured on the box 2026-09-21
   (`nproc`, `free -h`). This block said 1vCPU/2GB until then, which was the
   pre-resize size and had been wrong since Aug 2026 — the droplet's
@@ -8448,3 +8450,50 @@ real 2 s segments. It reported 6 live (the old count: 12), the four process
 kinds, 31 MB per ring, and refused a verdict as NOT PRODUCTION. Those costs are
 a test pattern's, not a stream's: they say the script reads a box correctly,
 nothing about what the droplet can carry.
+
+### The first reading from the new box, and the pin (2026-11-13, same day)
+
+The owner pasted `scripts/stream_cost.py` from prod and asked for the 24 live
+to go higher. **It was the OLD script** (the deploy had not been run), so its
+"RAISING IT LOOKS SUPPORTED. 24 -> 135" is the faulty verdict the rewrite
+exists to stop: 4 streamlink processes are 2 live channels (it said 4), and
+its too-thin guard looked at the 38 LISTED channels instead of the live ones.
+
+What the paste does establish: 4 cores, 15.62 GB (14.54 GB available), no
+swap, load 0.01 / 0.06 / 0.07. Streamlink + ffmpeg for the live channels:
+442 MB RSS and 3.0% of one core, so about 221 MB and 1.5% per live channel if
+two were live. Python (the app plus the script): 3.9% of one core.
+
+The same numbers through the new script's arithmetic: by memory ~62, by CPU
+~86, **by the app's one loop ~35** (2 live x 70% / 3.9%, charging the app's
+whole CPU to the two live channels), verdict TOO THIN. The only non-thin
+reading on record is 2026-11-04 on the old box: 9 live, 10-37% of 2 cores busy
+all-in, so at worst 8.2% of a core per live channel, which is ~36 on 4 cores
+at 75%. Two careful readings land on the same number.
+
+**Decision: `MAX_CONCURRENT_STREAMS=36` in prod's `.env`** (listed derives to
+144, the buffer budget to 7.2 GB). One step, +50%, not the computed maximum.
+A pin and not `_STREAMS_PER_CPU`, because the per-core cost is a fact about a
+CPU model and this is one reading on a new one: the 2026-08-22 figure (8 live
+= 93.4% of the 1-vCPU box's core) has not been explained away, the meter is
+unchanged since, and `tests/test_server_capacity.py` still holds the constant
+to 4..8. The peak demand seen so far is about 20 at once (12 live plus 8
+waiting, 2026-11-11), so 36 will not be reached before there is a busy reading.
+
+**The pin does not follow a resize.** With the line in `.env` the ceiling is 36
+on any core count; after another resize, change or remove it.
+
+**To go past 36:** `venv/bin/python scripts/stream_cost.py --sample=20` (the
+NEW script, after the deploy) with 10 or more channels live. Raise to what it
+supports if the verdict is RAISING IT LOOKS SUPPORTED, in one step again. If
+"the app's one loop" is what binds, more cores will not help and the work is
+in the app (Kick webhooks are the first place to look: one HTTP request per
+chat message of every listed Kick channel, on that loop).
+
+Also fixed before it could mislead: a VOD scan starts a streamlink with the
+meter's `audio_only,worst`, so the new script would have counted a scan as a
+live channel. Processes are now `meter` / `recorder` only when unmistakable
+(`--stdout`, and `--loglevel warning` for the audio one); a scan, a clip
+fetch and anything unreadable are "other streamlink". A test holds the four
+call sites in `src/` to the arguments the script reads, and fails if a fifth
+place starts a streamlink.

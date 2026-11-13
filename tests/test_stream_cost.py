@@ -36,6 +36,10 @@ METER_FF = ["ffmpeg", "-hide_banner", "-nostats", "-i", "pipe:0", "-vn", "-ac", 
             "-ar", "8000", "-f", "s16le", "pipe:1", ""]
 REC_FF = ["ffmpeg", "-hide_banner", "-nostats", "-loglevel", "error", "-i", "pipe:0",
           "-c", "copy", "-f", "segment", "-segment_time", "2", "seg-%d.ts", ""]
+VOD_SL = [PY, "/opt/highlightz/venv/bin/streamlink", "--stdout", "--loglevel", "error",
+          "https://www.twitch.tv/videos/123", "audio_only,worst", ""]
+FETCH_SL = [PY, "/opt/highlightz/venv/bin/streamlink", "--loglevel", "warning", "--force",
+            "-o", "/opt/highlightz/clips/clipfiles/x.fetch.part", URL, "best", ""]
 CUT_FF = ["ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "list.txt", ""]
 
 
@@ -46,6 +50,9 @@ CUT_FF = ["ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "l
     ("ffmpeg", METER_FF, "meter_ffmpeg"),
     ("ffmpeg", REC_FF, "recorder_ffmpeg"),
     ("ffmpeg", CUT_FF, "other_ffmpeg"),                 # a cut or a render is not a live channel
+    ("streamlink", VOD_SL, "other_streamlink"),          # a VOD scan is not a live channel
+    ("streamlink", FETCH_SL, "other_streamlink"),        # nor is fetching a clip's video
+    ("streamlink", [], "other_streamlink"),              # unreadable: never guessed to be live
     ("python", [PY, "-m", "src.main", ""], "app"),
     ("python", [PY, "scripts/stream_cost.py", ""], "other_python"),
     ("nginx", ["nginx: worker process", ""], "other"),
@@ -53,6 +60,38 @@ CUT_FF = ["ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "l
 ])
 def test_each_process_is_told_apart_by_what_it_was_started_to_do(name, argv, kind):
     assert C.classify(name, argv) == kind
+
+
+def test_a_vod_scan_does_not_add_a_live_channel():
+    """Nine live and one scan running is nine live."""
+    tot = dict(_box(9), other_streamlink=(1, 40 * MB, 6.0))
+    assert C.live_channels(tot) == 9
+    assert C.per_live(tot, 9) == C.per_live(_box(9), 9)
+
+
+def test_the_four_places_that_start_a_streamlink_still_look_the_way_this_reads_them():
+    """The script tells them apart by their arguments. If one of these call
+    sites changes, the measurement silently miscounts, so the sources are held
+    to what `classify` relies on."""
+    import re
+    root = _PATH.parent.parent / "src"
+
+    def call(path):
+        src = (root / path).read_text()
+        at = src.index("settings.streamlink_path")
+        return re.sub(r"\s+", " ", src[at:at + 260])
+
+    meter, recorder = call("ingestion/audio_meter.py"), call("ingestion/clip_recorder.py")
+    vod, fetch = call("vod/vod_audio.py"), call("clips/fetch.py")
+    assert '"--stdout", "--loglevel", "warning", self.stream_url, "audio_only,worst"' in meter
+    assert '"--stdout", "--loglevel", "warning", self.stream_url, settings.clip_capture_quality' in recorder
+    assert '"--stdout", "--loglevel", "error", vod_url, "audio_only,worst"' in vod
+    assert '"--stdout"' not in fetch and '"-o"' in fetch
+    # ...and nothing else in src/ starts one.
+    starters = sorted(str(p.relative_to(root)) for p in root.rglob("*.py")
+                      if "settings.streamlink_path" in p.read_text())
+    assert starters == ["clips/fetch.py", "ingestion/audio_meter.py",
+                        "ingestion/clip_recorder.py", "vod/vod_audio.py"]
 
 
 def _box(live, *, capture=True, sl=30 * MB, ff=12 * MB):

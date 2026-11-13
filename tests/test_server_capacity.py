@@ -529,3 +529,19 @@ def test_the_resolved_limits_reach_the_journal(monkeypatch):
                    "pinned": ["clip_file_max_total_mb"]}
     main_src = pathlib.Path("src/main.py").read_text()
     assert 'log.info("capacity_limits", **capacity_summary(settings))' in main_src
+
+
+def test_the_pin_given_for_the_4_core_16_gb_droplet(monkeypatch):
+    """2026-11-13: MAX_CONCURRENT_STREAMS=36 in prod's .env (see the handoff
+    for why 36). Everything that leans on the live ceiling has to follow the
+    pin, not the 24 the four cores would derive."""
+    monkeypatch.setenv("MAX_CONCURRENT_STREAMS", "36")
+    monkeypatch.delenv("MAX_REGISTERED_STREAMS", raising=False)
+    monkeypatch.delenv("CLIP_CAPTURE_MAX_TOTAL_MB", raising=False)
+    monkeypatch.setattr("config.settings._usable_cpus", lambda: 4)
+    monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 77 * _GB)
+    s = Settings()
+    assert (s.max_concurrent_streams, s.max_registered_streams) == (36, 144)
+    assert s.clip_capture_max_total_mb == 36 * _CAPTURE_MB_PER_LIVE == 7200
+    from config.settings import capacity_summary
+    assert capacity_summary(s)["pinned"] == ["max_concurrent_streams"]

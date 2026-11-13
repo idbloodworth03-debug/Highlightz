@@ -78,13 +78,29 @@ def classify(name: str, argv: list[str]) -> str:
     n = (name or "").lower()
     heads = [os.path.basename(a).lower() for a in argv[:3]]
     if "streamlink" in n or "streamlink" in heads:
-        # The meter asks for the audio-only rendition; the recorder asks for
-        # video (settings.clip_capture_quality).
-        return "meter_streamlink" if "audio_only,worst" in argv else "recorder_streamlink"
+        # Four things start a streamlink, and only two of them mean "a channel
+        # is live". Both of those write to a pipe (--stdout):
+        #   the meter     --stdout --loglevel warning <url> audio_only,worst
+        #   the recorder  --stdout --loglevel warning <url> <video quality>
+        # A VOD scan asks for the same audio rendition but at --loglevel error,
+        # and a clip fetch writes to a file (-o, no --stdout). Counting either
+        # as a live channel is the mistake this file exists not to make, so
+        # anything that is not unmistakably the meter or the recorder is
+        # "other". tests/test_stream_cost.py holds the four call sites to this.
+        if "--stdout" not in argv:
+            return "other_streamlink"
+        if "audio_only,worst" in argv:
+            level = argv[argv.index("--loglevel") + 1] if "--loglevel" in argv[:-1] else ""
+            return "meter_streamlink" if level == "warning" else "other_streamlink"
+        return "recorder_streamlink"
     if "ffmpeg" in n or "ffmpeg" in heads:
         if "segment" in argv:                    # -f segment: the rolling buffer
             return "recorder_ffmpeg"
-        if "-vn" in argv and "s16le" in argv:    # video dropped, raw PCM out
+        # Video dropped, raw PCM out. A VOD scan's decoder has the same
+        # arguments and cannot be told from a meter's, so while a scan runs its
+        # decoder is charged to the live channels: the cost per channel reads a
+        # little HIGH for that sample, which is the careful direction.
+        if "-vn" in argv and "s16le" in argv:
             return "meter_ffmpeg"
         return "other_ffmpeg"                    # a cut, a render, a thumbnail
     if "python" in n or (heads and "python" in heads[0]):
@@ -253,6 +269,9 @@ def main(args: list[str]) -> int:
     load = pathlib.Path("/proc/loadavg").read_text().split()[:3]
     print(f"  load 1/5/15min         : {' / '.join(load)}"
           f"   ({float(load[1]) / cores:.2f} per core over 5min)")
+    if settings.vod_audio_enabled:
+        print("  VOD_AUDIO_ENABLED      : True   <- a VOD scan adds a streamlink + ffmpeg"
+              " (shown as \"other streamlink\")")
     try:
         du = shutil.disk_usage(settings.local_storage_path)
         print(f"  disk                   : {fmt(du.used)} used of {fmt(du.total)}"
@@ -286,7 +305,8 @@ def main(args: list[str]) -> int:
 
     labels = (("app", "the app"), ("meter_streamlink", "audio: streamlink"),
               ("meter_ffmpeg", "audio: ffmpeg"), ("recorder_streamlink", "video: streamlink"),
-              ("recorder_ffmpeg", "video: ffmpeg"), ("other_ffmpeg", "other ffmpeg"),
+              ("recorder_ffmpeg", "video: ffmpeg"), ("other_streamlink", "other streamlink"),
+              ("other_ffmpeg", "other ffmpeg"),
               ("other_python", "other python"))
     print(f"  {'what':<20}{'procs':>7}{'RSS':>12}{'CPU%':>10}")
     for kind, label in labels:
