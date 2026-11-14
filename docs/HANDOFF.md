@@ -8555,52 +8555,81 @@ original trendy music, professional but goofy.
   it is only used to read audio, never shipped.
 - The clip, its frames and the renders are gitignored (`promo/.gitignore`).
 
-## OPEN: admin page says 7 paying, Stripe says 5 (2026-11-14, diagnosis only)
+## Admin page said 7 paying, Stripe 5: past-due subscribers were flipped back to "active" hourly (2026-11-14)
 
 Owner: "It says I have only 5 paying on stripes site but 7 on my admin page
-this needs to be synced up". **Nothing was changed.** The two numbers are two
-different lists and the two extra accounts have to be NAMED on production
-before any code moves (CLAUDE.md: audits are read-only until verified).
+this needs to be synced up". Diagnosed on production first (the owner ran
+`scripts/paying_check.py`), then fixed.
 
-- The admin tile is `_counts_as_paying`: `subscription_status == "active"`, a
-  `stripe_customer_id`, and `plan_source != "granted"`, staff left out. It
-  counts ACCOUNTS from the app's own record. Stripe counts CUSTOMERS it is
-  charging.
-- **New: `scripts/paying_check.py`** (read-only; 20 tests in
-  `tests/test_paying_check.py`). It prints every account the tile counts next
-  to what Stripe says about that account's customer (PAYING / FREE = active
-  but the last invoice was $0 / PAUSED / TRIAL / NOT ACTIVE / GONE = the
-  customer is deleted or does not exist under this key / UNKNOWN), then
-  everybody Stripe is charging that the tile leaves out and why, and a line
-  whose arithmetic lands on Stripe's count. Account names only, no emails,
-  Stripe ids cut to their last six characters. `scripts/stripe_audit.py`
-  already covered the other direction (subscriptions no account is linked
-  to) and prints customer emails; it is not the one to paste into a chat.
-- **Hypotheses, none verified:**
-  1. *A customer that is gone.* `authoritative_subscription` returns None on
-     ANY exception, and None means "could not ask, change nothing". Stripe
-     answers "No such customer" for a customer deleted in the dashboard (or
-     made in test mode), so the hourly sweep leaves that account `active` for
-     ever. This is a real gap by reading the code; whether it is THIS
-     difference is not known. **Do not "fix" it by treating that error as
-     "inactive"**: if prod's key were ever swapped for another Stripe
-     account's, every customer would read "No such customer" and the sweep
-     would downgrade all of them in one pass. A safe version needs a guard
-     (for example: only when other customers resolve in the same sweep) or a
-     flag on the admin row instead of an automatic downgrade.
-  2. *Active but free.* A subscription under a 100%-off code is `active` in
-     Stripe and here, and Stripe does not show it as paying. If so the tile
-     should count only accounts whose `billed_monthly` is above zero and show
-     the others apart.
-  3. *The discount is not being read.* `monthly_amount` reads
-     `discount.coupon`; stripe-python 15.2.0 speaks API `2026-05-27.dahlia`,
-     and recent API versions moved or dropped those fields, so a discounted
-     subscriber may be priced at list. That would inflate MRR, and make (2)
-     invisible. The script reads the last invoice's total instead, which does
-     not depend on it.
-  4. *Two accounts on one customer*, or Stripe's dashboard tile lagging (its
-     totals trail by up to a day).
-- Next: the owner runs the script on prod; fix whichever it names, with the
-  realtime contract (a changed tile has to reach an open admin page; the
-  overview already re-reads every 30 s).
+**What production said.** Stripe was charging 5 customers and all 5 were on
+the admin's list. The two extra, **kipcrap** and **unkn0wnballer**, were
+`past_due` in Stripe and `active` here. No sweep errors in 26 h. So not a
+deleted customer, not a free subscription, not a shared customer.
 
+**Cause.** The hourly sweep is two steps. `reconcile_one_user` asked Stripe
+about each linked customer and correctly wrote `past_due`. Then
+`_adopt_orphaned_subscriptions`, which exists to link subscriptions to
+accounts that have NO customer stored, listed every live subscription
+(`past_due` counts as live), found the account "not active", and set it to
+`active`. Same pass, seconds later, every hour. The record read `active` all
+but a few seconds of the day, so `_counts_as_paying` counted them, MRR
+included their $25 and $15, the admin's "card failing" segment could never
+show them, and their own Account screen said Active. An existing test covered
+past_due but its fake Stripe returned the subscription only when asked by
+customer; real Stripe returns it in the unfiltered list too.
+
+**Fix (`_adopt_orphaned_subscriptions`).**
+- An account that already has this customer linked is left alone: the sweep
+  just wrote what Stripe said about it.
+- An unlinked account is adopted in the state Stripe reports (`active`,
+  `trialing` with Stripe's trial end, or `past_due`), never a made-up
+  `active`. `live_subscriptions_by_user` now carries `trial_end`.
+- Most committed subscription first, and the snapshot is updated after an
+  adoption, so a second subscription for the same account meets the conflict
+  check instead of overwriting the first.
+- **Blast radius:** nothing that decides access changed. `past_due` keeps the
+  plan (GRACE_STATUSES), so nobody loses anything; when Stripe gives up, the
+  existing lapse path runs as before. What changes is what the record says.
+
+**Two things added with it.**
+- **The first sweep runs 2 minutes after a start** (`_RECONCILE_FIRST`), then
+  hourly. It used to wait the full hour and every deploy restarts the clock:
+  a billing fix took an hour to show, and a day with a deploy an hour never
+  reconciled.
+- **New live event `billing_changed`** (quiet: the handler re-reads `/me`, no
+  toast), sent when a subscription's status changes and the plan does not,
+  from both the sweep and the webhook's grace branch. The Account screen
+  shows the status, so the realtime contract applies; before, a tab said
+  "Active" until its next reload. `subscription_expired` / `_active` still
+  cover the changes that do alter the plan.
+
+**After the deploy:** within about 3 minutes the Paying tile reads 5, the
+population line gains "2 card failing", and MRR drops by $40. Both accounts
+keep Pro while Stripe retries.
+
+**`scripts/paying_check.py`** (read-only, 34 tests): each account the tile
+counts next to Stripe's answer for its customer (PAYING / FREE / PAUSED /
+TRIAL / NOT ACTIVE / GONE / UNKNOWN), anyone Stripe charges that the tile
+leaves out, a sum that lands on Stripe's count, who has a card failing, and a
+price check. Names only, no emails, ids cut to six characters.
+
+**OPEN: four of the five paying accounts had a last invoice of $6.25** while
+the admin counts each at $25.00 (ceezatlas, dornerclipz, RexborHH,
+sexylexy____; inssesion paid $25.00). Not changed, not yet known:
+- If it was a first-month code, the discount is gone from the subscription
+  and $25 is right from the next invoice. The script's PRICE CHECK now prints
+  whether a discount is still attached and until when; the owner's next paste
+  settles it.
+- If a discount is still attached, MRR is too high by $18.75 each. The likely
+  reason would be `monthly_amount`, which reads `discount.coupon`:
+  stripe-python 15.2.0 speaks API `2026-05-27.dahlia`, where the discount
+  object is not the shape that code was written against, and
+  `authoritative_subscription` does not expand `discounts` at all. Fix that
+  only after the paste shows a running discount.
+
+**Still true, still unfixed (not this bug):** `authoritative_subscription`
+returns None on any exception, so a customer deleted in Stripe leaves its
+account as it was for ever. Do not patch it by treating "No such customer" as
+"inactive": with the wrong key in `.env` every customer reads that way and
+one sweep would downgrade all of them. It needs a guard (other customers
+resolving in the same pass) or a flag on the admin row.

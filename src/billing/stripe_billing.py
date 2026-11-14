@@ -365,8 +365,12 @@ async def live_subscriptions_by_user() -> list[dict] | None:
         data = (raw_items.get("data") if isinstance(raw_items, dict)
                 else _g(raw_items, "data")) or []
         price = _id(_g(data[0], "price")) if data else ""
+        try:
+            trial_end = int(_g(s, "trial_end") or 0)
+        except (TypeError, ValueError):
+            trial_end = 0
         out.append({"subscription": _id(s), "customer": _id(_g(s, "customer")),
-                    "user_id": uid, "status": status,
+                    "user_id": uid, "status": status, "trial_end": trial_end,
                     "plan": plan_for_price(price)})
     return out
 

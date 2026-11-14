@@ -170,14 +170,16 @@ def test_a_failing_card_does_not_stop_streams_or_fire_the_ended_toast(env):
     env["fire"]("customer.subscription.updated", "sub_A", "past_due")
     assert env["store"].get_by_id("u1")["subscription_status"] == "past_due"
     assert env["plan_now"]() == "starter", "locked out a customer mid-retry"
-    assert env["sent"] == [], "told a customer being retried that they had ended"
+    # One quiet event, so an open tab re-reads the status the Account screen
+    # shows (2026-11-14). Never the "ended" toast, never the "active" one.
+    assert env["sent"] == [("billing_changed", "u1")], "told a customer being retried that they had ended"
     assert env["stopped"] == [], "stopped the streams of a customer mid-retry"
 
 
 def test_buying_a_subscription_never_says_it_ended(env):
     """`incomplete` is the opening state of a 3DS/SCA card payment."""
     env["fire"]("customer.subscription.created", "sub_A", "incomplete")
-    assert env["sent"] == [], "fired 'subscription ended' at somebody buying one"
+    assert env["sent"] == [("billing_changed", "u1")], "fired 'subscription ended' at somebody buying one"
     assert env["stopped"] == []
 
 

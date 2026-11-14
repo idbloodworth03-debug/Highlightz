@@ -30,6 +30,9 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "stripe_price_id_starter", "price_starter")
     monkeypatch.setattr(settings, "stripe_price_id_pro", "price_pro")
     monkeypatch.setattr(api, "_RECONCILE_GAP", 0)
+    # The first pass is soon after a start and the rest are hourly; here the
+    # two are the same tick, so sweep() below is exactly one pass.
+    monkeypatch.setattr(api, "_RECONCILE_FIRST", api._RECONCILE_INTERVAL)
 
     sent, stopped = [], []
     async def _bc(msg, **kw): sent.append((msg.get("event"), kw.get("user_id")))
@@ -320,3 +323,133 @@ def test_stripe_unreachable_adopts_nobody(env):
     env["stripe_unreachable"]()
     env["sweep"]()
     assert env["store"].get_by_id("u1")["subscription_status"] == "none"
+
+
+# ── a failing card must stay "past due", not flip back to "active" ───────────
+# Production, 2026-11-14: the admin page counted 7 paying and Stripe 5. The two
+# extra (kipcrap, unkn0wnballer) were PAST DUE in Stripe and "active" here,
+# with no sweep errors. The sweep did record past_due, and then the adoption
+# pass that follows it in the same run set the account back to "active": it
+# lists every live subscription (past_due is live), finds the account "not
+# active", and "adopts" it as active. Every hour, both steps, in that order, so
+# the record read "active" all but a few seconds of the day.
+#
+# The past_due test above never saw it because its Stripe returned the
+# subscription only when asked by customer. Real Stripe returns the same
+# subscription in the unfiltered list too, with the account in its metadata.
+
+def _both_listings(env, by_customer):
+    """Stripe as it really answers: each subscription both under its customer
+    and in the list of everything."""
+    everything = [s for subs in by_customer.values() for s in subs]
+    env["stripe_says"]({**by_customer, None: everything})
+
+
+def _sub(sid, status, cust, uid, price="price_pro"):
+    return {"id": sid, "status": status, "customer": cust, "metadata": {"user_id": uid},
+            "items": {"data": [{"price": {"id": price}}]}}
+
+
+def test_a_past_due_subscriber_is_not_adopted_back_to_active(env):
+    env["users"](_u("u1", plan="pro"))
+    _both_listings(env, {"cus_u1": [_sub("sub_A", "past_due", "cus_u1", "u1")]})
+    env["sweep"]()
+    assert env["state"]("u1") == ("past_due", "pro"), "the adoption pass undid the sweep"
+
+
+def test_it_stays_past_due_sweep_after_sweep(env):
+    """The flip was hourly. Two more passes must change nothing and send nothing."""
+    env["users"](_u("u1", plan="pro", subscription_status="past_due"))
+    _both_listings(env, {"cus_u1": [_sub("sub_A", "past_due", "cus_u1", "u1")]})
+    for _ in range(2):
+        env["sweep"]()
+        assert env["state"]("u1") == ("past_due", "pro")
+    assert env["sent"] == [], "a subscriber whose state did not change was told it had"
+
+
+def test_the_paying_tile_stops_counting_them(env):
+    """What the owner saw: the tile is api._counts_as_paying."""
+    from src.dashboard import api
+    env["users"](_u("payer", plan="pro"), _u("failing", plan="pro"))
+    _both_listings(env, {"cus_payer": [_sub("sub_P", "active", "cus_payer", "payer")],
+                         "cus_failing": [_sub("sub_F", "past_due", "cus_failing", "failing")]})
+    env["sweep"]()
+    counted = sorted(u["id"] for u in env["store"].get_all() if api._counts_as_paying(u))
+    assert counted == ["payer"]
+
+
+def test_a_card_that_recovers_goes_back_to_active(env):
+    """The other direction still works: Stripe collects, the account is active."""
+    env["users"](_u("u1", plan="pro", subscription_status="past_due"))
+    _both_listings(env, {"cus_u1": [_sub("sub_A", "active", "cus_u1", "u1")]})
+    env["sweep"]()
+    assert env["state"]("u1") == ("active", "pro")
+
+
+def test_an_unlinked_account_is_adopted_in_the_state_stripe_reports(env):
+    """Adoption links the account; it does not get to invent "active". A
+    first charge that failed is past_due here too, and a trial is a trial."""
+    env["users"](_u("late", subscription_status="none", plan=None, stripe_customer_id=None),
+                 _u("trial", subscription_status="none", plan=None, stripe_customer_id=None))
+    env["stripe_says"]({None: [_sub("sub_L", "past_due", "cus_L", "late"),
+                               _sub("sub_T", "trialing", "cus_T", "trial")]})
+    env["sweep"]()
+    late, trial = env["store"].get_by_id("late"), env["store"].get_by_id("trial")
+    assert (late["stripe_customer_id"], late["subscription_status"], late["plan"]) == ("cus_L", "past_due", "pro")
+    assert (trial["stripe_customer_id"], trial["subscription_status"]) == ("cus_T", "trialing")
+
+
+def test_a_live_duplicate_does_not_drag_a_paying_account_down(env):
+    """One customer, an active subscription and a past_due duplicate: the
+    account is paying, whichever order Stripe lists them in."""
+    for order in ((0, 1), (1, 0)):
+        subs = [_sub("sub_OK", "active", "cus_u1", "u1"), _sub("sub_DUP", "past_due", "cus_u1", "u1")]
+        env["users"](_u("u1", plan="pro"))
+        _both_listings(env, {"cus_u1": [subs[order[0]], subs[order[1]]]})
+        env["sweep"]()
+        assert env["state"]("u1") == ("active", "pro"), order
+
+
+def test_a_card_starting_to_fail_reaches_the_open_tab_quietly(env):
+    """The Account screen shows the status. It changed, so an open tab has to
+    hear (realtime contract), but nothing was taken away: no "expired" toast,
+    no "active" toast, no streams stopped."""
+    env["users"](_u("u1", plan="pro"))
+    _both_listings(env, {"cus_u1": [_sub("sub_A", "past_due", "cus_u1", "u1")]})
+    env["sweep"]()
+    assert env["sent"] == [("billing_changed", "u1")]
+    assert env["stopped"] == []
+
+
+def test_the_quiet_event_is_handled_and_stays_quiet():
+    import pathlib
+    src = pathlib.Path("src/dashboard/aurora_html.py").read_text()
+    at = src.index("msg.event==='billing_changed'")
+    block = src[at:src.index("else if(msg.event===", at + 10)]
+    assert "fetch('/me')" in block and "setMe" in block
+    assert "flash(" not in block, "a failing card is not announced with a toast"
+    api_src = pathlib.Path("src/dashboard/api.py").read_text()
+    assert api_src.count('{"event": "billing_changed"}') == 2      # the sweep and the webhook
+
+
+def test_the_first_pass_is_minutes_after_a_start_not_an_hour(monkeypatch):
+    """Every deploy restarts the clock. With the first pass a full hour out, a
+    billing fix took an hour to show and a day of hourly deploys never
+    reconciled at all."""
+    from src.dashboard import api
+    assert api._RECONCILE_FIRST <= 300 < api._RECONCILE_INTERVAL
+    slept = []
+
+    class _Stop(Exception):
+        pass
+
+    async def _sleep(secs, *a, **k):
+        slept.append(secs)
+        if len(slept) == 3:
+            raise _Stop()
+
+    monkeypatch.setattr(api.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(api.settings, "stripe_secret_key", "")      # nothing to ask: only the timing runs
+    with pytest.raises(_Stop):
+        asyncio.run(api.subscription_reconcile_task())
+    assert slept == [api._RECONCILE_FIRST, api._RECONCILE_INTERVAL, api._RECONCILE_INTERVAL]

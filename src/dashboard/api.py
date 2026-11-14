@@ -3517,6 +3517,9 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             # ended" toast fired at somebody in the middle of buying it.
             log.info("stripe_subscription_in_grace", user_id=user_id,
                      customer=cust_id, status=status)
+            # Quiet, for the same reason: the status on the Account screen
+            # changed, so an open tab re-reads /me. No toast.
+            await broadcast({"event": "billing_changed"}, user_id=user_id)
         elif status not in ("active", "trialing") and user_id:
             # Down to whatever their account actually falls back to — free for a
             # grandfathered account, locked for everybody else. _enforce_stream_limit
@@ -5725,6 +5728,10 @@ async def _stop_user_streams_now(uid: str) -> None:
 # — restoring access somebody paid for AND removing access somebody stopped
 # paying for.
 _RECONCILE_INTERVAL = 3600     # hourly; drift is measured in minutes, not seconds
+# The first pass after a start. It used to wait the full hour, and every deploy
+# restarts the clock: a day with a deploy an hour never reconciled at all, and
+# a billing fix took an hour to show. Two minutes lets the streams restore first.
+_RECONCILE_FIRST    = 120
 _RECONCILE_GAP      = 0.4      # pause between customers (1 vCPU, Stripe rate limits)
 
 
@@ -5826,6 +5833,12 @@ async def reconcile_one_user(user: dict) -> dict:
     now = get_plan(_rc_store.get_by_id(uid))
     result["plan_before"], result["plan_after"] = was, now
     if now == was:
+        # The plan is the same and the status is not: a card started failing,
+        # or one that was failing went through. Nothing is taken away and
+        # nothing is announced, but the Account screen shows the status, so an
+        # open tab re-reads it (realtime contract) instead of saying "Active"
+        # until its next reload.
+        await broadcast({"event": "billing_changed"}, user_id=uid)
         return result
     if now in ("locked", "free"):
         asyncio.create_task(_enforce_stream_limit(uid))
@@ -5846,8 +5859,10 @@ async def subscription_reconcile_task() -> None:
     """Background task: make the local subscription state match Stripe."""
     from src.auth import users as _rc_store
 
+    delay = _RECONCILE_FIRST
     while True:
-        await asyncio.sleep(_RECONCILE_INTERVAL)
+        await asyncio.sleep(delay)
+        delay = _RECONCILE_INTERVAL
         if not settings.stripe_secret_key:
             continue
         checked = fixed = 0
@@ -5894,8 +5909,12 @@ async def _adopt_orphaned_subscriptions() -> int:
     if not subs:
         return 0                    # None = unreachable, [] = nothing live
     by_id = {u["id"]: u for u in _rc_store.get_all()}
+    # The most committed subscription first (paying over a trial over a failing
+    # card, the order authoritative_subscription uses), so an account holding
+    # two is linked by the one that says most about it.
+    rank = {"active": 3, "trialing": 2, "past_due": 1}
     adopted = 0
-    for s in subs:
+    for s in sorted(subs, key=lambda x: -rank.get(x["status"], 0)):
         user = by_id.get(s["user_id"])
         if user is None:
             continue                # a deleted account; not ours to fix
@@ -5906,16 +5925,33 @@ async def _adopt_orphaned_subscriptions() -> int:
             log.warning("orphan_subscription_customer_conflict",
                         user_id=user["id"], stored=existing, found=s["customer"])
             continue
-        if existing and user.get("subscription_status") == "active":
-            continue                # already known and correct
+        if existing:
+            # ALREADY LINKED: NOT AN ORPHAN, AND NOT THIS FUNCTION'S TO TOUCH.
+            # reconcile_one_user asked Stripe about this very customer a moment
+            # ago and wrote down what it said. This used to "adopt" any linked
+            # account that was not `active`, as active, and a failing card is
+            # exactly that: the sweep recorded past_due and this line put
+            # "active" back, every hour, in that order. Prod, 2026-11-14: the
+            # admin page counted 7 paying and Stripe was charging 5; the two
+            # extra were past due in Stripe and "active" here, with no error
+            # anywhere, and the "card failing" segment could never show them.
+            continue
         was = get_plan(user)
-        _rc_store.update_subscription(user["id"], s["customer"], "active")
+        # Linked in the state Stripe reports, which is one of our own three
+        # names for it. Adoption decides WHO a subscription belongs to; it has
+        # never known enough to say they are paying.
+        status = s["status"]
+        _rc_store.update_subscription(user["id"], s["customer"], status,
+                                      s.get("trial_end") if status == "trialing" else None)
         if s["plan"]:
             _rc_store.set_plan(user["id"], s["plan"])
+        # The snapshot follows, so a second subscription for the same account
+        # (the billed-twice case) meets the checks above instead of this one.
+        user["stripe_customer_id"], user["subscription_status"] = s["customer"], status
         adopted += 1
         log.warning("orphan_subscription_adopted", user_id=user["id"],
                     customer=s["customer"], subscription=s["subscription"],
-                    plan=s["plan"] or "legacy")
+                    plan=s["plan"] or "legacy", status=status)
         now = get_plan(_rc_store.get_by_id(user["id"]))
         if now != was:
             await broadcast({"event": "subscription_active",

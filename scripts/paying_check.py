@@ -26,6 +26,13 @@ WHAT IT CAN FIND, each of which makes the two numbers disagree:
                there.
   UNCOUNTED    Stripe is charging somebody the admin page leaves out (staff,
                a granted plan, a missed webhook, no linked account).
+
+THE PRICE CHECK underneath is the same question about money: what the admin
+page counts each paying account at a month, against that account's last
+invoice and whether a discount is still on the subscription. A first-month
+code leaves the subscription once it has been used, so a low invoice with no
+discount left means the full price from the next invoice; a discount that is
+still attached means the admin's monthly revenue is too high until it ends.
 """
 import pathlib
 import sys
@@ -126,11 +133,47 @@ def compare(paying_accounts: list[dict], other_accounts: list[dict], stripe: dic
         elif r["customer"] in seen:
             extra.append((r["name"], "SHARED"))
         seen.add(r["customer"])
-    return {"rows": rows, "uncounted": uncounted, "extra": extra,
+    # Whose card Stripe is retrying, counted or not: the people a reminder
+    # can still bring back before the subscription is cancelled.
+    failing = sorted({a["name"] for a in list(paying_accounts) + list(other_accounts)
+                      if (best_sub(stripe["subs"].get(a["customer"], [])) or {}).get("status") == "past_due"},
+                     key=str.lower)
+    return {"rows": rows, "uncounted": uncounted, "extra": extra, "failing": failing,
+            "prices": price_check(rows, stripe["subs"]),
             "admin": len(paying_accounts), "charged": len(charged),
             "active_subs": sum(1 for subs in stripe["subs"].values() for s in subs if s.get("status") == "active"),
             "active_customers": sum(1 for subs in stripe["subs"].values()
                                     if any(s.get("status") == "active" for s in subs))}
+
+
+def discount_words(d, now: float | None = None) -> str:
+    """`d` is what read_stripe saw on the subscription: "none", "forever",
+    "unknown" (attached, but Stripe did not say until when) or an end time."""
+    if d in (None, "none"):
+        return "no discount on it now"
+    if d == "forever":
+        return "a discount that never ends"
+    if d == "unknown":
+        return "a discount (end not readable)"
+    day = time.strftime("%b %-d, %Y", time.gmtime(float(d)))
+    return f"a discount until {day}"
+
+
+def price_check(rows: list[dict], subs: dict) -> list[dict]:
+    """For each PAYING account whose last invoice is not what the admin page
+    counts it at: the two figures, and whether the gap is over or still open."""
+    out = []
+    for r in rows:
+        if r["code"] != "PAYING":
+            continue
+        s = best_sub(subs.get(r["customer"], [])) or {}
+        last = s.get("last_total")
+        if last is None or abs(last - r["monthly"]) < 0.01:
+            continue
+        d = s.get("discount", "none")
+        out.append({"name": r["name"], "app": r["monthly"], "last": last, "discount": d,
+                    "still_discounted": d not in (None, "none")})
+    return out
 
 
 def report(r: dict, mode: str) -> list[str]:
@@ -159,6 +202,22 @@ def report(r: dict, mode: str) -> list[str]:
         out.append("  The two lists are the same people. If Stripe's dashboard still shows a")
         out.append("  different number, it is counting something else (its totals lag by up")
         out.append("  to a day, and some of its tiles count subscriptions, not customers).")
+    if r.get("failing"):
+        out += ["", "CARD FAILING (Stripe is still retrying; they keep their plan until it gives up)",
+                "  " + ", ".join(r["failing"])]
+    out += ["", "PRICE CHECK (paying accounts whose last invoice is not what the admin page counts)"]
+    if not r.get("prices"):
+        out.append("  every paying account's last invoice matches what the admin page counts")
+    over = 0.0
+    for q in r.get("prices", []):
+        if q["still_discounted"]:
+            over += max(0.0, q["app"] - q["last"])
+            note = f"{discount_words(q['discount'])}: the admin page is ${q['app'] - q['last']:.2f} a month too high for this account"
+        else:
+            note = f"{discount_words(q['discount'])}: a one-off, so ${q['app']:.2f} is right from the next invoice"
+        out.append(f"  {q['name'][:21]:<22}admin ${q['app']:.2f}/mo   last invoice ${q['last']:.2f}   {note}")
+    if over > 0:
+        out.append(f"  -> the admin page's monthly revenue is about ${over:.2f} too high while those discounts run")
     return out
 
 
@@ -185,16 +244,45 @@ def _id(x) -> str:
     return x if isinstance(x, str) else str(_g(x, "id", "") or "")
 
 
+def _discount_state(sub):
+    """"none", "forever", "unknown" or the time the last discount on this
+    subscription ends. Only whether one is attached and until when: what it
+    is worth is read off the invoice, which does not change shape between
+    API versions the way the discount object has."""
+    found = [d for d in ([_g(sub, "discount")] + _aslist(_g(sub, "discounts"))) if d]
+    if not found:
+        return "none"
+    ends = []
+    for d in found:
+        if isinstance(d, str):
+            return "unknown"            # an id only: attached, end not given
+        end = _g(d, "end")
+        if not end:
+            return "forever"
+        ends.append(float(end))
+    return max(ends)
+
+
 def read_stripe(client, wanted: set[str]) -> dict:
     """Every subscription Stripe holds, by customer, and whether each customer
     in `wanted` exists."""
     import stripe
     subs, cursor = defaultdict(list), None
+    expand = ["data.latest_invoice", "data.discounts"]
     while True:
-        params = {"status": "all", "limit": 100, "expand": ["data.latest_invoice"]}
+        params = {"status": "all", "limit": 100, "expand": expand}
         if cursor:
             params["starting_after"] = cursor
-        page = client.subscriptions.list(params=params)
+        try:
+            page = client.subscriptions.list(params=params)
+        except stripe.InvalidRequestError:
+            if len(expand) == 1:
+                raise
+            # This API version will not expand the discounts: read without
+            # them (the price check then says "end not readable") rather than
+            # lose the whole comparison.
+            expand = ["data.latest_invoice"]
+            continue
         data = _aslist(page)
         for s in data:
             inv = _g(s, "latest_invoice")
@@ -204,6 +292,7 @@ def read_stripe(client, wanted: set[str]) -> dict:
                 "paused": bool(_g(s, "pause_collection")),
                 "cancel_at_period_end": bool(_g(s, "cancel_at_period_end")),
                 "last_total": (float(total) / 100) if isinstance(total, (int, float)) else None,
+                "discount": _discount_state(s),
             })
         if not (_g(page, "has_more") and data):
             break

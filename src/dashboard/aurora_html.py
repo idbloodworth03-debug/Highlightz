@@ -12667,6 +12667,13 @@ function RdApp() {
           // follow without a reload.
           fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
         }
+        else if(msg.event==='billing_changed'){
+          // The subscription's state changed and the plan did not: a card
+          // started failing, or a failing one went through. Nothing is taken
+          // away and nothing is announced; /me carries the status the Account
+          // screen shows, so it follows without a reload.
+          fetch('/me').then(r=>r.json()).then(setMe).catch(()=>{});
+        }
         else if(msg.event==='campaigns_changed'){
           // An admin created, edited or deleted a campaign. Sent to every
           // socket with no payload; only accounts that can see the
