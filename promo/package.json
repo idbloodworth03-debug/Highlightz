@@ -18,7 +18,10 @@
     "render:all": "npm run check-data && npm run render:16x9 && npm run render:9x16 && npm run render:teaser && npm run render:teaser:9x16 && npm run render:thumb",
     "ad:footage": "python3 ad/prepare_footage.py",
     "ad:audio": "python3 ad/make_ad_audio.py",
-    "render:ad": "remotion render src/index.ts DuxAd out/duxxion-ad-video-only.mp4 --muted --crf 12 && ffmpeg -v error -y -i out/duxxion-ad-video-only.mp4 -i public/ad/duxxion-ad.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -ar 48000 -movflags +faststart -shortest out/highlightz-duxxion-ad.mp4"
+    "render:ad": "remotion render src/index.ts DuxAd out/duxxion-ad-video-only.mp4 --muted --crf 12 && ffmpeg -v error -y -i out/duxxion-ad-video-only.mp4 -i public/ad/duxxion-ad.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -ar 48000 -movflags +faststart -shortest out/highlightz-duxxion-ad.mp4",
+    "gta:footage": "python3 ad/prepare_gta_footage.py",
+    "gta:audio": "python3 ad/make_gta_audio.py",
+    "render:gta": "remotion render src/index.ts GtaAd out/gta-ad-video-only.mp4 --muted --crf 12 && ffmpeg -v error -y -i out/gta-ad-video-only.mp4 -i public/ad-gta/gta-ad.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -ar 48000 -movflags +faststart -shortest out/highlightz-gta6-ad.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.539",

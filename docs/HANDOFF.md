@@ -8497,3 +8497,61 @@ live channel. Processes are now `meter` / `recorder` only when unmistakable
 fetch and anything unreadable are "other streamlink". A test holds the four
 call sites in `src/` to the arguments the script reads, and fails if a fifth
 place starts a streamlink.
+
+## The GTA 6 breaking-news ad (2026-11-14)
+
+Owner sent an 8.8 s clip (`Highlightz_GTA6_Breaking_News_Branded.mov`,
+720x1280 HEVC 24 fps: an AI news anchor in a BREAKING NEWS studio whose wall
+turns into a purple Highlightz one, saying "Breaking. GTA 6 is coming. Who's
+clipping the biggest moments first?", then a Highlightz end card) and asked
+for "another ad using this video as the hook". No length, voice or topic was
+given, so the defaults are the earlier ads': 20-30 s, no added voice-over,
+original trendy music, professional but goofy.
+
+- Built in `promo/` (Remotion composition `GtaAd`, timing in
+  `promo/src/ad/gta.json`, how-to in `promo/ad/README-gta.md`). Output
+  `promo/out/highlightz-gta6-ad.mp4`: 1080x1920, 60 fps, 24.4 s, H.264 CRF
+  12, AAC 320k, -14 LUFS.
+- **It is a product ad, not a campaign ad** (Duxxion's campaign ended Nov 5).
+  It answers the anchor's question: hook (his clip, untouched, 5.625 s = 3
+  bars, a lower third showing each word as he says it) -> freeze "YOU ARE. …if
+  Highlightz is watching" -> "GTA 6 drops. Everyone goes live." (30 live
+  tiles) -> "You can't watch them all. Highlightz can." (30/30 at once) ->
+  "Chat explodes…" (trigger score) -> "…it's already a clip." (Approve) ->
+  "Make it vertical. Post in one press." (Pro) -> "Everyone else: still
+  scrubbing the VOD." -> "It's free to start." -> end card, "Catch it live.
+  Post it first.", highlightz.app. The newsroom stays throughout as an "HZ
+  NEWS" bar.
+- **Every claim is the site's own wording**, read from the landing page and
+  `PLAN_LIMITS` that day: 30 channels on Studio / 10 Pro / 1 Free; "already a
+  clip"; "Trigger score · live" against the channel's threshold; the signal
+  "Chat Calls For The Clip"; "Cam + Game", 1080x1920 60 fps, one-press TikTok
+  posting (Pro); Free = one channel, Twitch or Kick, no card, no time limit.
+  No speed is promised; no release date is given for the game. If plans or
+  features change, change `GtaAd.tsx` and re-render.
+- **Not used:** any GTA logo, art or footage ("GTA 6" is plain text); any real
+  channel, streamer or screenshot (tiles, clip and phone are drawn); the
+  TikTok logo.
+- **OPEN, told to the owner: the clip has a "KlingAI 4.0" watermark** (bottom
+  right), the mark that tool puts on clips made without a paid plan. The ad
+  leaves it visible and does not crop or cover it. Before the ad runs paid,
+  the owner should confirm the plan allows commercial use or re-export from
+  one that does; a clean file drops in as `promo/ad/gta-hook.mov`.
+- Audio: his voice is the only speech (speech-to-text over the final mix reads
+  his three sentences and nothing else). Music is the Duxxion ad's playful
+  trap, synthesized, moved to F# minor because his clip has a steady 1480 Hz
+  tone (an F#) under the voice.
+- Footage: Real-ESRGAN 2x (realesr-animevideov3) of the first 145 frames with
+  30% of the plain resize kept under it. The photographic model was tried: it
+  is cleaner on a face but ~7 min a frame on this CPU.
+- **Tooling that had gone stale, fixed:** the container's Playwright headless
+  shell is now build 1243 with a different folder layout, so
+  `promo/remotion.config.ts` and `promo/ad/stills.mjs` look it up instead of
+  naming build 1194; `stills.mjs` takes the composition from `AD=`. `pip` on
+  this image belongs to Python 3.13 while `python3` is 3.11: install with
+  `python3 -m pip`. `libomp5` needs `apt-get update` first. Speech-to-text
+  here: `faster-whisper` with a Whisper small model that npm carries in four
+  parts (`@skillninja/shortmovie-telop-model-p0..p3`; Hugging Face is blocked);
+  it is only used to read audio, never shipped.
+- The clip, its frames and the renders are gitignored (`promo/.gitignore`).
+

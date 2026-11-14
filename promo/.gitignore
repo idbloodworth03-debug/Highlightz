@@ -22,3 +22,8 @@ reel/esrgan/
 ad/*.mp4
 ad/esrgan/
 public/ad/
+
+# The GTA 6 breaking-news ad: the owner's hook clip and its upscaled frames.
+ad/*.mov
+ad/esrgan-gta/
+public/ad-gta/

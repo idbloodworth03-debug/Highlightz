@@ -1,0 +1,54 @@
+{
+  "_": "The GTA 6 breaking-news ad (2026-11-14). One source of truth for the picture (src/ad/GtaAd.tsx) and the sound (ad/make_gta_audio.py). Times in seconds of the ad; 128 BPM, so a beat is 0.46875 s and a bar 1.875 s. The hook is the owner's clip (ad/gta-hook.mov, 720x1280, 24 fps): only its first 5.625 s (135 frames) plays, which is exactly 3 bars and 45 ms after his last word; frames 135-144 are the same shot held still and are used for the freeze. From frame 145 the clip is its own end card, which the ad replaces with one at full resolution.",
+  "bpm": 128,
+  "fps": 60,
+  "beats": 52,
+  "source_fps": 24,
+  "source_frames": 145,
+  "hook_s": 5.625,
+  "freeze_frame": 140,
+
+  "_words": "What the anchor says, from a speech-to-text pass with word timings (Whisper small), nudged to the measured energy. Each word shows as it is spoken.",
+  "lines": [
+    {"from": 0.20, "to": 1.18, "words": [["BREAKING.", 0.20]]},
+    {"from": 1.24, "to": 3.46, "words": [["GTA", 1.24], ["6", 1.68], ["is", 2.40], ["coming.", 2.66]]},
+    {"from": 3.52, "to": 5.625, "words": [["Who's", 3.52], ["clipping", 3.86], ["the", 4.12], ["biggest", 4.40], ["moments", 4.72], ["first?", 5.14]]}
+  ],
+  "tag_flip": 3.52,
+
+  "scenes": {
+    "hook": 0.0,
+    "answer": 5.625,
+    "flood": 7.5,
+    "watch": 9.375,
+    "spike": 11.25,
+    "clip": 13.125,
+    "post": 15.0,
+    "vod": 16.875,
+    "free": 18.75,
+    "cta": 20.625,
+    "end": 24.375
+  },
+
+  "_chat": "The spike bar's chat: seconds after the scene starts, the line, a hue for the dot. It speeds up as the score climbs; each line gets a pop.",
+  "chat": [
+    [0.06, "lol", 276], [0.50, "wait what", 205], [0.86, "NO WAY", 18], [1.10, "CLIP THAT", 330], [1.28, "LMAOOO", 150],
+    [1.42, "CLIP IT 💀", 44], [1.53, "HE DID NOT", 232], [1.62, "CLIP CLIP CLIP", 0], [1.70, "W W W W", 178], [1.77, "CLIPPPP", 292],
+    [1.83, "CLIP THAT", 18]
+  ],
+
+  "cues": {
+    "ident": [0.0],
+    "drop": [5.625],
+    "slam": [5.625, 13.125, 20.625],
+    "whoosh": [7.5, 9.375, 11.25, 15.0, 16.875, 18.75],
+    "pop": [0.20, 1.24, 3.52, 6.09375, 6.5625, 8.4375, 10.3125, 14.0625, 15.9375, 19.21875, 19.6875, 20.15625, 21.5625],
+    "scan": [9.375],
+    "tiles": [7.5, 8.55],
+    "riser": [11.25, 13.125],
+    "click": [14.53125, 16.171875],
+    "ding": [16.21875, 22.03125],
+    "sad": [16.875],
+    "boing": [17.8125, 22.96875]
+  }
+}
