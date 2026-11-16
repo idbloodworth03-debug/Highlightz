@@ -3360,7 +3360,7 @@ async def stripe_webhook(request: Request):
     return await _process_stripe_event(event, now, event_id)
 
 
-def _lapse_message(plan: str) -> str:
+def _lapse_message(plan: str, status: str = "") -> str:
     """What to tell somebody whose subscription just ended.
 
     IT HAS TO NAME THE PLAN THEY ACTUALLY LAND ON, and which plan that is has
@@ -3380,6 +3380,12 @@ def _lapse_message(plan: str) -> str:
     One function, called from both the webhook and the reconcile sweep, because
     two copies of this message are how it went wrong the first time.
     """
+    if status == "past_due":
+        # Not an ending: the card is failing and Stripe is still retrying. Say
+        # what happened, what they have meanwhile, and the one thing to do.
+        return ("Your payment did not go through, so your account is on the Free "
+                "plan for now. Update your card under Settings and your plan and "
+                "channels come straight back.")
     if plan == "free":
         return ("Your subscription has ended. You are on the free plan now — "
                 "one stream, and your clips are still here.")
@@ -3420,6 +3426,18 @@ def apply_subscription_event(user_id: str | None, cust_id: str, status: str,
     return user_store.update_subscription_by_customer(cust_id, status, trial_ends_at)
 
 
+def _subscription_status_before(user_id: str | None, cust_id: str) -> str:
+    """The stored status of the account a subscription event is about to
+    change, resolved the way apply_subscription_event resolves it (the
+    metadata user when its customer matches, otherwise whoever holds the
+    customer). "" when no account matches."""
+    from src.auth import users as user_store
+    u = user_store.get_by_id(user_id) if user_id else None
+    if u is None or (u.get("stripe_customer_id") and u.get("stripe_customer_id") != cust_id):
+        u = next((x for x in user_store.get_all() if x.get("stripe_customer_id") == cust_id), None)
+    return str((u or {}).get("subscription_status") or "")
+
+
 async def _process_stripe_event(event: dict, now: float, event_id: str):
     from src.billing.stripe_billing import sync_subscription_event
     async with _stripe_event_lock:
@@ -3454,9 +3472,13 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
     # Only skip on a positive True. None means Stripe could not be reached, and
     # treating "unknown" as "another one is live" would let real cancellations
     # pile up unapplied during a Stripe outage.
-    from src.billing.plans import GRACE_STATUSES
+    # A failing card is checked the same way since 2026-11-16, when past_due
+    # began to cost the plan: a DUPLICATE subscription going past due while
+    # the real one is being paid must not drop a paying customer to Free.
+    # `incomplete` is still skipped: it is somebody in the middle of buying.
+    from src.billing.plans import CARD_FAILING, GRACE_STATUSES
     if cust_id and status and status not in ("active", "trialing") \
-            and status not in GRACE_STATUSES:
+            and status != "incomplete":
         from src.billing.stripe_billing import has_other_live_subscription
         ended_sub_id = (event.get("data", {}).get("object", {}) or {}).get("id") or ""
         others = await has_other_live_subscription(cust_id, ended_sub_id)
@@ -3492,6 +3514,7 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
             trial_end = 0
         else:
             trial_end = None
+        status_before = _subscription_status_before(user_id, cust_id)
         user_id = apply_subscription_event(user_id, cust_id, status, trial_end)
         log.info("stripe_subscription_updated", customer=cust_id, status=status,
                  affected_user=user_id or "none", trial_end=trial_end or 0)
@@ -3509,12 +3532,19 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
         # Kill active streams immediately when subscription lapses — don't wait
         # for idle reaper — and tell the open tab (realtime contract: the lapse
         # must reach the user live, mirroring admin revoke).
-        if status in GRACE_STATUSES and user_id:
-            # Mid-collection, not gone: a card being retried, or a first payment
-            # that has not confirmed yet. Their status is recorded (so the admin
-            # panel and a later reconcile see the truth) but nothing is taken
-            # away — no streams stopped, and above all no "your subscription has
-            # ended" toast fired at somebody in the middle of buying it.
+        if status == CARD_FAILING and user_id:
+            # A renewal charge failed. No payment, no paid plan (owner,
+            # 2026-11-16): the account is on Free until Stripe collects, its
+            # extra channels are held rather than removed, and it is told once.
+            # Stripe sends this event again for each retry; those are quiet.
+            log.info("stripe_subscription_card_failing", user_id=user_id, customer=cust_id)
+            await _card_failed(user_id, first=status_before != CARD_FAILING)
+        elif status in GRACE_STATUSES and user_id:
+            # `incomplete`: a first payment that has not confirmed yet. Their
+            # status is recorded (so the admin panel and a later reconcile see
+            # the truth) but nothing is taken away — no streams stopped, and
+            # above all no "your subscription has ended" toast fired at
+            # somebody in the middle of buying it.
             log.info("stripe_subscription_in_grace", user_id=user_id,
                      customer=cust_id, status=status)
             # Quiet, for the same reason: the status on the Account screen
@@ -3609,6 +3639,9 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                 if code:
                     user_store.set_promo_code(user_id, code)
                     log.info("promo_signup_attributed", user_id=user_id, code=code)
+            # A card that was failing and has now been charged: the channels
+            # held meanwhile restart (no-op for everybody else).
+            await _settle_billing_hold(user_id)
             # Realtime contract: a new/recovered subscription must clear the
             # paywall/trial banner in any open tab live, mirroring the
             # subscription_expired broadcast on the lapse path.
@@ -5374,11 +5407,16 @@ async def patch_stream(request: Request, channel: str, req: StreamPatch):
         await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     if preset_changed:
         await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
-        # New rules need a new worker; the record survives the restart.
-        if _publish_remove_stream:
-            await _publish_remove_stream(channel, uid)
-        if _publish_new_stream:
-            await _publish_new_stream(channel, platform, req.preset, uid)
+        # New rules need a new worker; the record survives the restart. A
+        # PAUSED channel has no worker to replace and must not be given one
+        # here: this used to start it, which for a channel held for a failing
+        # card was a way round the hold (change a preset, get the channel
+        # back). The saved preset applies when it next starts.
+        if rec.get("status") != "paused":
+            if _publish_remove_stream:
+                await _publish_remove_stream(channel, uid)
+            if _publish_new_stream:
+                await _publish_new_stream(channel, platform, req.preset, uid)
         log.info("stream_preset_changed", user_id=uid, channel=channel, preset=req.preset)
     if req.sensitivity is not None:
         log.info("stream_sensitivity_set", user_id=uid, channel=channel, sensitivity=req.sensitivity)
@@ -5579,15 +5617,26 @@ async def _enforce_stream_limit(uid: str) -> int:
     Newest-first is deliberate: the channel they added first is the one they
     care most about, and it is the one still running afterwards.
     """
-    from src.billing.plans import limits_for
+    from src.billing.plans import CARD_FAILING, limits_for
     from src.auth import users as _limit_store
-    allowed = limits_for(_limit_store.get_by_id(uid))["max_streams"]
+    user = _limit_store.get_by_id(uid)
+    allowed = limits_for(user)["max_streams"]
 
     mine = [(k, v) for k, v in _streams.items() if k.startswith(f"{uid}:")]
     if len(mine) <= allowed:
         return 0
     mine.sort(key=lambda kv: kv[1].get("added_at") or 0)
     excess = mine[allowed:]
+    if (user or {}).get("subscription_status") == CARD_FAILING:
+        # A FAILING CARD HOLDS THE CHANNELS, IT DOES NOT DELETE THEM. Most
+        # failed charges are an expired card that gets fixed. Removing nine of
+        # somebody's ten channels the night a charge bounces, and having them
+        # add each one again after paying, punishes the customers who pay.
+        # Held channels run nothing and come back by themselves when Stripe
+        # collects (_release_billing_hold). If Stripe gives up instead, the
+        # status becomes `inactive` and the lines below remove them, as for
+        # any cancellation.
+        return await _hold_streams_for_billing(uid, [k for k, _ in excess])
     log.info("enforce_stream_limit", user=uid, allowed=allowed,
              had=len(mine), stopping=len(excess))
 
@@ -5608,6 +5657,135 @@ async def _enforce_stream_limit(uid: str) -> int:
         await broadcast({"event": "stream_removed", "channel": stream["channel"]},
                         user_id=uid)
     return len(removed)
+
+
+async def _hold_streams_for_billing(uid: str, keys: list[str]) -> int:
+    """Stop these channels and mark them held for a failing card. Returns how
+    many were NEWLY held, so a caller that announces it does so once.
+
+    A held channel is a paused one (no worker, no poll, no live slot, not
+    counted against the server) with `hold: "billing"` on its record. The mark
+    is what keeps _resume_user_streams, which restarts every paused channel
+    when the account next opens the site, from handing a Free account its ten
+    channels back."""
+    held, stop = [], []
+    async with _data_lock:
+        for key in keys:
+            rec = _streams.get(key)
+            if not rec or rec.get("hold") == "billing":
+                continue
+            if rec.get("status") != "paused":
+                stop.append(rec)
+                rec["paused_at"] = time.time()
+            rec["status"] = "paused"
+            rec["hold"] = "billing"
+            release_live_slot(key)
+            held.append(rec)
+        if held:
+            _save_streams()
+    if not held:
+        return 0
+    log.info("streams_held_card_failing", user=uid, count=len(held))
+    for rec in stop:
+        if _publish_remove_stream:
+            try:
+                await _publish_remove_stream(rec["channel"], uid)
+            except Exception as exc:
+                log.warning("hold_stream_failed", channel=rec.get("channel"), error=str(exc))
+    for rec in held:
+        # Realtime contract: an open tab watches them go quiet, and says why.
+        await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
+    return len(held)
+
+
+async def _release_billing_hold(uid: str, limit: int | None = None) -> int:
+    """Restart channels held for a failing card, oldest first: all of them once
+    the charge has gone through, or `limit` of them when the account's plan has
+    room it is not using. Returns how many restarted."""
+    resuming = []
+    async with _data_lock:
+        mine = sorted(((k, r) for k, r in _streams.items()
+                       if k.startswith(f"{uid}:") and r.get("hold") == "billing"),
+                      key=lambda kv: kv[1].get("added_at") or 0)
+        for _, rec in (mine if limit is None else mine[:max(0, limit)]):
+            rec.pop("hold", None)
+            rec.pop("paused_at", None)
+            rec["status"] = "starting"
+            resuming.append(rec)
+        if resuming:
+            _save_streams()
+    if not resuming:
+        return 0
+    log.info("streams_released_card_ok", user=uid, count=len(resuming))
+    for rec in resuming:
+        if _publish_new_stream:
+            try:
+                await _publish_new_stream(rec["channel"], rec.get("platform", "twitch"),
+                                          rec.get("preset", "default"), uid)
+            except Exception as exc:
+                log.warning("release_stream_failed", channel=rec.get("channel"), error=str(exc))
+        await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
+    return len(resuming)
+
+
+async def _settle_billing_hold(uid: str) -> int:
+    """Bring an account's held channels in line with where its billing is NOW.
+    Safe to call at any time and from any path; returns how many restarted.
+
+      card still failing   held channels stay held, except that room the Free
+                           allowance is not using is filled (they removed the
+                           one channel that was running).
+      anything else        the hold is over. First the plan is enforced (a
+                           cancellation removes what Free does not cover, as it
+                           always has), then whatever is left restarts.
+
+    Called when the charge goes through (webhook, sweep) and every five minutes
+    by the reaper for any account with a held channel, so no path that changes
+    a status has to remember to."""
+    from src.billing.plans import CARD_FAILING, limits_for
+    from src.auth import users as _hold_store
+    if not any(k.startswith(f"{uid}:") and r.get("hold") == "billing" for k, r in _streams.items()):
+        return 0
+    user = _hold_store.get_by_id(uid)
+    if (user or {}).get("subscription_status") == CARD_FAILING:
+        running = sum(1 for k, r in _streams.items()
+                      if k.startswith(f"{uid}:") and r.get("hold") != "billing")
+        room = limits_for(user)["max_streams"] - running
+        return await _release_billing_hold(uid, room) if room > 0 else 0
+    await _enforce_stream_limit(uid)
+    return await _release_billing_hold(uid)
+
+
+async def _card_failed(uid: str, first: bool) -> None:
+    """A subscription is past due. Trim the account to Free (holding, not
+    deleting, see _enforce_stream_limit) and, the first time, tell them: a
+    toast in any open tab and a note in the bell for when they are not looking.
+    Later events for the same failure (Stripe sends one per retry) are quiet."""
+    await _enforce_stream_limit(uid)
+    if not first:
+        await broadcast({"event": "billing_changed"}, user_id=uid)
+        return
+    await _announce_card_failed(uid)
+
+
+async def _announce_card_failed(uid: str) -> None:
+    """Tell an account its card is failing: a toast in any open tab, and a
+    note in the bell for when nobody is looking."""
+    from src.auth import users as _fail_store
+    from src.billing.plans import get_plan
+    plan = get_plan(_fail_store.get_by_id(uid))
+    try:
+        _fail_store.add_notices({uid: {
+            "title": "Your payment did not go through",
+            "body": ("Your account is on the Free plan until it does, and your extra "
+                     "channels are paused, not removed. Update your card under Settings, "
+                     "Manage billing, and your plan and channels come straight back.")}})
+    except Exception as exc:
+        log.warning("card_failed_notice_failed", user_id=uid, error=str(exc))
+    log.warning("card_failing_access_removed", user_id=uid, plan=plan)
+    await broadcast({"event": "subscription_expired",
+                     "message": _lapse_message(plan, "past_due")}, user_id=uid)
+    await broadcast({"event": "inbox_changed"}, user_id=uid)
 
 
 async def _pause_user_streams(uid: str) -> int:
@@ -5669,6 +5847,8 @@ async def _resume_user_streams(uid: str) -> int:
         for key, rec in _streams.items():
             if not key.startswith(f"{uid}:") or rec.get("status") != "paused":
                 continue
+            if rec.get("hold") == "billing":
+                continue            # held for a failing card: only payment releases it
             rec["status"] = "starting"
             rec.pop("paused_at", None)
             resuming.append(rec)
@@ -5832,12 +6012,19 @@ async def reconcile_one_user(user: dict) -> dict:
                 stripe_status=truth["raw"], drift=drift)
     now = get_plan(_rc_store.get_by_id(uid))
     result["plan_before"], result["plan_after"] = was, now
+    if truth["status"] == "past_due":
+        # A webhook that never arrived: the card is failing and this is the
+        # first the app has heard of it. Same treatment as the webhook's.
+        await _card_failed(uid, first=local != "past_due")
+        return result
     if now == was:
-        # The plan is the same and the status is not: a card started failing,
-        # or one that was failing went through. Nothing is taken away and
-        # nothing is announced, but the Account screen shows the status, so an
-        # open tab re-reads it (realtime contract) instead of saying "Active"
-        # until its next reload.
+        # The plan is the same and the status is not (a first payment
+        # confirming, or a failing card that Stripe has now given up on: Free
+        # before, Free after). Nothing is announced, but the Account screen
+        # shows the status, so an open tab re-reads it (realtime contract),
+        # and channels held for the failing card are settled: an ending
+        # removes what Free does not cover.
+        await _settle_billing_hold(uid)
         await broadcast({"event": "billing_changed"}, user_id=uid)
         return result
     if now in ("locked", "free"):
@@ -5848,6 +6035,7 @@ async def reconcile_one_user(user: dict) -> dict:
             {"event": "subscription_expired", "message": _lapse_message(now)},
             user_id=uid)
     else:
+        await _settle_billing_hold(uid)         # a failing card that went through
         await broadcast(
             {"event": "subscription_active",
              "message": f"Your {now.title()} plan is active."},
@@ -6001,7 +6189,18 @@ async def idle_stream_reaper() -> None:
                     if status not in ("active", "trialing") and not db_user.get("is_admin"):
                         if await _enforce_stream_limit(uid):
                             log.info("reaper_subscription_lapsed", user=uid, status=status)
-                            await broadcast({"event": "subscription_expired"}, user_id=uid)
+                            if status == _plans.CARD_FAILING:
+                                # An account that was already past due when
+                                # failing cards began to cost the plan
+                                # (2026-11-16): told the same way as one whose
+                                # card fails tomorrow, toast and bell note.
+                                await _announce_card_failed(uid)
+                            else:
+                                await broadcast({"event": "subscription_expired"}, user_id=uid)
+                    # Channels held for a failing card, settled against where
+                    # the billing is now: restarted once the charge is through,
+                    # whichever path recorded it.
+                    await _settle_billing_hold(uid)
 
                     # PAID PLANS KEEP WATCHING (owner, 2026-10-15). Starter and
                     # Pro pay for Highlightz to watch while they are away, so

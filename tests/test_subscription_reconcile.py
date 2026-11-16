@@ -237,7 +237,8 @@ def test_a_dead_duplicate_does_not_outrank_the_live_subscription(env):
 
 
 def test_a_card_in_retry_is_reported_as_past_due_not_cancelled(env):
-    """Reconcile must not undo the grace handling — past_due keeps the tier."""
+    """past_due, not inactive: Stripe still holds the subscription and the
+    stored tier is kept. Since 2026-11-16 the account is on Free meanwhile."""
     from src.billing.plans import get_plan
     env["users"](_u("u1", plan="pro"))
     env["stripe_says"]({"cus_u1": [
@@ -245,8 +246,8 @@ def test_a_card_in_retry_is_reported_as_past_due_not_cancelled(env):
          "items": {"data": [{"price": {"id": "price_pro"}}]}}]})
     env["sweep"]()
     assert env["state"]("u1") == ("past_due", "pro")
-    assert get_plan(env["store"].get_by_id("u1")) == "pro"
-    assert env["stopped"] == [], "stopped the streams of a customer mid-retry"
+    assert get_plan(env["store"].get_by_id("u1")) == "free"
+    assert env["stopped"] == ["u1"], "the account was not trimmed to what Free allows"
 
 
 def test_one_bad_account_does_not_abort_the_whole_sweep(env):
@@ -410,15 +411,36 @@ def test_a_live_duplicate_does_not_drag_a_paying_account_down(env):
         assert env["state"]("u1") == ("active", "pro"), order
 
 
-def test_a_card_starting_to_fail_reaches_the_open_tab_quietly(env):
-    """The Account screen shows the status. It changed, so an open tab has to
-    hear (realtime contract), but nothing was taken away: no "expired" toast,
-    no "active" toast, no streams stopped."""
+def test_a_card_starting_to_fail_is_told_once_by_the_sweep(env):
+    """A webhook that never arrived: the sweep is the first to hear the card is
+    failing. Since 2026-11-16 that costs the plan, so the account is told (a
+    toast and a bell note) the first time, and only the first time."""
     env["users"](_u("u1", plan="pro"))
     _both_listings(env, {"cus_u1": [_sub("sub_A", "past_due", "cus_u1", "u1")]})
     env["sweep"]()
-    assert env["sent"] == [("billing_changed", "u1")]
-    assert env["stopped"] == []
+    assert env["sent"] == [("subscription_expired", "u1"), ("inbox_changed", "u1")]
+    assert env["stopped"] == ["u1"]
+    env["sent"].clear()
+    env["sweep"]()
+    assert env["sent"] == [], "the next hourly pass announced it again"
+
+
+def test_a_failing_card_that_stripe_gives_up_on_is_settled_quietly(env):
+    """Free before, Free after: nothing to announce, but the status changed
+    (billing_changed) and the channels held for the card are settled."""
+    from src.dashboard import api
+    settled = []
+    async def _settle(uid): settled.append(uid); return 0
+    env_mp = pytest.MonkeyPatch()
+    env_mp.setattr(api, "_settle_billing_hold", _settle)
+    try:
+        env["users"](_u("u1", plan="pro", subscription_status="past_due"))
+        _both_listings(env, {"cus_u1": [_sub("sub_A", "canceled", "cus_u1", "u1")]})
+        env["sweep"]()
+    finally:
+        env_mp.undo()
+    assert env["state"]("u1")[0] == "inactive"
+    assert settled == ["u1"] and env["sent"] == [("billing_changed", "u1")]
 
 
 def test_the_quiet_event_is_handled_and_stays_quiet():
@@ -429,7 +451,8 @@ def test_the_quiet_event_is_handled_and_stays_quiet():
     assert "fetch('/me')" in block and "setMe" in block
     assert "flash(" not in block, "a failing card is not announced with a toast"
     api_src = pathlib.Path("src/dashboard/api.py").read_text()
-    assert api_src.count('{"event": "billing_changed"}') == 2      # the sweep and the webhook
+    # The sweep, the webhook's first-payment branch, and a retry of a failure already announced.
+    assert api_src.count('{"event": "billing_changed"}') == 3
 
 
 def test_the_first_pass_is_minutes_after_a_start_not_an_hour(monkeypatch):

@@ -2959,7 +2959,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
   const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
-  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? 'paused · resumes when you return' : s.status;
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : 'paused · resumes when you return') : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   return (
     <div className="rd-stream">
@@ -4938,7 +4938,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
-  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? 'paused · resumes when you return' : active.status;
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : 'paused · resumes when you return') : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
@@ -5897,7 +5897,7 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
   // tier, when no subscription really did mean no access. Lapsed states say
   // where the user landed for the same reason: they still have the product.
   const subLabel   = isTrial ? `Free trial — ${trialDays} day${trialDays===1?'':'s'} left`
-    : ({active:'Active', past_due:'Past due', expired:'Trial ended — on Free',
+    : ({active:'Active', past_due:'Payment failed — on Free', expired:'Trial ended — on Free',
         canceled:'Canceled — on Free', inactive:'Canceled — on Free',
         none:'Free plan — active'}[sub] || sub);
   const subColor   = (sub==='active'||sub==='trialing') ? 'var(--live)'
@@ -5984,7 +5984,14 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
             <div><div className="fl">Billing</div><div className="fd">Manage or cancel via Stripe portal</div></div>
             <a href="/billing/portal" className="rd-btn sm" style={{textDecoration:'none'}}>Manage billing</a>
           </div>}
-          {!isSubscribed && sub!=='trialing' && <div className="rd-field">
+          {/* A failing card (2026-11-16). They still hold a subscription, so
+              the answer is the portal, never a second checkout: the plan and
+              the channels held meanwhile come back when the charge goes through. */}
+          {sub==='past_due' && <div className="rd-field">
+            <div><div className="fl">Payment failed</div><div className="fd">Your last payment did not go through, so you are on the Free plan for now. Update your card and your plan and paused channels come straight back.</div></div>
+            <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',whiteSpace:'nowrap',flexShrink:0}}>Update card</a>
+          </div>}
+          {!isSubscribed && sub!=='trialing' && sub!=='past_due' && <div className="rd-field">
             <div><div className="fl">Want more?</div>
               <div className="fd">
                 Pro is $25/month for 10 streams, 200 pending clips and the VOD scanner.
@@ -5994,7 +6001,7 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
               <Icon name="zap" size={14}/>See plans
             </a>
           </div>}
-          {!isSubscribed && <div className="fd" style={{marginTop:12,fontSize:12,color:'var(--fg-2)'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
+          {!isSubscribed && sub!=='past_due' && <div className="fd" style={{marginTop:12,fontSize:12,color:'var(--fg-2)'}}>Have a promo code? Enter it at checkout for 50% off your first month.</div>}
         </div>
 
         {/* Profile & Connected Platforms */}
@@ -13148,6 +13155,12 @@ function RdApp() {
           <span style={{width:7,height:7,borderRadius:'50%',background:'var(--live)',boxShadow:'0 0 8px var(--live)',flexShrink:0}}/>
           <span>Free trial — {me.trial_days_left||0} day{(me.trial_days_left||0)===1?'':'s'} left. <span style={{color:'var(--fg-2)',fontWeight:500}}>{me.trial_converts?'Your card is charged when it ends — cancel before then and you pay nothing.':'Subscribe to keep access when it ends — promo codes get 50% off your first month.'}</span></span>
           <a href={me.trial_converts?'/billing/portal':'/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>{me.trial_converts?'Manage':'Subscribe'}</a>
+        </div>}
+        {/* A failing card (2026-11-16): on every screen until it is fixed.
+            The palette's own warning colour, by token. */}
+        {me.subscription_status==='past_due' && <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:8,padding:'8px 24px',background:'var(--pending-soft)',borderBottom:'1px solid var(--pending-soft)',fontSize:12,color:'var(--pending)',fontWeight:600}}>
+          <span>Your payment did not go through. <span style={{color:'var(--fg-2)',fontWeight:500}}>You are on the Free plan, and your extra channels are paused, until it does.</span></span>
+          <a href="/billing/portal" style={{marginLeft:'auto',color:'#000',background:'var(--pending)',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Update card</a>
         </div>}
         <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>
           <ErrorBoundary key={view} where={view} onHome={view!=='review' ? ()=>setRoute('review') : null}>{screen}</ErrorBoundary>

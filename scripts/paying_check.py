@@ -203,7 +203,7 @@ def report(r: dict, mode: str) -> list[str]:
         out.append("  different number, it is counting something else (its totals lag by up")
         out.append("  to a day, and some of its tiles count subscriptions, not customers).")
     if r.get("failing"):
-        out += ["", "CARD FAILING (Stripe is still retrying; they keep their plan until it gives up)",
+        out += ["", "CARD FAILING (Stripe is still retrying; they are on Free, channels held, until it goes through)",
                 "  " + ", ".join(r["failing"])]
     out += ["", "PRICE CHECK (paying accounts whose last invoice is not what the admin page counts)"]
     if not r.get("prices"):

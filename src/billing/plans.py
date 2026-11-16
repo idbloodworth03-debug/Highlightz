@@ -289,7 +289,26 @@ ACTIVE_STATUSES = ("active", "trialing")
 #
 # `unpaid` and `incomplete_expired` are deliberately NOT here — those are Stripe
 # having given up, which is a real end.
+#
+# WHAT THIS LIST STILL MEANS, AND WHAT IT STOPPED MEANING (owner, 2026-11-16:
+# "for the people whose cards are failing we need to do something about that
+# so they don't have access to the site"). Both statuses are still "Stripe
+# holds a subscription for them": nobody is told their subscription ENDED and
+# nobody is sold a second one. But `past_due` no longer keeps the plan. See
+# CARD_FAILING below: a failing card is on Free until the charge goes through.
 GRACE_STATUSES = ("past_due", "incomplete")
+
+# A CARD THAT IS FAILING DOES NOT KEEP THE PLAN. Until 2026-11-16 a past_due
+# subscriber kept the tier they were being billed for through the whole of
+# Stripe's retry window, on the reasoning above ("a customer we were still
+# billing"). In practice that is weeks of Pro for nothing: on that date two
+# accounts were past due and running ten-channel plans. The owner's decision
+# reverses it: no payment, no paid plan. They land on Free like anybody who is
+# not paying, their stored tier is KEPT, and the moment Stripe collects the
+# status goes back to `active` and get_plan returns the tier again. What the
+# server does to their channels meanwhile (held, not deleted) is in
+# api._enforce_stream_limit.
+CARD_FAILING = "past_due"
 
 
 # Where an account has got to on the way from "connected Twitch" to "paying",
@@ -440,27 +459,21 @@ def get_plan(user: dict | None) -> str:
         # what every trial granted before tiers were selectable resolves to.
         plan = user.get("plan")
         return plan if plan in PAID_PLANS else "pro"
+    if status == CARD_FAILING:
+        # The card is failing: Free until the charge goes through (owner,
+        # 2026-11-16; see CARD_FAILING). The stored tier is untouched, so
+        # `active` brings it straight back.
+        return FREE_PLAN
     if status in GRACE_STATUSES:
-        # Still a customer — Stripe is mid-collection. Keep them on the tier
-        # they are being billed for rather than locking them out of a product
-        # they have not stopped paying for. If the retries ultimately fail,
-        # Stripe sends `unpaid`/`canceled` and they fall through below.
+        # `incomplete`: the FIRST payment has not confirmed. Somebody who
+        # already holds a tier keeps it for the seconds a 3DS confirmation
+        # takes. With no stored tier nobody has paid anything, and granting
+        # access here would hand Pro to anyone who opens a checkout and
+        # abandons it, for the ~23 hours Stripe waits before
+        # `incomplete_expired`.
         plan = user.get("plan")
         if plan in PAID_PLANS:
             return plan
-        # No stored tier, so the two grace statuses part company here, on what
-        # they actually imply about money having changed hands:
-        #
-        #   past_due   — you cannot reach it without a successful charge first.
-        #                This is a legacy $15-era subscriber (active, no stored
-        #                plan) whose card has now failed. Grandfather them, same
-        #                as the active branch below does.
-        #   incomplete — the FIRST payment never confirmed, so nobody has paid
-        #                anything. Granting full access here would hand Pro to
-        #                anyone who opens a checkout and abandons it, for the
-        #                ~23 hours Stripe waits before `incomplete_expired`.
-        if status == "past_due":
-            return LEGACY_PAID_PLAN
         return FREE_PLAN
     if status != "active":
         # Never subscribed, cancelled, lapsed, or a finished trial — all four

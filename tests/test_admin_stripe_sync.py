@@ -197,8 +197,12 @@ def test_a_card_in_retry_is_not_reported_as_cancelled(env):
          "items": {"data": [{"price": {"id": "price_pro"}}]}}]})
     env["admin"].post("/admin/users/u1/stripe-sync")
     from src.billing.plans import get_plan
-    assert get_plan(env["store"].get_by_id("u1")) == "pro"
-    assert env["stopped"] == [], "stopped the streams of a customer mid-retry"
+    u = env["store"].get_by_id("u1")
+    # past_due, not inactive: Stripe still holds the subscription. Since
+    # 2026-11-16 that means Free until the charge goes through, with the
+    # stored tier kept for when it does.
+    assert u["subscription_status"] == "past_due" and u["plan"] == "pro"
+    assert get_plan(u) == "free"
 
 
 # ── the two callers stay one implementation ──────────────────────────────────

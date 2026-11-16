@@ -8604,8 +8604,9 @@ customer; real Stripe returns it in the unfiltered list too.
   cover the changes that do alter the plan.
 
 **After the deploy:** within about 3 minutes the Paying tile reads 5, the
-population line gains "2 card failing", and MRR drops by $40. Both accounts
-keep Pro while Stripe retries.
+population line gains "2 card failing", and MRR drops by $40. (Both accounts
+kept Pro while Stripe retried until 2026-11-16; see "A failing card loses the
+paid plan" below, which reversed that.)
 
 **`scripts/paying_check.py`** (read-only, 34 tests): each account the tile
 counts next to Stripe's answer for its customer (PAYING / FREE / PAUSED /
@@ -8683,4 +8684,76 @@ surviving the 30 s refresh, a name opening the account (including one the
 page had not loaded), Close, Enter on a row, phone cards carrying their
 column names, no page errors, no sideways scroll. 16 new tests; full suite
 4513 passed.
+
+## A failing card loses the paid plan; its channels are held, not deleted (2026-11-16)
+
+Owner: "for the peoples whose cards are failing we need to do something about
+that so they dont have access to the site". **This reverses a decision
+recorded above** (the Billing section's grace handling, 2026-08): a `past_due`
+subscriber used to keep the tier they were billed for through Stripe's whole
+retry window. On this date two accounts (kipcrap, unkn0wnballer) were past due
+and still on ten-channel plans.
+
+**The rule now: no payment, no paid plan.** `plans.get_plan` returns Free for
+`past_due` (`CARD_FAILING`). The stored tier is kept, so `active` brings it
+straight back. My reading of "don't have access", stated to the owner: they
+land on **Free**, like anybody who is not paying, not locked out of the site
+altogether, and it applies at the first failed charge, with no days of grace.
+Both are one-line choices if the owner wants them otherwise.
+
+`incomplete` (a first payment mid-confirmation) is unchanged. `GRACE_STATUSES`
+still lists both and still means "Stripe holds a subscription": never told it
+ENDED, never sold a second one (checkout sends `past_due` to the portal).
+
+**What happens to their channels: held, not deleted.** `_enforce_stream_limit`
+is the one choke point every path already calls. For `past_due` it no longer
+pops the excess: `_hold_streams_for_billing` pauses them and marks the record
+`hold: "billing"` (no worker, no poll, no live slot, not counted against the
+server). The channel added first keeps running, as Free allows one.
+- Nothing but payment brings them back. `_resume_user_streams` (opening the
+  site) skips held records; `patch_stream` no longer starts a worker for a
+  paused channel (changing a preset was a way round); the clean-up tool's
+  `is_free` leaves `past_due` accounts alone.
+- `_settle_billing_hold(uid)` puts held channels in line with the billing as
+  it is NOW: charge went through, enforce the plan then restart them all,
+  oldest first; Stripe gave up (`inactive`), the normal lapse removes what
+  Free does not cover; still failing, fill any unused Free allowance. It is
+  called from the webhook's active branch, the sweep, and **every five minutes
+  by `idle_stream_reaper`**, so no path that changes a status has to remember.
+- The accounts already past due on deploy get no webhook. The reaper's
+  existing lapse block catches them within five minutes: channels held, told
+  once.
+
+**What they are told.** Once per failure (Stripe sends an event per retry;
+`_subscription_status_before` makes the repeats quiet): a toast
+(`subscription_expired` with `_lapse_message(plan, "past_due")`: "Your payment
+did not go through ... Update your card under Settings and your plan and
+channels come straight back", never "ended") and a bell note. In the
+dashboard, until it is fixed: a bar under the header on every screen with
+**Update card** (`/billing/portal`), the Account screen's status "Payment
+failed — on Free" with the same button in place of the upgrade row, and held
+channels labelled "paused · payment failed". No new event names.
+
+**Also changed because past_due now costs something:** the webhook's "another
+subscription is still live" guard runs for `past_due` too, so a duplicate
+subscription failing does not drop a customer whose real one is being paid.
+
+**For the owner to know (told):** a customer whose card fails and is fixed two
+days later is charged for the month from the original renewal date, and was on
+Free for those two days. Stripe's own setting decides how long it keeps
+retrying and what it does at the end (Settings, Billing, Subscriptions and
+emails: retry schedule, and "send emails when card payments fail").
+
+Tests: `tests/test_card_failing.py` (22: the hold, the four ways not to get
+round it, the way back, Stripe giving up, the reaper catching an account
+already past due, a paying account never held, and two that drive real Stripe
+events through the webhook), and the tests that described the old rule were
+rewritten to describe this one (`test_billing_grace`, `test_subscription_
+reconcile`, `test_admin_stripe_sync`, `test_cleanup` unchanged because the
+tool now exempts them). Six mutations each failed a test. Full suite 4540
+passed; dashboard JSX parsed with Babel. **Seen in a browser:** the real
+dashboard booted headless (React and Babel served from their npm packages,
+the capture rig's trick) as a past-due account at 1440 and 390 px: the bar,
+both held channels labelled, the Account row; the first render clipped the
+button on a phone ("pdate car") and that was fixed.
 

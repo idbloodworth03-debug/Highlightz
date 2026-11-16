@@ -55,7 +55,14 @@ def _name(u: dict) -> str:
 
 
 def is_free(u: dict) -> bool:
-    """A free account: the effective plan is free and it is not an admin."""
+    """A free account: the effective plan is free and it is not an admin.
+
+    NOT a subscriber whose card is failing. Since 2026-11-16 that account's
+    effective plan is also free, but Stripe still holds its subscription and
+    its channels are held, not removed, for the day the charge goes through.
+    Clearing them here would delete exactly what the hold exists to keep."""
+    if u.get("subscription_status") in plans.GRACE_STATUSES:
+        return False
     return not u.get("is_admin") and plans.get_plan(u) == "free"
 
 
