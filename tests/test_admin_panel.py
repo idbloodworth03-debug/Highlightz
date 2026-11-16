@@ -542,11 +542,13 @@ def test_the_population_line_is_built_from_the_segments():
     put a trialing account inside the Pro figure AND inside the trial figure."""
     js = _admin_js()
     assert "u.segment" in js, "the header no longer reads the segment breakdown"
-    # The line is assembled into `parts` ABOVE the set() call, so slicing at
-    # set() alone reads ", parts.join(...)" and asserts nothing. Take the block
-    # that builds it.
-    block = js.split("const parts = []")[1].split("set('ov-users-s'")[0]
+    # The breakdown is assembled into rows (it was one line of `parts` until
+    # 2026-11-16). Take the block that builds them: from the row helper to the
+    # next tile.
+    block = js.split("const orow = ")[1].split("set('ov-paying'")[0]
     assert "seg." in block, "the population line is not built from segments"
+    for seg in ("seg.free", "seg.paying", "seg.trialing", "seg.comped", "seg.grace"):
+        assert seg in block, f"{seg} is no longer in the breakdown, so the rows cannot sum to the total"
     assert "bp." not in block and "by_plan" not in block, \
         "the population line is mixing entitlement counts back in"
     # The variable that made the mix possible is gone from the renderer.
@@ -559,7 +561,7 @@ def test_the_population_line_names_free():
     the platform missing from the one line that describes the platform."""
     js = _admin_js()
     assert "seg.free" in js, "free is not counted in the header"
-    assert "' free'" in js, "the header does not label the free segment"
+    assert "orow('Free', seg.free)" in js, "the header does not label the free segment"
 
 
 def test_the_paying_line_describes_only_the_paying():
@@ -797,8 +799,9 @@ def test_the_admin_page_asks_in_its_own_time_zone_and_shows_the_week():
     h = api.ADMIN_HTML
     assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in h
     assert "api('/admin/overview?tz=' + encodeURIComponent(tzName))" in h
-    assert "' joined this week'" in h and "' last week'" in h and "(since Sun, " in h
-    assert "n0(u.new_7d) + ' joined this week'" not in h, "the rolling 7 days is still what is shown"
+    assert "prow('week', 'This week', u.new_this_week)" in h and "prow('last_week', 'Last week', u.new_last_week)" in h
+    assert "'Week began Sun, ' + wk" in h
+    assert "u.new_7d" not in h, "the rolling 7 days is still what is shown"
 
 
 # ── who is online: the list behind each Active users tile (2026-11-12) ───────
@@ -882,3 +885,160 @@ def test_tables_that_arrive_with_their_wrapper_get_phone_labels():
     obs = h[h.index("new MutationObserver(ms => {"):]
     obs = obs[:obs.index(".observe(document.body")]
     assert "m.addedNodes.forEach(" in obs and "n.querySelectorAll('.tw').forEach(label)" in obs
+
+
+
+# ── joined today, and who (owner, 2026-11-16) ────────────────────────────────
+# "I want you to make it so that I can view new users that sign up today as
+# well in over here and also can we organize it better." The Users tile was one
+# sentence wrapped over four lines. It is now rows in two groups, Plans and
+# Joined, and each Joined row lists the accounts behind its number.
+
+def test_a_day_starts_at_midnight_where_the_viewer_is():
+    from src.dashboard import api
+    # Monday Nov 16, 2026, 9:30 PM Eastern is already Tuesday 02:30 UTC.
+    now = _utc(2026, 11, 17, 2, 30)
+    day, yday, used = api._day_bounds(now, "America/New_York")
+    assert used == "America/New_York"
+    assert day == _utc(2026, 11, 16, 5, 0), "today began at 12:00 AM Eastern, which is 05:00 UTC"
+    assert yday == _utc(2026, 11, 15, 5, 0)
+    # The server's own day would have called this evening sign-up "tomorrow".
+    assert api._day_bounds(now, "")[0] == _utc(2026, 11, 17)
+
+
+def test_yesterday_is_the_calendar_day_before_even_when_the_clocks_change():
+    """Nov 1, 2026 is 25 hours long in New York. Yesterday is that whole day,
+    not the last 24 hours."""
+    from src.dashboard import api
+    day, yday, _ = api._day_bounds(_utc(2026, 11, 2, 15, 0), "America/New_York")
+    assert day == _utc(2026, 11, 2, 5, 0) and yday == _utc(2026, 11, 1, 4, 0)
+    assert day - yday == 25 * 3600
+
+
+@pytest.fixture
+def joiners(client, monkeypatch):
+    """Sign-ups either side of each boundary, as an admin in New York sees them."""
+    from src.dashboard import api
+    from src.auth import users as user_store
+    now = time.time()
+    day, yday, _ = api._day_bounds(now, "America/New_York")
+    week, last, _ = api._week_bounds(now, "America/New_York")
+    people = [
+        dict(PEOPLE["boss"], created_at=day + 1),                                   # staff: never counted
+        dict(PEOPLE["nova"], created_at=last - 90 * 86400),                         # an old customer: in no window
+        {"id": "t1", "username": "t1", "created_at": day, "found_via": "tiktok"},   # midnight exactly: today
+        {"id": "t2", "username": "t2", "created_at": min(now, day + 2),
+         "subscription_status": "active", "stripe_customer_id": "cus_t2", "plan": "pro"},
+        {"id": "y1", "username": "y1", "created_at": day - 1},                      # 11:59:59 PM: yesterday
+        {"id": "y2", "username": "y2", "created_at": yday},
+        {"id": "b1", "username": "b1", "created_at": yday - 1},                     # the day before: neither
+        {"id": "l1", "username": "l1", "created_at": last + 60},                    # last week
+        {"id": "o1", "username": "o1", "created_at": last - 1},                     # older than both weeks
+    ]
+    monkeypatch.setattr(user_store, "get_all", lambda: [dict(p) for p in people])
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: next((p for p in people if p["id"] == uid), None))
+    client.bounds = {"day": day, "yday": yday, "week": week, "last": last}
+    client.people = people
+    return client
+
+
+def _joined(client, window, tz="America/New_York"):
+    r = client.login("boss").get(f"/admin/new-users?window={window}&tz={tz}")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_the_overview_counts_today_and_yesterday(joiners):
+    u = joiners.login("boss").get("/admin/overview?tz=America/New_York").json()["users"]
+    assert (u["new_today"], u["new_yesterday"]) == (2, 2)
+    assert u["day_start"] == joiners.bounds["day"]
+
+
+def test_joined_today_lists_who_newest_first(joiners):
+    d = _joined(joiners, "today")
+    assert d["label"] == "Joined today" and d["count"] == 2 and d["paying"] == 1
+    assert [r["name"] for r in d["rows"]] == ["t2", "t1"], "newest first; staff not listed"
+    t2, t1 = d["rows"]
+    assert t2["paying"] is True and t2["plan_label"] == "Pro"
+    assert t1["found_via"] == "tiktok" and t1["joined"] == joiners.bounds["day"]
+    assert [r["name"] for r in _joined(joiners, "yesterday")["rows"]] == ["y1", "y2"]
+
+
+def test_each_count_in_the_tile_is_the_length_of_its_list(joiners):
+    """The four rows and the four lists come from one definition of each
+    window, or the tile says 3 and the list under it shows 4."""
+    u = joiners.login("boss").get("/admin/overview?tz=America/New_York").json()["users"]
+    shown = {"today": u["new_today"], "yesterday": u["new_yesterday"],
+             "week": u["new_this_week"], "last_week": u["new_last_week"]}
+    for key, n in shown.items():
+        assert _joined(joiners, key)["count"] == n, key
+    assert sum(shown.values()) > 0
+
+
+def test_a_list_follows_the_viewers_zone_like_its_count(joiners):
+    """Asked with no zone, the day is the server's (UTC), for the list and the
+    count alike."""
+    u = joiners.login("boss").get("/admin/overview").json()["users"]
+    assert _joined(joiners, "today", tz="")["count"] == u["new_today"]
+
+
+def test_only_an_admin_can_see_who_joined_and_windows_are_checked(joiners):
+    assert joiners.login("nova").get("/admin/new-users").status_code == 403
+    assert joiners.login("boss").get("/admin/new-users?window=forever").status_code == 400
+
+
+def test_the_joined_list_is_capped_and_says_how_many_were_left_off(joiners, monkeypatch):
+    from src.dashboard import api
+    monkeypatch.setattr(api, "_ACTIVE_LIST_MAX", 1)
+    d = _joined(joiners, "today")
+    assert d["count"] == 2 and len(d["rows"]) == 1 and d["more"] == 1
+
+
+def test_the_users_tile_is_rows_in_two_groups_with_today_in_it():
+    from src.dashboard import api
+    h, js = api.ADMIN_HTML, _admin_js()
+    assert '<div class="ov-list" id="ov-users-s"></div>' in h
+    assert '<div class="ov-grp">Plans</div>' in js and '<div class="ov-grp">Joined</div>' in js
+    assert "prow('today', 'Today', u.new_today)" in js and "prow('yesterday', 'Yesterday', u.new_yesterday)" in js
+    assert "orow('Card failing', seg.grace, 'warn')" in js, "a failing card no longer stands out"
+    assert "parts.join(' · ')" not in js.split("const orow = ")[1].split("set('ov-paying'")[0], \
+        "the tile is one run-on line again"
+
+
+def test_a_joined_row_is_a_button_that_lists_who():
+    from src.dashboard import api
+    h, js = api.ADMIN_HTML, _admin_js()
+    assert '<div id="new-list" class="act-list" hidden></div>' in h, "the list shows before a row is picked"
+    assert '<button type="button" class="ov-row ov-pick' in js and 'data-new="' in js
+    assert "let NEW_WIN = '';" in h and "function pickNew(key){" in h
+    assert "api('/admin/new-users?window=' + encodeURIComponent(want) + '&tz=' + encodeURIComponent(viewerZone()))" in h
+    # Re-read with the tiles every 30 s, so a new sign-up appears by itself.
+    assert "loadNewList();" in js
+    assert "NEW_WIN = NEW_WIN === key ? '' : key;" in h, "pressing the open row again no longer closes it"
+    assert "esc(FU_LABELS[r.found_via] || r.found_via)" in h, "an answer is spliced into the page unescaped"
+    assert "onclick=" not in h, "the admin page allows no inline handlers"
+
+
+def test_the_users_tile_is_the_wide_one_and_takes_a_row_on_a_phone():
+    css = _admin_css()
+    assert "#rail{grid-template-columns:2fr repeat(5,minmax(0,1fr))}" in css
+    assert ".rail,#rail{grid-template-columns:repeat(3,minmax(0,1fr))}" in css
+    assert "#rail .cell:first-child{grid-column:1 / -1}" in css
+    # The Active users strip shares .rail and .cell and must keep its own layout.
+    assert ".act-rail" in css and "#rail .cell:nth-child(even){padding-left:0;border-left:none}" in css
+
+
+def test_a_name_that_is_not_loaded_yet_still_opens():
+    """A sign-up reaches the Joined list within 30 s and the page's own list of
+    accounts within 60. In between, pressing their name did nothing."""
+    from src.dashboard import api
+    h = api.ADMIN_HTML
+    fn = h[h.index("async function openFromList(e){"):h.index("document.getElementById('act-list').addEventListener('click', openFromList);")]
+    assert "if(!u){ await loadUsers(); u = find(); }" in fn
+    assert "document.getElementById('new-list').addEventListener('click'" in h
+
+
+def test_the_answer_shown_beside_a_sign_up_is_the_account_s_own(joiners):
+    """It is displayed, not acted on: the field goes out as the account holds it."""
+    assert [r["found_via"] for r in _joined(joiners, "today")["rows"]] == ["", "tiktok"]
+

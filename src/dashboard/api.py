@@ -8819,21 +8819,103 @@ def _week_bounds(now: float, tz_name: str = "") -> tuple[float, float, str]:
     long, as it is on the wall. An unknown or missing zone falls back to UTC
     and says so in the third value, so the page can show which Sunday it used.
     """
-    from datetime import datetime, timedelta, timezone as _timezone
-    zone, used = _timezone.utc, "UTC"
-    name = str(tz_name or "").strip()
-    if name and len(name) <= 64 and _TZ_NAME_RE.match(name):
-        try:
-            from zoneinfo import ZoneInfo
-            zone, used = ZoneInfo(name), name
-        except Exception:
-            pass
+    from datetime import datetime, timedelta
+    zone, used = _viewer_zone(tz_name)
     today = datetime.fromtimestamp(now, zone).date()
     sunday = today - timedelta(days=(today.weekday() + 1) % 7)      # Monday is 0
     last = sunday - timedelta(days=7)
     start = datetime(sunday.year, sunday.month, sunday.day, tzinfo=zone).timestamp()
     prev = datetime(last.year, last.month, last.day, tzinfo=zone).timestamp()
     return start, prev, used
+
+
+def _viewer_zone(tz_name: str = ""):
+    """(the zone, its name) for the browser's IANA zone name, UTC when it is
+    missing, malformed or unknown. The name comes off a query string, so it is
+    pattern-checked before zoneinfo is asked to open anything."""
+    from datetime import timezone as _timezone
+    name = str(tz_name or "").strip()
+    if name and len(name) <= 64 and _TZ_NAME_RE.match(name):
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(name), name
+        except Exception:
+            pass
+    return _timezone.utc, "UTC"
+
+
+def _day_bounds(now: float, tz_name: str = "") -> tuple[float, float, str]:
+    """(when today began, when yesterday began, the time zone used).
+
+    A day is 12:00 AM to 12:00 AM where the VIEWER is, for the same reason the
+    week is: on UTC "today" starts at 7 or 8 PM Eastern, so an evening sign-up
+    would be counted as tomorrow's. Yesterday is the calendar day before, not
+    24 hours back, so it is right across a clock change too."""
+    from datetime import datetime, timedelta
+    zone, used = _viewer_zone(tz_name)
+    today = datetime.fromtimestamp(now, zone).date()
+    yday = today - timedelta(days=1)
+    return (datetime(today.year, today.month, today.day, tzinfo=zone).timestamp(),
+            datetime(yday.year, yday.month, yday.day, tzinfo=zone).timestamp(), used)
+
+
+# The sign-up windows the Users tile shows, in the order it shows them. One
+# definition for the counts in /admin/overview and the list behind each
+# (/admin/new-users), so a count and its list cannot disagree.
+_JOINED_LABELS = (("today", "Joined today"), ("yesterday", "Joined yesterday"),
+                  ("week", "Joined this week"), ("last_week", "Joined last week"))
+
+
+def _joined_windows(now: float, tz_name: str = "") -> dict:
+    """{key: (label, from, until)}: an account joined in a window when
+    from <= created_at < until."""
+    day, yday, _ = _day_bounds(now, tz_name)
+    week, last, _ = _week_bounds(now, tz_name)
+    later = float("inf")
+    spans = {"today": (day, later), "yesterday": (yday, day),
+             "week": (week, later), "last_week": (last, week)}
+    return {k: (label, *spans[k]) for k, label in _JOINED_LABELS}
+
+
+@app.get("/admin/new-users")
+async def admin_new_users(request: Request, window: str = "today", tz: str = ""):
+    """WHO joined in one of the Users tile's sign-up windows (owner,
+    2026-11-16: "view new users that sign up today"). Same accounts the tile
+    counts: staff are not listed, and the day and the week are the viewer's.
+    Newest first. Capped, with `more` saying how many were left off."""
+    _require_admin(request)
+    import collections
+    from src.auth import users as user_store
+    from src.billing import plans
+    now = time.time()
+    windows = _joined_windows(now, tz)
+    if window not in windows:
+        raise HTTPException(status_code=400, detail="Unknown window")
+    label, start, until = windows[window]
+    listed = collections.Counter(k.split(":", 1)[0] for k in _streams if ":" in k)
+    rows = []
+    for u in user_store.get_all():
+        uid = u.get("id")
+        joined = float(u.get("created_at") or 0)
+        if not uid or u.get("is_admin") or not (start <= joined < until):
+            continue
+        plan = plans.get_plan(u)
+        rows.append({
+            "id": uid,
+            "name": str(u.get("twitch_login") or u.get("kick_slug") or u.get("username") or uid[:8]),
+            "platform": ("kick" if u.get("kick_id") and not u.get("twitch_id")
+                         else "twitch" if u.get("twitch_id") else ""),
+            "plan": plan, "plan_label": plans.PLAN_LIMITS.get(plan, {}).get("label", plan),
+            "trial": u.get("subscription_status") == "trialing",
+            "paying": _counts_as_paying(u),
+            "joined": joined, "found_via": str(u.get("found_via") or ""),
+            "last_active": _last_seen(u), "tabs": len(_ws_clients.get(uid) or ()),
+            "channels": listed.get(uid, 0),
+        })
+    rows.sort(key=lambda r: (-r["joined"], r["name"].lower()))
+    return {"window": window, "label": label, "count": len(rows), "start": start,
+            "paying": sum(1 for r in rows if r["paying"]),
+            "rows": rows[:_ACTIVE_LIST_MAX], "more": max(0, len(rows) - _ACTIVE_LIST_MAX)}
 
 
 @app.get("/admin/overview")
@@ -8946,6 +9028,11 @@ async def admin_overview(request: Request, tz: str = ""):
     new_this_week = sum(1 for u in customers if (u.get("created_at") or 0) >= week_start)
     new_last_week = sum(1 for u in customers
                         if prev_week_start <= (u.get("created_at") or 0) < week_start)
+    # Today and yesterday (owner, 2026-11-16), midnight to midnight where the
+    # viewer is. The same windows /admin/new-users lists.
+    joined = {k: sum(1 for u in customers if a <= (u.get("created_at") or 0) < b)
+              for k, (_, a, b) in _joined_windows(now, tz).items()}
+    day_start = _day_bounds(now, tz)[0]
 
     # ACTIVE USERS (owner, 2026-11-11: "how many people have been online in
     # the last hour, couple hours, 24 hours, etc."). "Online" means used the
@@ -8994,6 +9081,8 @@ async def admin_overview(request: Request, tz: str = ""):
             "new_7d": new_7d, "new_30d": new_30d,
             "new_this_week": new_this_week, "new_last_week": new_last_week,
             "week_start": week_start, "week_tz": week_tz,
+            "new_today": joined["today"], "new_yesterday": joined["yesterday"],
+            "day_start": day_start,
         },
         "active": active,
         "mrr": round(mrr, 2),
@@ -15515,6 +15604,26 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cell .k{margin-top:var(--s-3)}
   .cell .s{font-size:12px;color:var(--ink-2);margin-top:var(--s-1);line-height:1.5;min-height:3em}
   .cell .s.ov-full{color:var(--bad);font-weight:600}
+  /* The Users tile's breakdown: a label and its number to a row, in two named
+     groups side by side, instead of one sentence that wrapped over four
+     lines. It carries two lists, so it is the wide tile of the strip. */
+  #rail{grid-template-columns:2fr repeat(5,minmax(0,1fr))}
+  .ov-list{margin-top:var(--s-3);font-size:12px;color:var(--ink-2)}
+  .ov-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--s-5)}
+  .ov-grp{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 var(--s-1);padding-bottom:var(--s-1);border-bottom:1px solid var(--hair)}
+  .ov-row{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);width:100%;
+    padding:0;line-height:1.8;border:0;background:none;color:inherit;font:inherit;text-align:left}
+  .ov-row b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ov-row.warn span,.ov-row.warn b{color:var(--bad)}
+  .ov-pick{cursor:pointer;border-radius:4px}
+  .ov-pick span::after{content:' ›';color:var(--ink-3)}
+  .ov-pick:hover span{color:var(--ink)}
+  .ov-pick:focus-visible{outline:2px solid var(--ember);outline-offset:1px}
+  .ov-pick.on span,.ov-pick.on b,.ov-pick.on span::after{color:var(--ember)}
+  .ov-note{margin-top:var(--s-2);font-size:11px;color:var(--ink-3);line-height:1.4}
+  #new-list h3{display:flex;align-items:baseline;gap:var(--s-2);flex-wrap:wrap}
+  #new-list h3 .btn{margin-left:auto}
   .act-head{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--ink-2);margin:var(--s-6) 0 0}
   .act-head span{text-transform:none;letter-spacing:0;color:var(--ink-3);margin-left:var(--s-2)}
@@ -15734,7 +15843,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .danger p{font-size:14px;color:var(--ink-3);margin-bottom:var(--s-3);line-height:1.5}
 
   @media(max-width:980px){
-    .rail{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .rail,#rail{grid-template-columns:repeat(3,minmax(0,1fr))}
     .cell:nth-child(4){padding-left:0;border-left:none}
     .cell:nth-child(-n+3){border-bottom:1px solid var(--hair)}
   }
@@ -15753,6 +15862,14 @@ ADMIN_HTML = """<!DOCTYPE html>
     .cell:nth-child(odd){padding-left:0;border-left:none}
     .cell:nth-child(-n+4){border-bottom:1px solid var(--hair)}
     .cell .s{min-height:0}
+    /* The top strip on a phone: the Users tile takes the whole first row (its
+       two lists need the width), so the other five pair up after it and the
+       left-hand tiles are the EVEN ones here, not the odd ones. */
+    #rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+    #rail .cell:first-child{grid-column:1 / -1}
+    #rail .cell:nth-child(even){padding-left:0;border-left:none}
+    #rail .cell:nth-child(odd):not(:first-child){padding-left:var(--s-3);border-left:1px solid var(--hair)}
+    #rail .cell:nth-child(-n+5){border-bottom:1px solid var(--hair)}
     /* Four tabs as a two-by-two grid: four in a row do not fit 390px, and a
        row that wraps one orphan onto its own line reads as broken. */
     .tabs{margin-top:var(--s-6);display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -15884,13 +16001,18 @@ ADMIN_HTML = """<!DOCTYPE html>
        server from the real ledgers — see that endpoint for why the browser is
        no longer allowed to add these up itself. -->
   <div class="rail" id="rail">
-    <div class="cell"><div class="v" id="ov-users">&mdash;</div><div class="k">Users</div><div class="s" id="ov-users-s"></div></div>
+    <div class="cell"><div class="v" id="ov-users">&mdash;</div><div class="k">Users</div><div class="ov-list" id="ov-users-s"></div></div>
     <div class="cell"><div class="v" id="ov-paying">&mdash;</div><div class="k">Paying</div><div class="s" id="ov-paying-s"></div></div>
     <div class="cell hot"><div class="v" id="ov-mrr">&mdash;</div><div class="k">MRR</div><div class="s" id="ov-mrr-s"></div></div>
     <div class="cell hot"><div class="v" id="ov-clips">&mdash;</div><div class="k">Clips caught</div><div class="s" id="ov-clips-s"></div></div>
     <div class="cell"><div class="v" id="ov-keep">&mdash;</div><div class="k">Keep rate</div><div class="s" id="ov-keep-s"></div></div>
     <div class="cell"><div class="v" id="ov-live">&mdash;</div><div class="k">Live now</div><div class="s" id="ov-live-s"></div></div>
   </div>
+
+  <!-- WHO joined in the sign-up row picked in the Users tile (owner,
+       2026-11-16: "view new users that sign up today"). Hidden until a row is
+       pressed; /admin/new-users, re-read with the tiles. -->
+  <div id="new-list" class="act-list" hidden></div>
 
   <!-- Active users (owner, 2026-11-11). From /admin/overview `active`: people
        who USED the site in each window (requests, not socket keepalives), and
@@ -17535,12 +17657,14 @@ document.getElementById('fn-days').addEventListener('change', loadFunnel);
 // by summing the user list, and "Total Clips" counted only clips still sitting
 // in storage — every rejected, aged-out and dropped clip was invisible, and
 // admin-owned clips were filtered out on top of that.
+function viewerZone(){
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) { return ''; }
+}
 async function loadOverview(){
   let d;
   // The browser's own time zone, so "this week" starts at Sunday 12:00 AM
   // where the person reading it is (the server runs on UTC).
-  let tzName = '';
-  try { tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+  const tzName = viewerZone();
   try { d = await api('/admin/overview?tz=' + encodeURIComponent(tzName)); } catch(e){ return; }
   const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
   const u = d.users || {}, c = d.clips || {}, s = d.streams || {};
@@ -17553,23 +17677,36 @@ async function loadOverview(){
   // trialing account was inside both "Pro" and "on trial", the parts summed to
   // more than the whole, and Free was not shown at all. Free is the front door
   // now, so leaving it out omitted most of the people on the platform.
-  const parts = [];
-  if(seg.free)     parts.push(n0(seg.free) + ' free');
-  if(seg.paying)   parts.push(n0(seg.paying) + ' paying');
-  if(seg.trialing) parts.push(n0(seg.trialing) + ' on trial');
-  if(seg.comped)   parts.push(n0(seg.comped) + ' comped');
-  if(seg.grace)    parts.push(n0(seg.grace) + ' card failing');
-  // A calendar week: Sunday 12:00 AM to the next Sunday 12:00 AM, viewer's
-  // time. The date says which Sunday, so the count can be checked.
+  // ONE ROW PER FIGURE, IN TWO NAMED GROUPS (owner, 2026-11-16: "organize it
+  // better"). It was one sentence, "200 free · 7 paying · 7 on trial · 2
+  // comped · 2 card failing · 14 joined this week (since Sun, Nov 15) · 54
+  // last week · 5 staff", wrapped over four lines of a narrow tile.
+  // Plans: every account once (the segments still sum to the total). A plan
+  // nobody is on is left out, except Free and Paying, which always show.
+  const orow = (label, n, cls) => '<div class="ov-row' + (cls ? ' ' + cls : '') + '"><span>' + label
+    + '</span><b>' + n0(n || 0) + '</b></div>';
+  let oh = '<div class="ov-cols"><div><div class="ov-grp">Plans</div>' + orow('Free', seg.free) + orow('Paying', seg.paying);
+  if(seg.trialing) oh += orow('On trial', seg.trialing);
+  if(seg.comped)   oh += orow('Comped', seg.comped);
+  if(seg.grace)    oh += orow('Card failing', seg.grace, 'warn');
+  // Joined: today and yesterday run midnight to midnight, the weeks Sunday
+  // 12:00 AM to the next Sunday 12:00 AM, all in the viewer's time. Each row
+  // is a button: it lists who (loadNewList), and pressing it again closes.
   const wk = u.week_start ? new Date(u.week_start * 1000).toLocaleDateString('en-US',
     {month:'short', day:'numeric', timeZone: u.week_tz || 'UTC'}) : '';
-  parts.push(n0(u.new_this_week) + ' joined this week' + (wk ? ' (since Sun, ' + wk + ')' : ''));
-  parts.push(n0(u.new_last_week) + ' last week');
-  if(u.admins) parts.push(n0(u.admins) + ' staff');
-  set('ov-users-s', parts.join(' · '));
+  const prow = (key, label, n) => '<button type="button" class="ov-row ov-pick' + (NEW_WIN === key ? ' on' : '')
+    + '" data-new="' + key + '" title="Show who"><span>' + label + '</span><b>' + n0(n || 0) + '</b></button>';
+  oh += '</div><div><div class="ov-grp">Joined</div>' + prow('today', 'Today', u.new_today)
+    + prow('yesterday', 'Yesterday', u.new_yesterday) + prow('week', 'This week', u.new_this_week)
+    + prow('last_week', 'Last week', u.new_last_week) + '</div></div>';
+  oh += '<div class="ov-note">' + (wk ? 'Week began Sun, ' + wk + '. ' : '')
+    + (u.admins ? n0(u.admins) + ' staff not counted.' : '') + '</div>';
   const us = document.getElementById('ov-users-s');
-  if(us) us.title = 'Weeks run Sunday 12:00 AM to the next Sunday 12:00 AM, '
-    + (u.week_tz === 'UTC' ? 'UTC' : (u.week_tz || 'UTC').split('_').join(' ') + ' time') + '. Staff are not counted.';
+  if(us){
+    us.innerHTML = oh;
+    us.title = 'Days run 12:00 AM to 12:00 AM and weeks Sunday 12:00 AM to the next Sunday 12:00 AM, '
+      + (u.week_tz === 'UTC' ? 'UTC' : (u.week_tz || 'UTC').split('_').join(' ') + ' time') + '. Staff are not counted.';
+  }
   set('ov-paying', n0(u.paying));
   // The tiers OF THE PAYING, which is what this tile counts. `legacy` are
   // $15-era subscribers whose price Stripe holds and we do not.
@@ -17612,8 +17749,61 @@ async function loadOverview(){
     }).join('');
   }
   loadActiveList();
+  loadNewList();
   loadRefusals();
 }
+
+// WHO joined in the sign-up row picked in the Users tile. Nothing is picked
+// to begin with, so the panel is hidden; it is re-read with the tiles (every
+// 30 s) while it is open, so somebody signing up appears in it by itself.
+let NEW_WIN = '';
+async function loadNewList(){
+  const box = document.getElementById('new-list');
+  if(!box) return;
+  if(!NEW_WIN){ box.hidden = true; box.innerHTML = ''; return; }
+  const want = NEW_WIN;
+  let d;
+  try { d = await api('/admin/new-users?window=' + encodeURIComponent(want) + '&tz=' + encodeURIComponent(viewerZone())); } catch(e){ return; }
+  if(want !== NEW_WIN) return;                    // a newer pick is already on its way
+  const rows = d.rows || [];
+  const byDay = want === 'today' || want === 'yesterday';
+  const when = ts => new Date(ts * 1000).toLocaleString('en-US', byDay
+    ? {hour:'numeric', minute:'2-digit'} : {weekday:'short', hour:'numeric', minute:'2-digit'});
+  let html = '<h3>' + esc(d.label) + ' &middot; ' + n0(d.count) + (d.count === 1 ? ' account' : ' accounts')
+    + (d.paying ? ' <span>&middot; ' + n0(d.paying) + ' paying</span>' : '')
+    + '<button type="button" class="btn" id="new-close">Close</button></h3>';
+  if(!rows.length){
+    html += '<p class="sub">' + (want === 'today' ? 'Nobody has signed up yet today.' : 'Nobody signed up in this window.') + '</p>';
+  } else {
+    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Plan</th><th>Joined</th><th>Found us via</th><th>Last active</th><th>Channels</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      html += '<tr><td><span class="act-name"><span class="' + (r.tabs ? 'dot dot-live' : 'dot dot-offline') + '"></span>'
+        + '<button class="btn act-open" data-uid="' + esc(r.id) + '" title="Open this account">' + esc(r.name) + '</button>'
+        + (r.platform === 'kick' ? ' <span class="sub">Kick</span>' : '') + '</span></td>'
+        + '<td><span class="' + planClass(r.plan) + '">' + esc(r.plan_label) + '</span>'
+        + (r.trial ? ' <span class="sub">trial</span>' : r.paying ? ' <span class="sub">paying</span>' : '') + '</td>'
+        + '<td>' + esc(when(r.joined)) + '</td>'
+        + '<td>' + (r.found_via ? esc(FU_LABELS[r.found_via] || r.found_via) : '&mdash;') + '</td>'
+        + '<td>' + (r.last_active ? esc(ago(r.last_active)) : '&mdash;') + '</td>'
+        + '<td class="num">' + n0(r.channels) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    if(d.more) html += '<p class="sub">and ' + n0(d.more) + ' more not shown.</p>';
+  }
+  box.hidden = false;
+  box.innerHTML = html;
+}
+function pickNew(key){
+  NEW_WIN = NEW_WIN === key ? '' : key;           // the same row again closes it
+  document.querySelectorAll('#ov-users-s .ov-pick').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-new') === NEW_WIN);
+  });
+  loadNewList();
+}
+document.getElementById('ov-users-s').addEventListener('click', function(e){
+  const b = e.target.closest ? e.target.closest('.ov-pick') : null;
+  if(b) pickNew(b.getAttribute('data-new'));
+});
 
 // WHO is in the selected Active users tile. Starts on "Tab open now". Read
 // again whenever the tiles are (every 30 s), and at once on picking a tile.
@@ -17659,12 +17849,24 @@ document.getElementById('act-rail').addEventListener('click', function(e){ pickA
 document.getElementById('act-rail').addEventListener('keydown', function(e){
   if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pickActive(e.target); }
 });
-// A name opens the same account panel as Details in the Users list.
-document.getElementById('act-list').addEventListener('click', function(e){
+// A name opens the same account panel as Details in the Users list, from
+// either list (who is active, who joined).
+async function openFromList(e){
   const b = e.target.closest ? e.target.closest('.act-open') : null;
   if(!b) return;
-  const u = USERS.find(function(x){ return x.id === b.getAttribute('data-uid'); });
+  const uid = b.getAttribute('data-uid');
+  const find = function(){ return USERS.find(function(x){ return x.id === uid; }); };
+  let u = find();
+  // Somebody who signed up after this page last read the accounts is in
+  // these lists (re-read every 30 s) before they are in USERS (every 60 s).
+  // Their name did nothing when pressed; now the accounts are read again.
+  if(!u){ await loadUsers(); u = find(); }
   if(u) openUser(u);
+}
+document.getElementById('act-list').addEventListener('click', openFromList);
+document.getElementById('new-list').addEventListener('click', function(e){
+  if(e.target.closest && e.target.closest('#new-close')){ pickNew(NEW_WIN); return; }
+  openFromList(e);
 });
 
 // Which channels are currently un-clippable, and why. Three different causes

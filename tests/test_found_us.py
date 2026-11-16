@@ -353,7 +353,10 @@ def test_nothing_in_the_product_branches_on_the_answer():
         if "found_via" in p.read_text() and rel not in allowed:
             pytest.fail(f"{rel} reads the found-us answer")
     import inspect
-    readers = {"twitch_callback", "kick_callback", "me", "post_found_via", "admin_onboarding"}
+    # admin_new_users (2026-11-16) SHOWS the answer to the admin beside each
+    # new sign-up, as the account panel already does; it does not act on it.
+    readers = {"twitch_callback", "kick_callback", "me", "post_found_via", "admin_onboarding",
+               "admin_new_users"}
     for name, fn in inspect.getmembers(api, inspect.isfunction):
         if fn.__module__ != api.__name__ or name in readers:
             continue

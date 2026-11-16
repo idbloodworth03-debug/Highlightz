@@ -8633,3 +8633,54 @@ account as it was for ever. Do not patch it by treating "No such customer" as
 "inactive": with the wrong key in `.env` every customer reads that way and
 one sweep would downgrade all of them. It needs a guard (other customers
 resolving in the same pass) or a flag on the admin row.
+
+## Admin Users tile: rows in two groups, "joined today", and who joined (2026-11-16)
+
+Owner, with a screenshot of the tile ("200 free · 7 paying · 7 on trial · 2
+comped · 2 card failing · 14 joined this week (since Sun, Nov 15) · 54 last
+week · 5 staff", wrapped over four lines): "make it so that I can view new
+users that sign up today as well in over here and also can we organize it
+better".
+
+- **The tile is two short lists side by side**, a label and its number to a
+  row: **Plans** (Free, Paying, On trial, Comped, Card failing in red; a plan
+  nobody is on is left out except Free and Paying; the rows still sum to the
+  total) and **Joined** (Today, Yesterday, This week, Last week). Under them:
+  "Week began Sun, Nov 15. N staff not counted."
+- **It is the wide tile** (`#rail{grid-template-columns:2fr repeat(5,1fr)}`).
+  The first version stacked nine rows in a normal-width tile and made the
+  strip 600 px tall with five tiles of blank space; side by side it is ~400.
+  At 980 px the strip is three equal columns as before. On a phone the Users
+  tile takes the whole first row and the other five pair up after it, so the
+  left-hand tiles are the EVEN ones there: the rules are scoped to `#rail`
+  because the Active users strip shares `.rail` / `.cell` and keeps its own.
+- **Today and yesterday are midnight to midnight where the viewer is**
+  (`_day_bounds`, beside `_week_bounds`; both use `_viewer_zone`). Yesterday is
+  the calendar day before, so it is right on a 23 or 25 hour day.
+- **Each Joined row is a button** that lists who, in a panel under the strip
+  (`#new-list`, hidden until a row is pressed; the same row again, or Close,
+  hides it): account, plan, when they joined, how they found us, last active,
+  channels; newest first; a name opens the account panel. New endpoint
+  `GET /admin/new-users?window=today|yesterday|week|last_week&tz=`.
+  `_joined_windows` is the one definition of the four windows for both the
+  counts in `/admin/overview` (`new_today`, `new_yesterday`, `day_start`
+  added) and the lists, so a count and its list cannot disagree.
+- Realtime: the admin page re-reads the overview every 30 s, and the open
+  list with it, so a sign-up appears in both without a reload.
+- **Fixed with it:** a name in either list (active, joined) did nothing when
+  the account was newer than the page's own list of accounts (re-read every
+  60 s). `openFromList` now reads the accounts again when it cannot find one.
+- `admin_new_users` is added to the allowed readers of the found-us answer in
+  `tests/test_found_us.py`: it shows the answer to the admin, as the account
+  panel does, and acts on nothing.
+- The CSS is on the 4 px scale (the spacing test refused 2 px and 3 px), the
+  script has no backslash and no inline handler, `node --check` passes.
+
+Verified in a browser (Chromium, admin in New York, seeded accounts either
+side of each boundary) at 1440, 1100, 900 and 390 px: the tile's rows, each
+list and its order, an 11:59 PM sign-up landing in yesterday, the picked row
+surviving the 30 s refresh, a name opening the account (including one the
+page had not loaded), Close, Enter on a row, phone cards carrying their
+column names, no page errors, no sideways scroll. 16 new tests; full suite
+4513 passed.
+
