@@ -214,7 +214,13 @@ def test_the_sign_in_page_does_not_contradict_its_own_badge():
     assert not (demands_card and says_optional), \
         "the sign-in page demands a card and calls the plans optional"
     # And it still says what it costs — the one thing a visitor is looking for.
-    assert "$10/month" in html
+    # The cheapest plan ON SALE, read from the plans: this line said $10 for two
+    # weeks after Starter came off the site (2026-11-03), because the number was
+    # typed here as well as there.
+    from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS
+    cheapest = min(PLAN_LIMITS[p]["price"] for p in SELLABLE_PLANS)
+    assert f"Plans start at ${cheapest}/month" in html
+    assert "$10/month" not in html
 
 
 # ── 3. the tutorial page overflowed sideways ─────────────────────────────────

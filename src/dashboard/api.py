@@ -15141,7 +15141,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     Continue with Twitch
   </a>
   {kick}
-  <p class="price-note">The free plan has no time limit. Want more channels? Plans start at $10/month, cancel any time from your account.</p>
+  <p class="price-note">The free plan has no time limit. Want more channels? Plans start at $25/month, cancel any time from your account.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>

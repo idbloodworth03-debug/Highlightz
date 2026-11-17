@@ -8757,3 +8757,42 @@ the capture rig's trick) as a past-due account at 1440 and 390 px: the bar,
 both held channels labelled, the Account row; the first render clipped the
 button on a phone ("pdate car") and that was fixed.
 
+
+## The owner is weighing a time limit on Free; what it costs to run (2026-11-17)
+
+**Not decided. Nothing in the product changed.** Owner, 2026-11-17: "I am
+thinking of giving the Free Tier a time limit of like 10-20 hours so it makes
+people have to upgrade to paying tiers." They asked for a short deck of where
+things stand first, and got one (six slides, delivered in chat, not in the
+repo): the three plans as `PLAN_LIMITS` has them, Free in detail, the account
+split from the admin page on 2026-11-16 (218 accounts: 200 free, 7 paying, 7 on
+trial, 2 comped, 2 card failing, 5 staff not counted), the cost, and the idea
+as an open question.
+
+**The one running cost, from the owner: the server is $96 a month.** Record it
+here because nothing in the repo or on prod can tell a later session. Stripe's
+fee comes out of each payment, so it is not a bill. Four Pro subscriptions at
+the full $25 cover the server; what actually comes in is still unknown here
+(four of the five subscribers Stripe was charging on 2026-11-15 had a last
+invoice of $6.25; the price check in `scripts/paying_check.py` is waiting on
+its prod output).
+
+**If the limit is built, these have to be answered first** (put to the owner on
+the last slide, not answered yet): hours of what (time a channel is actually
+watched, or time since sign-up); what happens at the limit (does the account
+keep its clips and can it still open them); whether the 200 accounts already on
+Free get the same limit; which number between 10 and 20.
+
+**It reverses a recorded decision, so read that one before starting:** the
+2026-08-26 note at the top of `src/billing/plans.py` ("Free is now permanent
+and deliberately thin. It is not a sampler with a clock on it"), written after
+the 7-day trial converted badly. And the site promises it in more than a dozen
+places, all of which change with it: `grep -rn "no time limit\|never expires\|
+stay free" src/` (home page, pricing lead, the questions section, the sign-in
+page, the guides, the compare pages, `llms.txt`, and the three link-preview
+descriptions).
+
+**Found while reading those lines and fixed:** the sign-in page still said
+"Plans start at $10/month", two weeks after Starter came off the site. It says
+$25 now, and `tests/test_audit_fixes.py` holds the figure to the cheapest plan
+in `SELLABLE_PLANS` instead of a typed number. Static page, nothing realtime.
