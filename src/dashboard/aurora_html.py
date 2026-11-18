@@ -3618,6 +3618,104 @@ function FoundUsModal({ onDone, preview = false }) {
   );
 }
 
+// Why they cancelled (owner, 2026-11-18: "When users end their subscription
+// make them take a survey"). Cancelling happens on Stripe's page; the server
+// hears of it from Stripe, marks the account due (/me.cancel_survey_due) and
+// the question is here when Stripe sends them back. Like FoundUsModal IT
+// CANNOT BE SKIPPED: no close button, no Escape, a backdrop with no click
+// handler, Send disabled until there is an answer. Only "Something else"
+// needs the line. The keys are users.CANCEL_REASONS; a test holds the lists
+// together. Nothing in the product branches on the answer.
+const CANCEL_REASONS = [
+  ['too_expensive',   'It costs too much',              'What price would have worked?'],
+  ['not_using',       'I was not using it enough',      'What got in the way?'],
+  ['clips_quality',   'The clips were not good enough', 'What was wrong with them?'],
+  ['missing_feature', 'It is missing something I need', 'What is missing?'],
+  ['technical',       'It did not work properly',       'What went wrong?'],
+  ['hard_to_use',     'It was too hard to use',         'Which part?'],
+  ['switched',        'I moved to another tool',        'Which one?'],
+  ['temporary',       'I only needed it for a while',   'Anything that would bring you back?'],
+  ['other',           'Something else',                 'What was it?'],
+];
+
+function CancelSurveyModal({ due, onDone }) {
+  const [reason, setReason] = useState('');
+  const [detail, setDetail] = useState('');
+  const [busy, setBusy]     = useState(false);
+  const [err, setErr]       = useState('');
+  const box = useRef(null);
+  const row = CANCEL_REASONS.find(r => r[0] === reason);
+  const needsLine = reason === 'other';
+  const ready = !!reason && (!needsLine || detail.trim().length >= 2);
+  const ends = Number((due || {}).ends_at) || 0;
+  const plan = (due || {}).plan || '';
+  const until = ends * 1000 > Date.now()
+    ? 'Your ' + (plan ? plan + ' ' : '') + 'plan stays on until ' + new Date(ends * 1000).toLocaleDateString(undefined, {month:'long', day:'numeric'}) + '.'
+    : 'Your ' + (plan ? plan + ' ' : '') + 'plan has been cancelled.';
+
+  useEffect(() => {
+    const el = box.current;
+    if (el) { const f = el.querySelector('button'); if (f) f.focus(); }
+    const onKey = e => {
+      if (e.key !== 'Tab' || !box.current) return;
+      const items = box.current.querySelectorAll('button:not([disabled]), input, a');
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!box.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  const save = async () => {
+    if (!ready || busy) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/billing/cancel-survey', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ reason, detail: detail.trim() }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Could not save');
+      onDone(true);
+    } catch (e) {
+      // Left open with the error: closing on a failed save would lose the
+      // answer and look like it worked.
+      setErr(String(e.message || e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rd-ann-bg" role="dialog" aria-modal="true" aria-labelledby="rd-cx-title">
+      <div className="rd-onb glass" ref={box}>
+        <div className="rd-ann-k"><Icon name="chat" size={13}/>One question</div>
+        <h3 id="rd-cx-title">What made you cancel?</h3>
+        <div className="sub">{until} One answer before you carry on. It tells us what to fix.</div>
+        <div className="rd-onb-goals">
+          {CANCEL_REASONS.map(([key, label]) => (
+            <button key={key} className={'rd-onb-goal'+(reason===key?' on':'')}
+              onClick={()=>{ setReason(key); setErr(''); }} aria-pressed={reason===key}>{label}</button>
+          ))}
+        </div>
+        {row && <div className="rd-fu-more">
+          <label htmlFor="rd-cx-line">{row[2]}{needsLine ? '' : ' (optional)'}</label>
+          <input id="rd-cx-line" className="rd-input" maxLength={500} value={detail} autoComplete="off"
+            onChange={e=>setDetail(e.target.value)} onKeyDown={e=>{ if (e.key === 'Enter') save(); }}/>
+        </div>}
+        {err && <div className="rd-onb-err">{err}</div>}
+        <div className="rd-onb-foot">
+          <span className="rd-onb-step">{!reason ? 'Pick one' : (needsLine && !ready ? 'Tell us what' : 'All set')}
+            {ends * 1000 > Date.now() && <> · <a href="/billing/portal" style={{color:'var(--acc)'}}>Changed your mind? Keep your plan</a></>}</span>
+          <button className="rd-btn grad" disabled={busy || !ready} onClick={save}>
+            {busy ? 'Sending…' : 'Send'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // An announcement from the operator. In FRONT of everything — above the clip
 // modal and the editor — because the whole point is that it cannot be
 // missed. One at a time, oldest first when several are waiting; dismissing
@@ -12267,6 +12365,15 @@ function RdApp() {
   // it in every tab. The admin preview walks it first and saves nothing.
   const [fuPreviewDone, setFuPreviewDone] = useState(false);
   const needsFoundUs = onbPreview ? !fuPreviewDone : !!(me && me.user_id && me.found_via_due);
+  // They cancelled and have not said why (/me.cancel_survey_due, set by the
+  // server when Stripe reports the cancellation). Derived, so a reconnect
+  // re-derives it; billing_changed raises it live and cancel_survey_saved
+  // closes it in every tab. After "where did you find us", before the rest.
+  const needsCancelSurvey = !onbPreview && !!(me && me.user_id && me.cancel_survey_due) && !needsFoundUs;
+  const cancelSurveyDone = (thanks) => {
+    setMe(m=>(m ? {...m, cancel_survey_due: null} : m));
+    if (thanks) flash('Thank you. That helps.');
+  };
   const foundUsDone = () => {
     if (onbPreview) setFuPreviewDone(true);
     else setMe(m=>(m ? {...m, found_via_due: false} : m));
@@ -12692,6 +12799,11 @@ function RdApp() {
         else if(msg.event==='prefs_changed'){
           // Settings saved in any tab: the full prefs ride on the event.
           setMe(m=>({...(m||{}), prefs: msg.prefs||{}}));
+        }
+        else if(msg.event==='cancel_survey_saved'){
+          // "What made you cancel?" answered in another tab of this account:
+          // the question here closes too, with no refresh.
+          setMe(m=>(m ? {...m, cancel_survey_due: null} : m));
         }
         else if(msg.event==='found_via_saved'){
           // "Where did you find us?" answered in another tab of this account:
@@ -13131,6 +13243,7 @@ function RdApp() {
         campaignsHref={canCampaigns ? '/?view=campaigns' : ''}/>
       <RdToast msg={toast}/>
       {needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}
+      {needsCancelSurvey && <CancelSurveyModal due={me.cancel_survey_due} onDone={cancelSurveyDone}/>}
     </>;
   }
 
@@ -13241,14 +13354,18 @@ function RdApp() {
       {/* The found-us question first; everything else that pops up waits
           for it, so a new account never sees two of these stacked. */}
       {needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}
-      {announcements.length > 0 && !needsFoundUs && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}
+      {/* The cancellation question goes in front of announcements, offers
+          and the onboarding questions: one modal at a time, and this is the
+          one they have to answer. */}
+      {needsCancelSurvey && <CancelSurveyModal due={me.cancel_survey_due} onDone={cancelSurveyDone}/>}
+      {announcements.length > 0 && !needsFoundUs && !needsCancelSurvey && <AnnouncementModal a={announcements[0]} onSeen={dismissAnnouncement}
         onOpenCampaign={openCampaign}/>}
-      {announcements.length === 0 && !needsOnboarding && !needsFoundUs && me && me.offer &&
+      {announcements.length === 0 && !needsOnboarding && !needsFoundUs && !needsCancelSurvey && me && me.offer &&
         <OfferModal offer={me.offer} onDismiss={dismissOffer}/>}
       {/* After the wake, not over it: adding the first channel from the
           welcome screen plays the wake, and the questions covering it would
           hide the one thing that just happened. */}
-      {needsOnboarding && !needsFoundUs && !wake && <OnboardingModal preview={onbPreview}
+      {needsOnboarding && !needsFoundUs && !needsCancelSurvey && !wake && <OnboardingModal preview={onbPreview}
         onDone={(p, expect)=>{
           setMe(m=>({...(m||{}), prefs: p || {...((m||{}).prefs||{}), onboarded_at: Date.now()/1000}}));
           // What the answer just bought them, in the words they used to give

@@ -532,7 +532,7 @@ def test_the_onboarding_questions_wait_for_the_wake():
     onboarding questions are due at that same moment for a new Twitch
     account, and covering the wake would hide the one thing that happened."""
     d = _dash()
-    assert "{needsOnboarding && !needsFoundUs && !wake && <OnboardingModal" in d
+    assert "{needsOnboarding && !needsFoundUs && !needsCancelSurvey && !wake && <OnboardingModal" in d
 
 
 def test_a_refused_channel_on_first_run_says_why():

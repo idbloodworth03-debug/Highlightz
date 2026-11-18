@@ -1850,6 +1850,10 @@ async def me(request: Request):
         # The quiz is derived from this, so a reconnect (refetchAll reads /me)
         # puts it back or takes it away; found_via_saved closes it live.
         "found_via_due":       user_store.found_via_due(user),
+        # They cancelled and have not said why yet: {plan, ends_at}, else None.
+        # The question is derived from this, so a reconnect puts it back;
+        # billing_changed raises it live and cancel_survey_saved closes it.
+        "cancel_survey_due":   user_store.cancel_survey_due(user),
         # The languages captions and hook titles can be in, for the pickers
         # (prefs.language holds the account's choice). src/language.py.
         "languages":           _language.choices(),
@@ -3443,6 +3447,43 @@ def _subscription_status_before(user_id: str | None, cust_id: str) -> str:
     return str((u or {}).get("subscription_status") or "")
 
 
+async def _cancel_survey_from_event(event: dict, user_id: str | None, status: str,
+                                    status_before: str) -> None:
+    """Mark the cancellation survey due, take it back, or record the answer
+    Stripe already collected, from one subscription event (owner, 2026-11-18:
+    "When users end their subscription make them take a survey").
+
+    Cancelling happens on Stripe's page, so this is where the site finds out.
+    src/billing/cancel_survey.py decides what the event means; this applies it
+    and tells the account's open tabs, which re-read /me (`billing_changed`,
+    an event the dashboard already handles) so the question appears, or goes,
+    with no reload. Stripe sends them back to the dashboard seconds later.
+    """
+    if not user_id or not str(event.get("type") or "").startswith("customer.subscription"):
+        return
+    from src.auth import users as user_store
+    from src.billing import cancel_survey as cs
+    from src.billing.plans import PLAN_LIMITS
+    obj = (event.get("data") or {}).get("object") or {}
+    info = cs.read(obj)
+    what = cs.decide(info, status, status_before)
+    if not what:
+        return
+    u = user_store.get_by_id(user_id) or {}
+    plan = (PLAN_LIMITS.get(str(u.get("plan") or "")) or {}).get("label", "")
+    if what == "record":
+        changed = user_store.record_cancel_feedback(user_id, info["token"], info["reason"],
+                                                    info["detail"], plan)
+    elif what == "ask":
+        changed = user_store.ask_cancel_survey(user_id, info["token"], plan, info["ends_at"])
+    else:
+        changed = user_store.unask_cancel_survey(user_id)
+    if changed:
+        log.info("cancel_survey_" + {"record": "recorded_from_stripe", "ask": "due",
+                                     "unask": "withdrawn"}[what], user_id=user_id)
+        await broadcast({"event": "billing_changed"}, user_id=user_id)
+
+
 async def _process_stripe_event(event: dict, now: float, event_id: str):
     from src.billing.stripe_billing import sync_subscription_event
     async with _stripe_event_lock:
@@ -3523,6 +3564,13 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
         user_id = apply_subscription_event(user_id, cust_id, status, trial_end)
         log.info("stripe_subscription_updated", customer=cust_id, status=status,
                  affected_user=user_id or "none", trial_end=trial_end or 0)
+        # Did they just cancel (or undo it)? Decides whether the "why are you
+        # leaving" question is due. Never allowed to break billing: this is a
+        # survey, and the lines below are somebody's access.
+        try:
+            await _cancel_survey_from_event(event, user_id, status, status_before)
+        except Exception:
+            log.exception("cancel_survey_hook_failed", user_id=user_id or "")
         # Burn the trial HERE, not when the checkout session was created. A
         # session that gets abandoned costs nothing and must not spend
         # somebody's one free week; a subscription that reaches `trialing` is
@@ -5565,6 +5613,36 @@ async def post_found_via(request: Request):
     await broadcast({"event": "found_via_saved"}, user_id=uid)
     log.info("found_via_answered", user_id=uid, source=answer["source"])
     return {"found_via": answer, "found_via_due": False}
+
+
+@app.post("/billing/cancel-survey")
+async def post_cancel_survey(request: Request):
+    """Why this account cancelled: the question it must answer after ending
+    its subscription (owner, 2026-11-18).
+
+    One answer from users.CANCEL_REASONS plus a line in their own words,
+    which only "other" requires. Only while the question is due, so a replay
+    or a second tab cannot add answers. NOTHING in the product branches on
+    it: it is read on the admin page. Broadcast to this account only, so
+    another tab still showing the question closes it without a refresh.
+    """
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a JSON object")
+    try:
+        answer = user_store.set_cancel_survey(uid, body.get("reason"), body.get("detail") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if answer is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    await broadcast({"event": "cancel_survey_saved"}, user_id=uid)
+    log.info("cancel_survey_answered", user_id=uid, reason=answer["reason"])
+    return {"cancel_survey_due": None}
 
 
 @app.delete("/streams/{channel}", status_code=204)
@@ -8325,6 +8403,35 @@ async def admin_onboarding(request: Request):
             "rows": f_rows,
         },
     }
+
+
+@app.get("/admin/cancellations")
+async def admin_cancellations(request: Request):
+    """Why people cancelled, for the admin Onboarding tab (owner, 2026-11-18).
+
+    `waiting` are accounts that cancelled and have not answered yet: they see
+    the question the next time they open the dashboard. Answers live on the
+    account, so a deleted account takes its answers with it. Names only.
+    """
+    _require_admin(request)
+    from src.auth import users as user_store
+    reasons = {r: 0 for r in user_store.CANCEL_REASONS}
+    rows, waiting = [], []
+    for u in user_store.get_all():
+        name = u.get("username") or u.get("id", "")
+        due = u.get("cancel_survey_due")
+        if due:
+            waiting.append({"user": name, "plan": str(due.get("plan") or ""),
+                            "asked_at": float(due.get("asked_at") or 0)})
+        for a in user_store.cancel_surveys_of(u):
+            r = a.get("reason") if a.get("reason") in reasons else "other"
+            reasons[r] += 1
+            rows.append({"user": name, "reason": r, "detail": str(a.get("detail") or ""),
+                         "plan": str(a.get("plan") or ""), "at": float(a.get("at") or 0),
+                         "source": str(a.get("source") or "user")})
+    rows.sort(key=lambda r: -r["at"])
+    waiting.sort(key=lambda r: -r["asked_at"])
+    return {"answered": len(rows), "waiting": waiting, "reasons": reasons, "rows": rows}
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -16386,6 +16493,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="accounts">Accounts<span class="c" id="tc-accounts"></span></button>
     <button class="tab" data-tab="campaigns">Campaigns<span class="c" id="tc-campaigns"></span></button>
     <button class="tab" data-tab="onboarding">Onboarding<span class="c" id="tc-onboarding"></span></button>
+    <button class="tab" data-tab="cancellations">Cancellations<span class="c" id="tc-cancellations"></span></button>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
     <button class="tab" data-tab="cleanup">Clean up<span class="c" id="tc-cleanup"></span></button>
@@ -16624,6 +16732,21 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="tw"><div id="ob-wrap" class="loading">Loading&hellip;</div></div>
   </div>
 
+  <!-- ── CANCELLATIONS ── -->
+  <div class="panel" id="panel-cancellations">
+    <div class="block-head"><h2>Why they cancelled</h2><span class="c" id="cx-c"></span></div>
+    <p class="sub">
+      The question an account has to answer after it cancels on Stripe's
+      billing page, before it can carry on in the dashboard. <b>Waiting</b>
+      are accounts that cancelled and have not opened the dashboard since. An
+      answer marked "on Stripe" was given on Stripe's own cancel page.
+      A failed card is not a cancellation and is never asked.
+    </p>
+    <div class="tw" id="cx-stats"></div>
+    <div class="tw" style="margin-top:var(--s-5)"><div id="cx-wrap" class="loading">Loading&hellip;</div></div>
+    <div class="tw" style="margin-top:var(--s-5)"><div id="cx-wait"></div></div>
+  </div>
+
   <!-- ── REVIEWS ── -->
   <div class="panel" id="panel-notify">
     <h2>Announce to everyone</h2>
@@ -16788,6 +16911,7 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'accounts') loadAccounts();
   if(b.dataset.tab === 'campaigns') loadCampaigns();
   if(b.dataset.tab === 'onboarding') loadOnboarding();
+  if(b.dataset.tab === 'cancellations') loadCancellations();
 });
 
 // ── clean up ────────────────────────────────────────────────────────────────
@@ -17062,6 +17186,71 @@ document.getElementById('ob-filter').addEventListener('input', function(e){
 // new account's answers appear without clicking the tab again (owner,
 // 2026-10-26: "make sure the information goes back to the admin page so I
 // can see it all").
+// ── cancellations: why they left ──────────────────────────────────────────
+// Keys are users.CANCEL_REASONS; a test holds the two lists together.
+const CX_LABELS = {
+  too_expensive: 'It costs too much',
+  not_using: 'Was not using it enough',
+  clips_quality: 'The clips were not good enough',
+  missing_feature: 'Missing something they need',
+  technical: 'It did not work properly',
+  hard_to_use: 'Too hard to use',
+  switched: 'Moved to another tool',
+  temporary: 'Only needed it for a while',
+  other: 'Something else'
+};
+let CX_LOADED = false;
+
+async function loadCancellations(){
+  let d;
+  try { d = await api('/admin/cancellations'); }
+  catch(e){ document.getElementById('cx-wrap').textContent = 'Could not load.'; return; }
+  CX_LOADED = true;
+  const rs = (d && d.reasons) || {}, rows = (d && d.rows) || [], wait = (d && d.waiting) || [];
+  const total = Number(d && d.answered) || 0;
+  document.getElementById('cx-c').textContent =
+    n0(total) + ' answered · ' + n0(wait.length) + ' waiting';
+  document.getElementById('tc-cancellations').textContent = total ? String(total) : '';
+  const pc = v => total ? Math.round(100 * v / total) + '%' : '—';
+  const ranked = Object.keys(CX_LABELS).map(k => [k, rs[k] || 0]).sort((a,b) => b[1] - a[1]);
+  let h = '<table><thead><tr><th>Reason</th><th>Answers</th><th>Share</th></tr></thead><tbody>';
+  ranked.forEach(function(r){
+    h += '<tr><td>' + CX_LABELS[r[0]] + '</td><td class="num">' + n0(r[1]) + '</td><td class="num">' + pc(r[1]) + '</td></tr>';
+  });
+  document.getElementById('cx-stats').innerHTML = h + '</tbody></table>';
+  const wrap = document.getElementById('cx-wrap');
+  wrap.className = '';
+  if(!rows.length){
+    wrap.innerHTML = '<p class="sub">Nobody has answered yet. A row appears the moment somebody who cancelled answers.</p>';
+  } else {
+    let t = '<table><thead><tr><th>When</th><th>Account</th><th>Plan</th><th>Reason</th><th>In their words</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      t += '<tr><td>' + (r.at ? new Date(r.at*1000).toLocaleString() : '—') + '</td>'
+         + '<td><b>' + esc(r.user) + '</b></td>'
+         + '<td>' + (r.plan ? esc(r.plan) : '—') + '</td>'
+         + '<td>' + esc(CX_LABELS[r.reason] || r.reason) + (r.source === 'stripe' ? ' <span class="sub">(on Stripe)</span>' : '') + '</td>'
+         + '<td>' + (r.detail ? esc(r.detail) : '<span class="sub">nothing added</span>') + '</td></tr>';
+    });
+    wrap.innerHTML = t + '</tbody></table>';
+  }
+  const ww = document.getElementById('cx-wait');
+  if(!wait.length){ ww.innerHTML = ''; }
+  else {
+    let w = '<table><thead><tr><th>Waiting to answer</th><th>Plan</th><th>Cancelled</th></tr></thead><tbody>';
+    wait.forEach(function(r){
+      w += '<tr><td><b>' + esc(r.user) + '</b></td><td>' + (r.plan ? esc(r.plan) : '—') + '</td>'
+         + '<td>' + (r.asked_at ? new Date(r.asked_at*1000).toLocaleString() : '—') + '</td></tr>';
+    });
+    ww.innerHTML = w + '</tbody></table>';
+  }
+}
+function cancellationsOpen(){
+  const panel = document.getElementById('panel-cancellations');
+  return CX_LOADED && panel && panel.classList.contains('on') && !document.hidden;
+}
+window.addEventListener('focus', function(){ if(cancellationsOpen()) loadCancellations(); });
+setInterval(function(){ if(cancellationsOpen()) loadCancellations(); }, 20000);
+
 function onboardingOpen(){
   const panel = document.getElementById('panel-onboarding');
   return OB_LOADED && panel && panel.classList.contains('on') && !document.hidden;
@@ -19437,6 +19626,7 @@ loadInvites();
 loadClipRecord();
 loadReviews();
 loadOnboarding();
+loadCancellations();
 </script>
 </body>
 </html>"""

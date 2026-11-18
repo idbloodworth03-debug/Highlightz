@@ -9042,3 +9042,96 @@ prices; whether an ordinary account may post 2:20 through the API; X's
 automation rules for posting on a user's behalf (their OAuth consent is the
 basis, and the cap keeps volume low). `docs.x.com` and `api.x.com` are outside
 the dev session's allowed hosts.
+
+## X is left blank; a survey when somebody cancels (2026-11-18)
+
+**X:** owner, 2026-11-18, about the X keys: "leave it blank for now". Nothing
+to do: with `X_CLIENT_ID` empty X does not exist anywhere on the site (the
+section above). Do not prompt for it again unless they bring it up.
+
+**The cancellation survey.** Owner, same message: "When users end their
+subscription make them take a survey".
+
+**Where a cancellation happens, and so where this hooks in.** Nobody cancels
+on the site: "Manage billing" opens Stripe's page and the cancel button is
+there. Until today the site learned nothing until the paid period ran out. So
+the trigger is the webhook: `_cancel_survey_from_event` runs right after
+`apply_subscription_event` for every `customer.subscription.*` event, inside
+its own try/except (it sits in the code that hands out and takes away access;
+a survey must never break that, and a test makes it throw to prove it).
+`src/billing/cancel_survey.py` is the one place that reads the event:
+- still active with `cancel_at_period_end` (or `cancel_at`): they pressed
+  cancel. **Ask now.** Stripe sends them back to the dashboard seconds later
+  and the question is waiting.
+- that flag gone again: they kept the plan. The question is withdrawn.
+- ended outright after being paid for, `cancellation_details.reason` empty or
+  `cancellation_requested`: ask (an immediate cancel).
+- a failed card is never asked "why did you cancel": not `past_due`, not a
+  subscription Stripe gave up on (`payment_failed`), not one that was already
+  inactive (our own refund-and-cancel of a duplicate signup).
+- `cancellation_details.feedback` / `.comment` present: Stripe's own cancel
+  page asked and they answered (that step is off unless switched on in
+  Stripe's portal settings, and skippable there). It is recorded as the
+  answer, in our vocabulary (`STRIPE_FEEDBACK`), and they are not asked twice.
+
+**One question per cancellation.** `token` = subscription id + `canceled_at`.
+Stripe repeats events and sends several per cancel; the same token is never
+asked or recorded twice, and a second cancellation months later is a new one.
+
+**Storage** (`src/auth/users.py`, beside `found_via`, same shape):
+`cancel_survey_due` {token, asked_at, plan, ends_at} while unanswered, and
+`cancel_surveys` [{reason, detail, at, plan, token, source}] on the account
+(source `user` or `stripe`). On the account on purpose: deleting the account
+deletes its answers. `CANCEL_REASONS`: too_expensive, not_using,
+clips_quality, missing_feature, technical, hard_to_use, switched, temporary,
+other (only `other` requires the line, up to 500 characters).
+
+**The dashboard.** `/me.cancel_survey_due` ({plan, ends_at} or null) drives
+`CancelSurveyModal`: "What made you cancel?" It cannot be skipped, the same
+way the found-us question cannot (no close, no Escape, no backdrop click,
+Send disabled until answered), and it goes in front of announcements, offers
+and the onboarding questions (after found-us). The one other door is
+"Changed your mind? Keep your plan" to the billing page; keeping the plan
+there withdraws the question through the webhook. `POST /billing/cancel-survey`
+only while one is due.
+
+**Realtime:** the webhook sends `billing_changed` (already handled: re-reads
+/me) when the question becomes due or is withdrawn, so an open tab shows or
+drops it with no reload; the answer sends `cancel_survey_saved` (new, handler
+added) so the account's other tabs close it. /me is in refetchAll, so a
+reconnect re-derives it.
+
+**The admin page:** a new tab, **Cancellations** (`GET /admin/cancellations`):
+answers per reason with shares, every answer with the account, the plan and
+their words ("on Stripe" marked), and who cancelled but has not answered yet.
+Names only. Refreshes while open, like Onboarding.
+
+**What it cannot do, and what was told to the owner:**
+- Nobody can be made to answer who cancels and never opens the dashboard
+  again. They show under "waiting". Switching on Stripe's own reason step
+  (Stripe Dashboard, Settings, Billing, Customer portal, Cancellations,
+  cancellation reasons) catches some of those at the moment they cancel, and
+  those answers arrive here by themselves.
+- It starts with cancellations made after the deploy. Subscriptions already
+  set to cancel are only picked up if Stripe sends another event for them
+  (it does when the period ends).
+- The hourly sweep is deliberately NOT a second trigger: it only sees live
+  subscriptions, cannot tell a cancel from a failed card for one that is
+  gone, and a missed survey costs nothing.
+- Needs `customer.subscription.updated` and `.deleted` on the Stripe webhook,
+  which the billing code already depends on.
+
+Tests: `tests/test_cancel_survey.py` (22: what each event means, one question
+per cancellation, Stripe's answer counting once, Stripe's events driven
+through the real `_process_stripe_event` for cancel / undo / immediate cancel
+/ failed card / reason step / a survey that throws, the endpoint and /me, the
+modal's answers matching the server's and having no way out, every emitted
+event having a handler, the admin read-out and labels). Six mutations each
+failed a test. Three older tests that pinned the modal ordering line or the
+count of `billing_changed` senders were updated. Full suite 4606 passed; JSX
+parsed with Babel; the admin script passes `node --check` with no
+backslashes. **Seen in a browser** (real dashboard, headless, 1440 and 390
+px): the question over the dashboard, Escape and a backdrop click leaving it
+there, "Something else" refusing to send with nothing typed, the answer
+saving and the question not returning after a reload, and the admin tab
+listing both answers with the words typed.

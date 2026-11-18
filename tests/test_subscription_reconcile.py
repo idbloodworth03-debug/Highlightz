@@ -451,8 +451,10 @@ def test_the_quiet_event_is_handled_and_stays_quiet():
     assert "fetch('/me')" in block and "setMe" in block
     assert "flash(" not in block, "a failing card is not announced with a toast"
     api_src = pathlib.Path("src/dashboard/api.py").read_text()
-    # The sweep, the webhook's first-payment branch, and a retry of a failure already announced.
-    assert api_src.count('{"event": "billing_changed"}') == 3
+    # The sweep, the webhook's first-payment branch, a retry of a failure
+    # already announced, and (2026-11-18) the cancellation survey becoming due
+    # or being withdrawn, which also only re-reads /me.
+    assert api_src.count('{"event": "billing_changed"}') == 4
 
 
 def test_the_first_pass_is_minutes_after_a_start_not_an_hour(monkeypatch):

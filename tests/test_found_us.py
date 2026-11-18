@@ -288,11 +288,14 @@ def test_the_quiz_comes_before_everything_else():
     page = _page()
     first_run = page[page.index("<FirstRun onAdd"):][:400]
     assert "{needsFoundUs && <FoundUsModal" in first_run, "the Add a channel screen comes first"
-    shell = page[page.index("{needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}\n      {announcements"):]
+    # The main shell: the quiz is first, then (2026-11-18) the cancellation
+    # question, which itself waits for the quiz; everything else waits for both.
+    shell = page[page.index("{needsFoundUs && <FoundUsModal preview={onbPreview} onDone={foundUsDone}/>}\n      {/* The cancellation"):]
     shell = shell[:shell.index("{postClip")]
     assert "announcements.length > 0 && !needsFoundUs" in shell
-    assert "!needsOnboarding && !needsFoundUs && me && me.offer" in shell
-    assert "{needsOnboarding && !needsFoundUs && !wake && <OnboardingModal" in shell
+    assert "!needsOnboarding && !needsFoundUs && !needsCancelSurvey && me && me.offer" in shell
+    assert "{needsOnboarding && !needsFoundUs && !needsCancelSurvey && !wake && <OnboardingModal" in shell
+    assert "&& !needsFoundUs;" in page.split("const needsCancelSurvey = ")[1].split("\n")[0]
 
 
 def test_the_flag_comes_from_me_so_a_reconnect_rederives_it():

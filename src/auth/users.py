@@ -854,6 +854,127 @@ def set_found_via(user_id: str, source, detail="") -> dict | None:
     return None
 
 
+# ── Why they cancelled ───────────────────────────────────────────────────────
+# Owner, 2026-11-18: "When users end their subscription make them take a
+# survey". Cancelling happens on Stripe's billing page, so the site learns of
+# it from the webhook (src/billing/cancel_survey.py reads the event) and marks
+# the account DUE; the dashboard then puts the question in front of everything
+# until it is answered. Like found_via: a fixed vocabulary so it can be
+# counted, plus a line in their own words, and NOTHING in the product branches
+# on the answer. Answers are kept as a list on the account (somebody can
+# cancel twice) and go when the account is deleted.
+CANCEL_REASONS = (
+    "too_expensive", "not_using", "clips_quality", "missing_feature",
+    "technical", "hard_to_use", "switched", "temporary", "other",
+)
+CANCEL_NEEDS_DETAIL = ("other",)
+CANCEL_DETAIL_MAX = 500
+
+
+def _cancel_answered(u: dict, token: str) -> bool:
+    return any(a.get("token") == token for a in (u.get("cancel_surveys") or []))
+
+
+def ask_cancel_survey(user_id: str, token: str, plan: str = "", ends_at: float = 0) -> bool:
+    """Mark this account as due the question for ONE cancellation, named by
+    `token` (the subscription and the moment it was cancelled). True when the
+    mark was made; False when this same cancellation was already asked about
+    or answered, so Stripe repeating an event never asks twice."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            due = u.get("cancel_survey_due") or {}
+            if due.get("token") == token or _cancel_answered(u, token):
+                return False
+            u["cancel_survey_due"] = {"token": token, "asked_at": time.time(),
+                                      "plan": str(plan or ""), "ends_at": float(ends_at or 0)}
+            _save(users)
+            return True
+    return False
+
+
+def unask_cancel_survey(user_id: str) -> bool:
+    """They changed their mind before answering (the cancellation was undone
+    on Stripe's page): nothing is ending, so there is nothing to ask."""
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if not u.get("cancel_survey_due"):
+                return False
+            u.pop("cancel_survey_due", None)
+            _save(users)
+            return True
+    return False
+
+
+def cancel_survey_due(user: dict | None) -> dict | None:
+    """What the dashboard needs to ask: {plan, ends_at}, or None."""
+    due = (user or {}).get("cancel_survey_due")
+    if not due:
+        return None
+    return {"plan": str(due.get("plan") or ""), "ends_at": float(due.get("ends_at") or 0)}
+
+
+def clean_cancel_detail(text) -> str:
+    s = " ".join(str(text or "").split())
+    s = "".join(ch for ch in s if ch.isprintable())
+    return s[:CANCEL_DETAIL_MAX].strip()
+
+
+def set_cancel_survey(user_id: str, reason, detail="") -> dict | None:
+    """Store the answer to the question that is due. Returns the stored
+    answer, or None for an unknown account. Raises ValueError for an answer
+    outside the vocabulary, "other" with nothing said, or nothing being due
+    (a replayed request, or a second tab that was already answered)."""
+    reason = str(reason or "").strip().lower()
+    if reason not in CANCEL_REASONS:
+        raise ValueError("Pick one of the answers.")
+    detail = clean_cancel_detail(detail)
+    if reason in CANCEL_NEEDS_DETAIL and len(detail) < 2:
+        raise ValueError("Tell us what it was.")
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            due = u.get("cancel_survey_due")
+            if not due:
+                raise ValueError("There is nothing to answer.")
+            a = {"reason": reason, "detail": detail, "at": time.time(),
+                 "plan": str(due.get("plan") or ""), "token": str(due.get("token") or ""),
+                 "source": "user"}
+            u.setdefault("cancel_surveys", []).append(a)
+            u.pop("cancel_survey_due", None)
+            _save(users)
+            return a
+    return None
+
+
+def record_cancel_feedback(user_id: str, token: str, reason: str, detail: str = "",
+                           plan: str = "") -> bool:
+    """An answer Stripe collected on its own cancellation page. Counts as the
+    survey for that cancellation: stored once, and the question is not asked
+    again for it. True when something changed."""
+    if reason not in CANCEL_REASONS:
+        reason = "other"
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if _cancel_answered(u, token):
+                return False
+            due = u.get("cancel_survey_due") or {}
+            u.setdefault("cancel_surveys", []).append(
+                {"reason": reason, "detail": clean_cancel_detail(detail), "at": time.time(),
+                 "plan": str(plan or due.get("plan") or ""), "token": token, "source": "stripe"})
+            if due.get("token") == token:
+                u.pop("cancel_survey_due", None)
+            _save(users)
+            return True
+    return False
+
+
+def cancel_surveys_of(user: dict | None) -> list[dict]:
+    return [dict(a) for a in ((user or {}).get("cancel_surveys") or []) if isinstance(a, dict)]
+
+
 def set_review_prompt_state(user_id: str, state: dict) -> None:
     """Persist when we last asked this user for a review, and whether they told
     us to stop. Lives on the user rather than in the reviews file because it
