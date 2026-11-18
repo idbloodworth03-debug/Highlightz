@@ -334,3 +334,158 @@ def test_the_sum_of_squares_cannot_overflow_a_chunk():
     from src.ingestion import audio_meter as am
     loudest = b"\x00\x80" * 100_000                    # 12.5 s of full-scale negative
     assert am._sum_squares(loudest, 100_000) == 100_000 * 32768 * 32768
+
+
+# ── the ledger scans, in a process of their own ──────────────────────────────
+# Prod, 2026-11-18, 59 live. The scans had been moved to a thread and the loop
+# still lost 13 of its 57 busy points waiting: Python runs one thread at a
+# time, so a busy thread makes the loop wait after every socket read. A
+# process has its own interpreter. These hold that the answer is the same one,
+# that one run answers both readings, and that every way it can fail ends in
+# the thread doing the job as before.
+
+def _ledger(path, rows=400):
+    with path.open("w", encoding="utf-8") as f:
+        for i in range(rows):
+            uid, ch = f"u{i % 7}", f"c{i % 3}"
+            ev = ("caught", "approved", "rejected", "expired", "missed", "undone", "cleared")[i % 7]
+            f.write(json.dumps({"ts": 1.76e9 + i * 37.5, "event": ev, "user_id": uid,
+                                "channel": ch, "clip_id": f"clip{i // 2}",
+                                "clip_at": round(1.76e9 + i * 37.5 - 12.3, 1)}) + "\n")
+        f.write("this line is not json\n")
+
+
+@pytest.fixture
+def big_ledger(tmp_path, monkeypatch):
+    path = tmp_path / "stream_stats.jsonl"
+    _ledger(path)
+    monkeypatch.setattr(stream_stats, "_LOG_FILE", path)
+    monkeypatch.setattr(stream_stats, "_CHILD_MIN_BYTES", 1)
+    stream_stats.forget_scans()
+    return path
+
+
+def test_the_process_gives_the_answer_the_functions_give(big_ledger):
+    want_rows, want_totals = stream_stats.all_rows(), stream_stats.totals_by_user()
+    assert len(want_rows) == 21 and len(want_totals) == 7
+
+    async def go():
+        return await stream_stats.all_rows_shared(), await stream_stats.totals_by_user_shared()
+    rows, totals = asyncio.run(go())
+    # Exactly, through JSON: every number, every session, the same order.
+    assert rows == json.loads(json.dumps(want_rows))
+    assert totals == json.loads(json.dumps(want_totals))
+    assert [r["user_id"] + r["channel"] for r in rows] == [r["user_id"] + r["channel"] for r in want_rows]
+
+
+def test_the_parse_does_not_run_in_the_apps_own_process(big_ledger, monkeypatch):
+    def not_here():
+        raise AssertionError("the ledger was parsed in the app's process")
+    monkeypatch.setattr(stream_stats, "all_rows", not_here)
+    monkeypatch.setattr(stream_stats, "totals_by_user", not_here)
+    rows = asyncio.run(stream_stats.all_rows_shared())
+    assert len(rows) == 21
+
+
+def test_one_run_answers_both_readings_and_everyone_waiting(big_ledger, monkeypatch):
+    runs = []
+    real = stream_stats._scan_in_child
+
+    async def counted():
+        runs.append(1)
+        return await real()
+    monkeypatch.setattr(stream_stats, "_scan_in_child", counted)
+
+    async def go():
+        got = await asyncio.gather(stream_stats.all_rows_shared(), stream_stats.totals_by_user_shared(),
+                                   stream_stats.all_rows_shared(), stream_stats.totals_by_user_shared())
+        again = await stream_stats.totals_by_user_shared()
+        return got, again
+    got, again = asyncio.run(go())
+    assert runs == [1]
+    assert len(got[0]) == 21 and len(got[1]) == 7 and again == got[1]
+
+
+def test_a_small_ledger_is_not_worth_a_process(tmp_path, monkeypatch):
+    path = tmp_path / "stream_stats.jsonl"
+    _ledger(path, rows=30)
+    monkeypatch.setattr(stream_stats, "_LOG_FILE", path)
+    assert path.stat().st_size < stream_stats._CHILD_MIN_BYTES
+
+    async def never():
+        raise AssertionError("a process was started for a few kilobytes")
+    monkeypatch.setattr(stream_stats, "_scan_in_child", never)
+    stream_stats.forget_scans()
+    assert len(asyncio.run(stream_stats.all_rows_shared())) == 21
+
+
+@pytest.mark.parametrize("breakage", ["exits 3", "prints nonsense", "cannot start", "too slow"])
+def test_however_the_process_fails_the_thread_does_the_job(big_ledger, monkeypatch, breakage):
+    import sys
+    code = {"exits 3": "import sys; sys.exit(3)",
+            "prints nonsense": "print('@@ledger-scan@@{not json')",
+            "cannot start": "",
+            "too slow": "import time; time.sleep(30)"}[breakage]
+    real = asyncio.create_subprocess_exec
+    started = []
+
+    async def fake(*args, **kw):
+        if breakage == "cannot start":
+            raise FileNotFoundError("no interpreter")
+        proc = await real(sys.executable, "-c", code, **{k: v for k, v in kw.items() if k != "cwd"})
+        started.append(proc)
+        return proc
+    monkeypatch.setattr(stream_stats.asyncio, "create_subprocess_exec", fake)
+    monkeypatch.setattr(stream_stats, "_CHILD_TIMEOUT_S", 0.5)
+    said = []
+    monkeypatch.setattr(stream_stats.log, "warning", lambda ev, **kw: said.append(ev))
+
+    async def go():
+        rows = await stream_stats.all_rows_shared()
+        for p in started:                               # nothing is left running
+            await asyncio.wait_for(p.wait(), 5)
+        return rows
+    rows = asyncio.run(go())
+    assert len(rows) == 21
+    assert said == ["ledger_scan_child_failed"]
+
+
+def test_the_scan_script_prints_one_answer_after_its_marker(big_ledger):
+    import subprocess
+    import sys
+    from src.stats import ledger_scan
+    out = subprocess.run([sys.executable, "-m", "src.stats.ledger_scan", str(big_ledger)],
+                         capture_output=True, timeout=60, check=True).stdout.decode()
+    assert out.count(ledger_scan.MARKER) == 1
+    got = json.loads(out.split(ledger_scan.MARKER, 1)[1])
+    assert set(got) == {"rows", "totals"} and len(got["rows"]) == 21
+    # It imports the ledger and nothing of the app.
+    src = inspect.getsource(ledger_scan)
+    assert "dashboard" not in src.split('"""', 2)[2] and "src.main" not in src
+
+
+def test_it_refuses_to_guess_which_file():
+    from src.stats import ledger_scan
+    assert ledger_scan.main([]) == 2
+
+
+# ── the sentiment word list is read once, not per channel per pass ───────────
+
+def test_the_shared_analyzer_scores_exactly_as_a_fresh_one():
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    from src.ingestion import stream_worker as sw
+    msgs = ["LETS GOOOO that was insane", "lol", "no way he hit that", "boring stream tbh",
+            "W", "clip it clip it!!!", "", "😂😂😂", "I hate this so much", "not bad :)",
+            "KEKW OMEGALUL", "that was NOT good", "best play i have ever seen!!!"]
+    shared = sw._sentiment()
+    assert sw._sentiment() is shared                    # one for the process
+    for _ in range(2):                                  # and using it changes nothing
+        fresh = SentimentIntensityAnalyzer()
+        for m in msgs:
+            assert shared.polarity_scores(m) == fresh.polarity_scores(m), m
+
+
+def test_the_profile_loop_does_not_build_one_per_pass():
+    from src.ingestion import stream_worker as sw
+    loop_src = inspect.getsource(sw.StreamWorker._profile_update_loop)
+    assert "SentimentIntensityAnalyzer(" not in loop_src and "_sentiment()" in loop_src

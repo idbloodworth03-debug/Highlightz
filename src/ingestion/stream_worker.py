@@ -109,6 +109,26 @@ def _our_clip_identity() -> tuple[set, set]:
     _identity_cache = (now, ids, slugs)
     return ids, slugs
 
+_VADER = None
+
+
+def _sentiment():
+    """The one sentiment analyzer the profile loops share.
+
+    Building one reads and parses its word list from disk. The profile loop
+    built a NEW one for every channel on every pass: on production with 59
+    channels live (2026-11-18) that was the whole of `task: profile`, 18 ms a
+    step, 3.6% of the one core the app shares. It keeps nothing between
+    calls (a word list, read only), so one for the process scores every
+    message exactly as a fresh one would.
+    """
+    global _VADER
+    if _VADER is None:
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+        _VADER = SentimentIntensityAnalyzer()
+    return _VADER
+
+
 PROFILE_UPDATE_INTERVAL_FAST = 3   # seconds during calibration (first 100 samples = ~5 min)
 PROFILE_UPDATE_INTERVAL_SLOW = 30  # seconds once calibrated
 
@@ -503,8 +523,7 @@ class StreamWorker:
             keyword_rate = snap.keyword_hits / max(len(snap.messages), 1)
 
             if snap.messages:
-                from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-                vader = SentimentIntensityAnalyzer()
+                vader = _sentiment()
                 compounds = [abs(vader.polarity_scores(m)["compound"]) for m in snap.messages[-30:]]
                 avg_sentiment = sum(compounds) / len(compounds)
             else:

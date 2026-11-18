@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -421,13 +422,27 @@ def totals_by_user() -> dict[str, dict]:
 #   * its result is kept for _SCAN_MAX_AGE seconds and shared by every caller,
 #     so two admin pages, or the two endpoints, do not each parse the file.
 #
+# A THREAD WAS NOT ENOUGH (measured again the same day, 59 live). Python runs
+# one thread at a time: while the parse had the interpreter, the loop waited
+# to get it back after every socket read and every accepted connection. 13 of
+# the loop's 57 busy points were that waiting. So a ledger big enough to
+# matter is parsed in a PROCESS of its own (src/stats/ledger_scan.py), which
+# has its own interpreter and runs on a core the app cannot otherwise use. One
+# run answers both readings. A small ledger still goes to the thread: starting
+# a process costs more than parsing it. If the process cannot be started, is
+# too slow or answers nonsense, the thread does the job as before.
+#
 # THE COST, ACCEPTED: lifetime totals on the admin page can be up to a minute
 # behind. They are counts in the tens of thousands on a page that redraws
 # every 30 seconds; nothing is decided from their last minute. Everything a
 # USER sees (missed_since, for_user) still reads the file directly.
 _SCAN_MAX_AGE = 60.0
+# A ledger at least this big is parsed in its own process. 2 MB is about
+# 15,000 rows, a tenth of a second of parsing: below that the thread is fine.
+_CHILD_MIN_BYTES = 2 * 1024 * 1024
+_CHILD_TIMEOUT_S = 120.0
 _scans: dict[str, tuple[float, object]] = {}
-_scan_locks: dict[tuple[str, int], asyncio.Lock] = {}
+_scan_locks: dict[int, asyncio.Lock] = {}
 
 
 def forget_scans() -> None:
@@ -436,21 +451,78 @@ def forget_scans() -> None:
     _scan_locks.clear()
 
 
-async def _shared(name: str, fn):
+def _fresh(name: str):
     hit = _scans.get(name)
     if hit is not None and time.monotonic() - hit[0] < _SCAN_MAX_AGE:
+        return hit
+    return None
+
+
+def _ledger_bytes() -> int:
+    try:
+        return _LOG_FILE.stat().st_size
+    except OSError:
+        return 0
+
+
+async def _scan_in_child() -> dict | None:
+    """Both readings from src/stats/ledger_scan.py, or None if that did not
+    work (the caller then parses on a thread). Never raises."""
+    from src.stats.ledger_scan import MARKER
+    root = Path(__file__).resolve().parents[2]
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "src.stats.ledger_scan", str(_LOG_FILE),
+            cwd=str(root), stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), _CHILD_TIMEOUT_S)
+        if proc.returncode != 0:
+            raise RuntimeError(f"exit {proc.returncode}")
+        at = out.rfind(MARKER.encode())
+        if at < 0:
+            raise ValueError("no answer in the output")
+        # A few megabytes of summaries: parsed on a thread, as one short call.
+        got = await asyncio.to_thread(json.loads, out[at + len(MARKER):])
+        if not isinstance(got.get("rows"), list) or not isinstance(got.get("totals"), dict):
+            raise ValueError("not the two readings")
+        return got
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        raise
+    except Exception as exc:                          # noqa: BLE001
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        log.warning("ledger_scan_child_failed", error=str(exc)[:200])
+        return None
+
+
+async def _shared(name: str, fn):
+    hit = _fresh(name)
+    if hit is not None:
         return hit[1]
-    # One parse at a time per reading: the callers that arrive while it is
-    # under way wait for it instead of starting their own. Keyed by loop as
-    # well, so a lock is never carried from one event loop into another.
-    key = (name, id(asyncio.get_running_loop()))
+    # One parse at a time: the callers that arrive while it is under way wait
+    # for it instead of starting their own, whichever reading they want (one
+    # run of the process answers both). Keyed by loop, so a lock is never
+    # carried from one event loop into another.
+    key = id(asyncio.get_running_loop())
     lock = _scan_locks.get(key)
     if lock is None:
         lock = _scan_locks[key] = asyncio.Lock()
     async with lock:
-        hit = _scans.get(name)
-        if hit is not None and time.monotonic() - hit[0] < _SCAN_MAX_AGE:
+        hit = _fresh(name)
+        if hit is not None:
             return hit[1]
+        if _ledger_bytes() >= _CHILD_MIN_BYTES:
+            got = await _scan_in_child()
+            if got is not None:
+                now = time.monotonic()
+                _scans["rows"], _scans["totals"] = (now, got["rows"]), (now, got["totals"])
+                return _scans[name][1]
         value = await asyncio.to_thread(fn)
         _scans[name] = (time.monotonic(), value)
         return value

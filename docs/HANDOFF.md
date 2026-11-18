@@ -9631,3 +9631,83 @@ so there is a software lever on memory as well.
 Tests: `tests/test_loop_profile.py` (+6), `tests/test_loop_relief.py` (+4).
 Full suite 4742 passed. The new report was produced by the whole app running
 locally. Not run on production.
+
+## Fourth reading: a busy THREAD starves the loop; the ledger scans get a process (2026-11-18)
+
+**The reading** (prod at b0b7988, 59 live, 84 listed, same 8 cores / 16 GB):
+`stream_cost.py` put the loop at **44.0%, ~0.7% a channel, about 93 live by
+the loop** (memory ~113, processors ~241). `loop_profile.py`, a different 20
+seconds: busy 56.9%, thread CPU 43.8%, **13.1 points waiting**.
+
+- **The audio change gave back more than promised:** `audiometer-reader`
+  8.1% to 2.9% (83 us to 40 us a step).
+- **The new columns answered the question.** Waiting sat on exactly three
+  rows: `_SelectorSocketTransport._read_ready` 8.0 of 12.9, `_accept_connection`
+  7.7 of 8.9, `engine` 2.9 of 9.7. The longest step was an `accept` of
+  **1.2 s that computed for 75 ms**. In the same window other threads ran 588
+  quick, 55 medium and 1 FULL (255 ms) garbage collections, which is about
+  400,000 containers being allocated off the loop.
+
+**What it is: the convoy on Python's one interpreter lock.** Only one thread
+runs Python at a time. A step that makes a system call (read a socket,
+accept a connection, write a log line) hands the interpreter over, and while
+another thread is busy in Python it takes up to 5 ms to get it back, every
+time. The 1.2 s `accept` was about 240 connections accepted one per 5 ms.
+The busy thread was **the two lifetime-ledger scans** (`all_rows`,
+`totals_by_user`) that fac3107 moved "off the loop" onto a worker thread
+this morning: about four seconds of pure Python between them at 400,000
+rows, once a minute for as long as an admin page is open. **That fix moved
+the work and not the cost, and the first report could not show it.**
+
+Reproduced here on a 400,000-row ledger, a loop doing socket round trips
+while the scans run:
+
+| scans run on | socket round trips a second | longest gap |
+|---|---|---|
+| a thread (as deployed) | 69,443 idle, **182 during** | 428 ms |
+| their own process (now) | 63,574 idle, 64,640 during | 5.7 ms |
+
+**THE RULE THIS LEAVES: `asyncio.to_thread` does not take CPU work off the
+loop.** It takes WAITING off it (a network call, a disk). Work that computes
+in Python for more than a few milliseconds needs to be done less, or in
+another process. Check the others against this: `clip_recorder`'s
+`total_bytes` walk (every 15 s), caption transcription, any sync endpoint.
+
+**Changed in this commit:**
+1. **`src/stats/ledger_scan.py`** (new): `python -m src.stats.ledger_scan
+   <file>` runs the same two functions and prints one JSON answer after a
+   marker; `os.nice(10)`; imports the ledger module and nothing of the app.
+   `stream_stats._shared` uses it when the ledger is at least 2 MB
+   (`_CHILD_MIN_BYTES`), **one run answering both readings** (one lock now,
+   not one per reading). Smaller ledgers, and every failure (cannot start,
+   non-zero exit, no or bad answer, over 120 s: killed), fall back to the
+   thread exactly as before and log `ledger_scan_child_failed`. The answer is
+   the old one through a JSON round trip (tested equal, order included).
+   Cost: a ~4 s process on an idle core and a few hundred MB for those
+   seconds, once a minute while an admin page is open. The admin page's own
+   request still waits those seconds when the minute is up, as it did.
+2. **One sentiment analyzer for the process** (`stream_worker._sentiment`).
+   The profile loop built a new `SentimentIntensityAnalyzer` (reads and
+   parses its word list from disk) for every channel on every pass: that was
+   the whole of `task: profile`, 18 ms a step, **3.6% of the loop**. It
+   keeps nothing between calls; tested to score identically to a fresh one.
+3. The report's hint under "WAITING INSIDE A STEP" now says what this
+   pattern means.
+
+**Expected on the next reading, not yet seen:** the waiting column near
+zero, no 1 s steps, `profile` gone from the top, busy about 40% at 59 live
+(~0.7% a channel), so the loop's wall near 90-95 live and memory (~113) next.
+
+**Still open, unchanged:** the audio reader as a pipe protocol (~3 points
+now); `engine` 9.7% at 2 ms a step; socket machinery / uvloop; `cut-*` 2.8%
+at 12 ms a step; `finish-clip` 186 ms holds; the worker-process split, which
+is still the real fix and still waits for the owner's word.
+
+Tests: `tests/test_loop_relief.py` (+12: the process gives the same answer,
+does not parse in the app's process, one run for both readings and everyone
+waiting, a small ledger stays on the thread, four ways of failing all end in
+the thread, the script's output; the shared analyzer). Full suite 4754
+passed. The whole app run locally on the 400,000-row ledger:
+`/admin/overview` 200 in 3.9 s from the process, `/admin/users` 3 ms from the
+same run, and 80 other requests meanwhile never slower than 18 ms. Not run on
+production.

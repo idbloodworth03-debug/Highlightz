@@ -322,9 +322,12 @@ def render(result: dict, live: int | None = None, top: int = 22) -> str:
         out += ["", "=" * 78,
                 "WAITING INSIDE A STEP  (the loop was held up, not computing)", "=" * 78]
         out += [f"  {pct(s):5.1f}%   {k}" for s, k in stuck[:10]]
-        out += ["  Spread thinly over everything = another thread held Python, or memory",
-                "  tidying (below). Piled on a few rows = those rows read a disk or call",
-                "  something over the network the blocking way."]
+        out += ["  On the rows that read sockets, accept connections or write logs, with",
+                "  long steps that computed for almost none of their length: ANOTHER",
+                "  THREAD WAS BUSY IN PYTHON. Only one thread runs Python at a time, and",
+                "  every system call hands the interpreter over and waits to get it back.",
+                "  On a row that makes no system calls of its own (a task doing its own",
+                "  work): that row reads a disk or calls something the blocking way."]
 
     slow = sorted(((v[2], k, v[4]) for k, v in rows if v[2] >= SLOW_S), reverse=True)
     out += ["", "=" * 78,
