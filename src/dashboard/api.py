@@ -9667,7 +9667,14 @@ def _day_bounds(now: float, tz_name: str = "") -> tuple[float, float, str]:
 # The sign-up windows the Users tile shows, in the order it shows them. One
 # definition for the counts in /admin/overview and the list behind each
 # (/admin/new-users), so a count and its list cannot disagree.
-_JOINED_LABELS = (("today", "Joined today"), ("yesterday", "Joined yesterday"),
+# "hour" is the last 60 minutes up to now (owner, 2026-11-18: "give me a count
+# for how many users I got in the last hour in the admin page"). The others
+# are calendar windows in the viewer's zone; this one is a rolling hour and
+# needs no zone, so it keeps moving while the page is open (the tile and the
+# open list are re-read every 30 seconds).
+_JOINED_HOUR_S = 3600.0
+_JOINED_LABELS = (("hour", "Joined in the last hour"),
+                  ("today", "Joined today"), ("yesterday", "Joined yesterday"),
                   ("week", "Joined this week"), ("last_week", "Joined last week"))
 
 
@@ -9677,7 +9684,8 @@ def _joined_windows(now: float, tz_name: str = "") -> dict:
     day, yday, _ = _day_bounds(now, tz_name)
     week, last, _ = _week_bounds(now, tz_name)
     later = float("inf")
-    spans = {"today": (day, later), "yesterday": (yday, day),
+    spans = {"hour": (now - _JOINED_HOUR_S, later),
+             "today": (day, later), "yesterday": (yday, day),
              "week": (week, later), "last_week": (last, week)}
     return {k: (label, *spans[k]) for k, label in _JOINED_LABELS}
 
@@ -9891,6 +9899,9 @@ async def admin_overview(request: Request, tz: str = ""):
             "new_this_week": new_this_week, "new_last_week": new_last_week,
             "week_start": week_start, "week_tz": week_tz,
             "new_today": joined["today"], "new_yesterday": joined["yesterday"],
+            # The last 60 minutes, rolling. The same window /admin/new-users
+            # lists for `hour`, so the row and its list cannot disagree.
+            "new_hour": joined["hour"],
             "day_start": day_start,
         },
         "active": active,
@@ -18766,7 +18777,10 @@ async function loadOverview(){
     {month:'short', day:'numeric', timeZone: u.week_tz || 'UTC'}) : '';
   const prow = (key, label, n) => '<button type="button" class="ov-row ov-pick' + (NEW_WIN === key ? ' on' : '')
     + '" data-new="' + key + '" title="Show who"><span>' + label + '</span><b>' + n0(n || 0) + '</b></button>';
-  oh += '</div><div><div class="ov-grp">Joined</div>' + prow('today', 'Today', u.new_today)
+  // "Last hour" is the 60 minutes up to now, rolling; it moves by itself
+  // because this whole tile is re-read every 30 seconds.
+  oh += '</div><div><div class="ov-grp">Joined</div>' + prow('hour', 'Last hour', u.new_hour)
+    + prow('today', 'Today', u.new_today)
     + prow('yesterday', 'Yesterday', u.new_yesterday) + prow('week', 'This week', u.new_this_week)
     + prow('last_week', 'Last week', u.new_last_week) + '</div></div>';
   oh += '<div class="ov-note">' + (wk ? 'Week began Sun, ' + wk + '. ' : '')
@@ -18774,7 +18788,7 @@ async function loadOverview(){
   const us = document.getElementById('ov-users-s');
   if(us){
     us.innerHTML = oh;
-    us.title = 'Days run 12:00 AM to 12:00 AM and weeks Sunday 12:00 AM to the next Sunday 12:00 AM, '
+    us.title = 'Last hour is the 60 minutes up to now. Days run 12:00 AM to 12:00 AM and weeks Sunday 12:00 AM to the next Sunday 12:00 AM, '
       + (u.week_tz === 'UTC' ? 'UTC' : (u.week_tz || 'UTC').split('_').join(' ') + ' time') + '. Staff are not counted.';
   }
   set('ov-paying', n0(u.paying));
@@ -18858,14 +18872,15 @@ async function loadNewList(){
   try { d = await api('/admin/new-users?window=' + encodeURIComponent(want) + '&tz=' + encodeURIComponent(viewerZone())); } catch(e){ return; }
   if(want !== NEW_WIN) return;                    // a newer pick is already on its way
   const rows = d.rows || [];
-  const byDay = want === 'today' || want === 'yesterday';
+  const byDay = want === 'hour' || want === 'today' || want === 'yesterday';
   const when = ts => new Date(ts * 1000).toLocaleString('en-US', byDay
     ? {hour:'numeric', minute:'2-digit'} : {weekday:'short', hour:'numeric', minute:'2-digit'});
   let html = '<h3>' + esc(d.label) + ' &middot; ' + n0(d.count) + (d.count === 1 ? ' account' : ' accounts')
     + (d.paying ? ' <span>&middot; ' + n0(d.paying) + ' paying</span>' : '')
     + '<button type="button" class="btn" id="new-close">Close</button></h3>';
   if(!rows.length){
-    html += '<p class="sub">' + (want === 'today' ? 'Nobody has signed up yet today.' : 'Nobody signed up in this window.') + '</p>';
+    html += '<p class="sub">' + (want === 'hour' ? 'Nobody has signed up in the last hour.'
+      : want === 'today' ? 'Nobody has signed up yet today.' : 'Nobody signed up in this window.') + '</p>';
   } else {
     html += '<div class="tw"><table><thead><tr><th>Account</th><th>Plan</th><th>Joined</th><th>Found us via</th><th>Last active</th><th>Channels</th></tr></thead><tbody>';
     rows.forEach(function(r){

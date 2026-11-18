@@ -9883,6 +9883,39 @@ returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
 
+## Admin: who joined in the last hour (2026-11-18)
+
+**Owner:** "give me a count for how many users I got in the last hour in the
+admin page". A fifth row, first in the Users tile's **Joined** group: "Last
+hour", above Today / Yesterday / This week / Last week. Like the others it is
+a button that opens the list of who (name, plan, when, found us via, last
+active, channels).
+
+- It is one more window in `_joined_windows` (`hour`: the 60 minutes up to
+  now, `_JOINED_HOUR_S`), so the count (`users.new_hour` in
+  `/admin/overview`) and the list (`/admin/new-users?window=hour`) come from
+  one definition and cannot disagree. Unlike the four calendar windows it
+  needs no time zone. Staff are not counted, as everywhere in that tile.
+- **It moves by itself:** the tile and any open list are re-read every 30
+  seconds by the admin page's own timer (`loadOverview`, which ends with
+  `loadNewList`), which is how every figure on that page stays current. No
+  new event and nothing in the user dashboard.
+- Not to be confused with **Active users, last hour** lower on the same page:
+  that is people who USED the site in the hour; this is accounts CREATED in
+  it.
+
+Blast radius: one more key in a dict, one more number in the overview
+payload, one more row in the admin page's script. Tests: four in
+`tests/test_admin_panel.py` (the count, with staff and a 61-minute-old
+account left out, whatever the zone; the list is the same people newest
+first and admin-only; the window is 3,600 seconds to the second; the row is
+first and opens its list).
+**Seen in a browser** against the real app (1280 and 390 px): "Last hour 2"
+above "Today 3", its list of the two (one marked paying), no page errors, no
+sideways scroll. **And seen moving:** with the page left open, an account
+added to the store turned the row to 3 and joined the open list 30 seconds
+later with no reload.
+
 ## What security is in place: an inventory, and `scripts/security_check.py` (2026-11-18)
 
 **Owner:** "what security measures do i have in place currently on my server,

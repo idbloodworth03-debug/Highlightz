@@ -1042,3 +1042,68 @@ def test_the_answer_shown_beside_a_sign_up_is_the_account_s_own(joiners):
     """It is displayed, not acted on: the field goes out as the account holds it."""
     assert [r["found_via"] for r in _joined(joiners, "today")["rows"]] == ["", "tiktok"]
 
+
+
+# ── Joined in the last hour (owner, 2026-11-18) ──────────────────────────────
+# "give me a count for how many users I got in the last hour in the admin
+# page". A fifth row in the Joined group. Unlike the other four it is not a
+# calendar window: it is the 60 minutes up to now, whatever the viewer's zone.
+
+@pytest.fixture
+def this_hour(client, monkeypatch):
+    from src.auth import users as user_store
+    now = time.time()
+    people = [
+        dict(PEOPLE["boss"], created_at=now - 30),                              # staff: never counted
+        dict(PEOPLE["nova"], created_at=now - 40 * 86400),
+        {"id": "h1", "username": "h1", "created_at": now - 20, "found_via": "tiktok"},
+        {"id": "h2", "username": "h2", "created_at": now - 3500,
+         "subscription_status": "active", "stripe_customer_id": "cus_h2", "plan": "pro"},
+        {"id": "h3", "username": "h3", "created_at": now - 3700},               # 61 minutes ago: not in it
+        {"id": "h4", "username": "h4"},                                         # no sign-up time at all
+    ]
+    monkeypatch.setattr(user_store, "get_all", lambda: [dict(p) for p in people])
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: next((p for p in people if p["id"] == uid), None))
+    return client
+
+
+def test_the_overview_counts_who_joined_in_the_last_hour(this_hour):
+    u = this_hour.login("boss").get("/admin/overview?tz=America/New_York").json()["users"]
+    assert u["new_hour"] == 2, "h1 and h2; not staff, not the one from 61 minutes ago"
+    # A rolling hour, so the viewer's zone changes nothing.
+    for tz in ("", "Asia/Tokyo", "not/a_zone"):
+        assert this_hour.login("boss").get(f"/admin/overview?tz={tz}").json()["users"]["new_hour"] == 2
+
+
+def test_the_last_hours_list_is_the_same_people_newest_first(this_hour):
+    d = _joined(this_hour, "hour")
+    assert d["label"] == "Joined in the last hour" and d["count"] == 2 and d["paying"] == 1
+    assert [r["name"] for r in d["rows"]] == ["h1", "h2"]
+    assert d["rows"][0]["found_via"] == "tiktok" and d["rows"][1]["plan_label"] == "Pro"
+    u = this_hour.login("boss").get("/admin/overview").json()["users"]
+    assert d["count"] == u["new_hour"], "the row says one number and the list under it shows another"
+    assert this_hour.login("nova").get("/admin/new-users?window=hour").status_code == 403
+
+
+def test_the_hour_is_sixty_minutes_to_the_second():
+    from src.dashboard import api
+    now = 1_800_000_000.0
+    label, start, until = api._joined_windows(now, "America/New_York")["hour"]
+    assert (label, start, until) == ("Joined in the last hour", now - 3600.0, float("inf"))
+    assert list(api._joined_windows(now, ""))[0] == "hour"
+    # The four calendar windows are what they were.
+    assert set(api._joined_windows(now, "")) == {"hour", "today", "yesterday", "week", "last_week"}
+
+
+def test_last_hour_is_the_first_row_of_joined_and_opens_its_list():
+    from src.dashboard import api
+    h, js = api.ADMIN_HTML, _admin_js()
+    joined = js[js.index('<div class="ov-grp">Joined</div>'):]
+    assert joined.index("prow('hour', 'Last hour', u.new_hour)") < joined.index("prow('today', 'Today', u.new_today)")
+    # The list shows the time of day, and says so plainly when it is empty.
+    assert "const byDay = want === 'hour' || want === 'today' || want === 'yesterday';" in h
+    assert "want === 'hour' ? 'Nobody has signed up in the last hour.'" in h
+    assert "Last hour is the 60 minutes up to now." in js
+    # It moves by itself: the tile and the open list are re-read every 30 s.
+    assert "setInterval(function(){ if(!document.hidden) loadOverview(); }, 30000);" in h
+    assert "loadNewList();" in js
