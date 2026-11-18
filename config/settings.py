@@ -586,6 +586,14 @@ class Settings(BaseSettings):
     # on (YOUTUBE_AUDITED=true) the day that audit passes, together with adding
     # youtube to PUBLIC_PLATFORMS; uploads then go out public and the note goes.
     youtube_audited: bool = False
+    # GOOGLE_APP_VERIFIED. Google's OTHER review (Google Auth Platform,
+    # Verification Center), about the consent screen, not about uploads. Until
+    # it is approved, everybody connecting YouTube is first shown "Google
+    # hasn't verified this app" and has to choose Advanced, then "Go to
+    # highlightz.app (unsafe)". While this is false the site says so on a page
+    # of its own before sending anyone there (api.publish_connect). Set it to
+    # true the day Google approves and the page is gone.
+    google_app_verified: bool = False
     # Which posting platforms ordinary accounts may connect (src/publish/
     # release.py). Admins and early-access accounts get every configured one.
     # Released 2026-10-05 with TikTok only; add instagram / youtube as Meta

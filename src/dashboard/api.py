@@ -7529,6 +7529,37 @@ async def publish_connections(request: Request):
     return {"platforms": _connections_payload(uid)}
 
 
+# WHAT GOOGLE SHOWS BEFORE ITS REVIEW IS DONE (owner, 2026-11-18, the day the
+# Google app was published: "it says I need to complete the verification
+# process"). A published but unverified app sends every person through a
+# screen headed "Google hasn't verified this app", whose way forward is a
+# small "Advanced" link and then "Go to highlightz.app (unsafe)". Nobody who
+# was not told to expect that clicks it. This page is the telling: it is
+# shown once on the way to Google, from EVERY Connect YouTube button, because
+# it is the route that shows it. GOOGLE_APP_VERIFIED=true removes it.
+_GOOGLE_UNVERIFIED_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Connect YouTube &mdash; Highlightz</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b12;color:#e8e8f0;font:15px/1.6 'Sora','Sora Fallback',system-ui,sans-serif;padding:16px;box-sizing:border-box}
+.card{max-width:480px;width:100%;padding:32px;background:#14141f;border:1px solid #26263a;border-radius:16px;box-sizing:border-box}
+h1{font-size:19px;margin:0 0 16px}p{color:#b4b4c6;margin:0 0 16px}b{color:#e8e8f0}
+ol{margin:0 0 16px;padding:0 0 0 24px;color:#b4b4c6}li{margin:0 0 8px}
+.go{box-sizing:border-box;display:block;width:100%;text-align:center;cursor:pointer;padding:12px 24px;border-radius:10px;
+background:linear-gradient(135deg,#7c3aed,#b86adc);color:#fff;font-weight:600;margin-bottom:12px;text-decoration:none}
+a:focus-visible{outline:2px solid #c489e4;outline-offset:2px}
+.no{display:block;text-align:center;color:#9a9aae;text-decoration:none;padding:8px}</style></head>
+<body><div class="card"><h1>Google will show a warning first</h1>
+<p>Google is still reviewing Highlightz, so its next screen is headed
+<b>&ldquo;Google hasn&rsquo;t verified this app&rdquo;</b>. That is expected, and it goes away when the review is finished.</p>
+<ol><li>Choose <b>Advanced</b>, the small link at the bottom left.</li>
+<li>Choose <b>Go to highlightz.app (unsafe)</b>. Google adds &ldquo;unsafe&rdquo; to every app it has not finished reviewing.</li>
+<li>If Google shows checkboxes, tick them all, then continue.</li></ol>
+<p>Highlightz asks for two things only: to upload videos to your channel, and to read your channel&rsquo;s name so it can show which one is connected. You can disconnect it at any time in Settings.</p>
+<a class="go" href="/publish/connect/youtube?go=1">Continue to Google</a>
+<a class="no" href="/">Not now</a></div></body></html>"""
+
+
 @app.get("/publish/connect/{platform}")
 async def publish_connect(request: Request, platform: str):
     """Send the user to the platform's consent screen."""
@@ -7548,6 +7579,10 @@ async def publish_connect(request: Request, platform: str):
     if not release.open_for(platform, user_store.get_by_id(uid)):
         raise HTTPException(status_code=403,
                             detail=f"Posting to {p.label} is coming soon.")
+    # Say what Google is about to show, once, before sending them into it.
+    if (platform == "youtube" and not settings.google_app_verified
+            and request.query_params.get("go") != "1"):
+        return HTMLResponse(_GOOGLE_UNVERIFIED_HTML)
     state = secrets.token_urlsafe(24)
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(

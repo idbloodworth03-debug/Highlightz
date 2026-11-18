@@ -276,3 +276,76 @@ def test_me_and_the_connection_row_carry_the_private_note(mixed, monkeypatch):
     assert api._release_youtube_note() == release.YOUTUBE_PRIVATE_NOTE
     monkeypatch.setattr(release.settings, "youtube_audited", True)
     assert api._release_youtube_note() == ""
+
+
+# ── what Google shows before its review is done (2026-11-18) ─────────────────
+# The app was published the same day; an unverified app sends everybody
+# through "Google hasn't verified this app", whose way forward is "Advanced"
+# and then "Go to highlightz.app (unsafe)". The site says so first.
+
+@pytest.fixture
+def connecting(monkeypatch):
+    import base64
+    import json as _json
+    from fastapi.testclient import TestClient
+    from itsdangerous import TimestampSigner
+    from src.auth import users as user_store
+    from src.dashboard import api
+    from src.publish import release
+    user = {"id": "u1", "username": "one", "subscription_status": "active", "plan": "pro"}
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: user if uid == "u1" else None)
+    monkeypatch.setattr(user_store, "_load", lambda: [user])
+    monkeypatch.setattr(user_store, "_save", lambda users: None)
+    monkeypatch.setattr(api, "_require_upload_access", lambda uid: None)
+    monkeypatch.setattr(release, "open_for", lambda platform, u: True)
+    monkeypatch.setattr(api.settings, "google_client_id", "cid")
+    monkeypatch.setattr(api.settings, "google_client_secret", "sec")
+    monkeypatch.setattr(api.settings, "google_app_verified", False)
+    c = TestClient(api.app, base_url="https://testserver")
+    signer = TimestampSigner(api.settings.dashboard_secret_key)
+    c.cookies.set("session", signer.sign(base64.b64encode(_json.dumps(
+        {"auth": True, "user_id": "u1", "username": "one", "is_admin": False,
+         "subscription_status": "active"}).encode())).decode())
+    c.api = api
+    return c
+
+
+def test_connecting_youtube_first_says_what_google_is_about_to_show(connecting):
+    r = connecting.get("/publish/connect/youtube", follow_redirects=False)
+    assert r.status_code == 200 and "location" not in r.headers
+    page = r.text
+    assert "Google hasn&rsquo;t verified this app" in page
+    assert "Choose <b>Advanced</b>" in page and "Go to highlightz.app (unsafe)" in page
+    assert "tick them all" in page
+    assert "to upload videos to your channel, and to read your channel&rsquo;s name" in page
+    assert 'href="/publish/connect/youtube?go=1"' in page and 'href="/"' in page
+    assert 'name="robots" content="noindex"' in page
+    # Nothing has been started with Google yet: no state is waiting in the session.
+    assert "accounts.google.com" not in page
+
+
+def test_its_button_goes_on_to_google(connecting):
+    r = connecting.get("/publish/connect/youtube?go=1", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+
+
+def test_the_page_is_gone_the_day_google_approves(connecting, monkeypatch):
+    monkeypatch.setattr(connecting.api.settings, "google_app_verified", True)
+    r = connecting.get("/publish/connect/youtube", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"].startswith("https://accounts.google.com/")
+
+
+def test_no_other_platform_gets_the_page(connecting, monkeypatch):
+    from src.publish import providers
+    tiktok = providers.get("tiktok")
+    monkeypatch.setattr(type(tiktok), "configured", lambda self: True)
+    monkeypatch.setattr(type(tiktok), "authorization_url", lambda self, state, challenge=None: "https://www.tiktok.com/v2/auth/authorize/?x=1")
+    r = connecting.get("/publish/connect/tiktok", follow_redirects=False)
+    assert r.status_code in (302, 307) and "tiktok.com" in r.headers["location"]
+
+
+def test_the_switch_is_off_until_google_says_so():
+    from config.settings import Settings
+    assert Settings.model_fields["google_app_verified"].default is False

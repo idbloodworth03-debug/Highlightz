@@ -607,7 +607,11 @@ def test_connect_sends_the_user_to_google_and_the_callback_stores_no_token_in_th
     monkeypatch.setattr(client.api.settings, "google_client_id", "cid")
     monkeypatch.setattr(client.api.settings, "google_client_secret", "sec")
     c = client.login("pro_user")
-    r = c.get("/publish/connect/youtube", follow_redirects=False)
+    # While Google has not verified the app (the default), the first stop is
+    # the site's own page saying what Google will show; its button goes on.
+    told = c.get("/publish/connect/youtube", follow_redirects=False)
+    assert told.status_code == 200 and '/publish/connect/youtube?go=1' in told.text
+    r = c.get("/publish/connect/youtube?go=1", follow_redirects=False)
     assert r.status_code in (302, 307)
     loc = r.headers["location"]
     assert loc.startswith("https://accounts.google.com/o/oauth2/v2/auth?")

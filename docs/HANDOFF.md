@@ -8805,8 +8805,9 @@ connect flow, Scheduler, and Autopilot posts to YouTube by itself) and has been
 held back since 2026-10-05 by `PUBLIC_PLATFORMS`. What is missing is Google's
 side, which only the owner can do.
 
-**Prod, read by the owner on 2026-11-18:** `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET` are NOT set, `UPLOADS_ENABLED` is set,
+**Prod, read by the owner on 2026-11-18 (out of date within the day: the keys
+went in and the app was published, see "Google's app is published" below):**
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are NOT set, `UPLOADS_ENABLED` is set,
 `PUBLIC_PLATFORMS` is not set (so TikTok only). So no Google Cloud project is
 wired in yet: this starts at step 1 of "Posting: platform setup" above. The
 steps were given to the owner again in chat.
@@ -8946,6 +8947,79 @@ three plan rows, the bar for a Pro and a Free account with the right button,
 the Scheduler chips (Connect YouTube, Connect TikTok, Instagram · soon) and
 hint, Autopilot's hint, the bar closing and staying closed after a reload; no
 page errors, no sideways scroll.
+
+## Google's app is published; the site warns people about Google's warning (2026-11-18)
+
+Owner, 2026-11-18: "looks like youtube shorts is broken right now it says I
+need to complete the verification process". **Nothing in the code was
+broken.** The Google Cloud project's consent screen was in *Testing*, where
+Google turns away every account that is not a listed test user with "has not
+completed the Google verification process" (and where a connection that does
+get made stops working after 7 days, because Google expires the refresh
+token). The owner published it the same day (Google Auth Platform, Audience,
+Publish app): "its published".
+
+**Where Google's side stands now (told by the owner, not read from here):**
+- Keys: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are in prod `.env` (the
+  earlier section's "NOT set" is out of date). Never in the repo.
+- Client: Web application, redirect URI
+  `https://highlightz.app/publish/connect/youtube/callback`.
+- Publishing status: In production, **not verified**. So everybody connecting
+  sees "Google hasn't verified this app" and has to choose **Advanced**, then
+  **Go to highlightz.app (unsafe)**; and the app stops at **100 accounts**
+  until verification is approved.
+- Branding given to Google: home page `https://highlightz.app`, privacy
+  `https://highlightz.app/privacy`, terms `https://highlightz.app/tos`, and a
+  120 px logo made from `src/dashboard/static/icon.png`.
+- Still to do, owner's side: submit the consent screen in the Verification
+  Center (review 1 of the two in the section above; wants a reason for each
+  of the two scopes and a recording of connect-and-post). Offered: the
+  wording for both scopes and the script for the recording. The YouTube API
+  audit (review 2, `YOUTUBE_AUDITED`) is separate and unchanged.
+
+**What changed in the code:** a page of the site's own before Google's
+warning. `GET /publish/connect/youtube` now answers with a small card
+(`_GOOGLE_UNVERIFIED_HTML` in `src/dashboard/api.py`, the same look as the
+plan-change card) that says what Google is about to show, which two links to
+choose, to tick every checkbox, what the two permissions are, and that it can
+be disconnected in Settings. Its button goes to
+`/publish/connect/youtube?go=1`, which is the old behaviour (state, PKCE,
+redirect to Google). "Not now" goes to `/`.
+
+**Why on the route and not beside a button:** there are six Connect YouTube
+links in `aurora_html.py` (Settings, the Scheduler twice, the editor twice,
+the "New: Highlightz posts your clips" bar), all plain links to this route. One page on the route
+covers every one of them and any added later, and it is read at the moment it
+matters. No JSX was touched.
+
+**The switch:** `GOOGLE_APP_VERIFIED` (new, `config/settings.py`, default
+off). **The day Google approves the consent screen:**
+`GOOGLE_APP_VERIFIED=true` in prod `.env` and restart; the route sends people
+straight to Google again. Leaving it off after approval costs one extra click
+and describes a warning nobody sees, so do turn it on.
+
+Realtime: nothing a tab shows changes here (it is a step on the way out to
+Google and back), so there is no event. The connection appearing after the
+callback is wired as before.
+
+Blast radius: only `publish_connect`, only for `youtube`, only after the
+checks that were already there (uploads allowed, platform configured,
+platform open to this account), and before any state is put in the session.
+The callback is untouched. Other platforms never reach the branch.
+
+Tests: five in `tests/test_youtube_rollout.py` (the page and its words with
+no redirect; `?go=1` goes to Google; with the switch on there is no page;
+TikTok never gets it; the switch defaults off) and the existing connect test
+in `tests/test_publish_posting.py` now goes through the page first. Four
+mutations (ignore the switch, ignore `go`, every platform, never shown) each
+failed a test. Full suite 4873 passed. **Seen in a browser** at 1280, 375
+and 320 px: one card, no sideways scroll, both links 40 px or taller.
+
+**Not verified:** that connecting works now that the app is published (the
+owner has not said so yet), and what Google's screen looks like for this
+project in particular. The words on the page ("Advanced", "Go to
+highlightz.app (unsafe)") are Google's standard ones for an unverified app;
+if the owner's screen reads differently, change the page to match it.
 
 ## Posting to X: built, and it does not exist until its keys are in (2026-11-18)
 
