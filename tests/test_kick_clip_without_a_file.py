@@ -29,7 +29,10 @@ def _modal() -> str:
 def test_a_kick_clip_never_links_out_without_a_file():
     m = _modal()
     assert "const kick = clip.platform === 'kick';" in m
-    assert "const canLinkOut = !embedSrc && !fileSrc && !!outHref && !kick;" in m
+    # `fileOnly` is a Kick clip, or a Twitch moment kept as our own recording
+    # (TWITCH_FILE_FALLBACK): neither is on its platform, so neither links out.
+    assert "const fileOnly = kick || !!clip.file_only;" in m
+    assert "const canLinkOut = !embedSrc && !fileSrc && !!outHref && !fileOnly;" in m
     # The play rings only appear where tapping opens something.
     assert m.count('{canLinkOut&&<div className="rd-modal-play">') == 2
     assert '{outHref&&<div className="rd-modal-play">' not in m
@@ -37,10 +40,10 @@ def test_a_kick_clip_never_links_out_without_a_file():
 
 def test_the_gated_banner_is_twitch_only():
     m = _modal()
-    assert "gated && !kick && !fileSrc && <div" in m
-    # The Kick line comes first, so a mature-flagged Kick clip with no file
-    # reads the Kick message and never the Twitch one.
-    assert m.index("kick && !fileSrc && <div") < m.index("gated && !kick && !fileSrc && <div")
+    assert "gated && !fileOnly && !fileSrc && <div" in m
+    # The file-only line comes first, so a mature-flagged Kick clip with no
+    # file reads the Kick message and never the Twitch one.
+    assert m.index("fileOnly && !fileSrc && <div") < m.index("gated && !fileOnly && !fileSrc && <div")
 
 
 def test_a_kick_clip_without_a_file_says_cutting_or_gone():

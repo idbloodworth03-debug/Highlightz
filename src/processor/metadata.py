@@ -30,6 +30,14 @@ class ClipMetadata:
     # Where the clip CAME FROM when there is no platform-hosted clip to link
     # to: on Kick this is the channel page. The card's "Open on Kick" link.
     platform_url: str = ""
+    # THE CLIP IS ONLY THE FILE Highlightz cut from live capture: there is no
+    # platform-hosted clip behind it. Every Kick clip is this by nature (and
+    # does not set the flag: its platform says so). On Twitch it is set when
+    # Twitch would not make the clip and the recording was kept instead
+    # (TWITCH_FILE_FALLBACK); `fallback_reason` says which refusal it was
+    # (not_authorized, title_automod, classification, twitch_failed).
+    file_only: bool = False
+    fallback_reason: str = ""
     # Captured from a channel Twitch flags as intended for mature audiences.
     # NOT a judgement about the clip: it decides how the clip is PLAYED. An
     # age-gated clip cannot be shown in our embedded player, because Twitch
@@ -76,6 +84,8 @@ class ClipMetadata:
             "embed_url": self.embed_url,
             "thumbnail_url": self.thumbnail_url,
             "platform_url": self.platform_url,
+            "file_only": self.file_only,
+            "fallback_reason": self.fallback_reason,
             "age_restricted": self.age_restricted,
             "suggested": self.suggested,
             "clipper_count": self.clipper_count,

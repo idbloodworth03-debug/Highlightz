@@ -251,6 +251,156 @@ _finishing: set[asyncio.Task] = set()       # strong refs: a bare task can be co
 _twitch_in_flight: dict[str, int] = {}
 
 
+# ── When Twitch will not make the clip: keep our own recording ──────────────
+#
+# Owner, 2026-11-18: "can we have some sort of clipping being done for streams
+# that cant be clipped on twitch", then "B but make it only as a back up if
+# those cases happen otherwise use the normal clipping method".
+#
+# TWITCH IS ALWAYS ASKED FIRST. Only when it refuses (the broadcaster has
+# clipping restricted or off, the title fails automod, the channel is
+# unclassified) or fails (Create Clip errors, the clip never finishes) is the
+# moment kept as the file the stream worker cuts from live capture: the shape
+# every Kick clip has. Behind TWITCH_FILE_FALLBACK (off by default), needs
+# capture, never for a broadcaster who opted out
+# (dashboard_api.twitch_fallback_usable). With the switch off nothing in this
+# file behaves differently from before it existed.
+#
+# THE CLIP IS STORED ONLY ONCE ITS VIDEO IS WHOLE (`_fall_back`). A Kick clip
+# gets its card first and its video a minute later; here there is something
+# to lose by doing that, because the recording can fail (a buffer miss, a
+# recorder that is down) and a card with nothing behind it is a dud. So the
+# card arrives with its video, about as long after the moment as the cut
+# takes, or not at all.
+#
+# A CHANNEL TWITCH KEEPS REFUSING IS NOT ASKED EVERY TIME. Title and
+# classification refusals already had a window in which the moment was simply
+# skipped; with the fallback the moment is recorded instead. A restricted
+# channel gets a window too, per account (the restriction is about who is
+# asking: a follower may clip where a stranger may not), after which Twitch is
+# asked once more, so the day the user follows the channel, or the streamer
+# lifts it, real Twitch clips come back by themselves.
+_NOT_AUTHORIZED_RETRY_S = 3600.0
+_not_authorized_until: dict[tuple[str, str], float] = {}
+# A restricted channel whose recording never arrives is the old problem again
+# (scoring, firing, producing nothing), so after this many in a row it is
+# stopped, as every restricted channel was before the fallback.
+_FALLBACK_MISSES_TO_STOP = 3
+_fallback_misses: dict[tuple[str, str], int] = {}
+# How long past the moment the cut is due the file is waited for, and the
+# least it is waited for when the cut was due long ago.
+_FALLBACK_FILE_MARGIN_S = 45.0
+_FALLBACK_MIN_WAIT_S = 10.0
+FALLBACK_TWITCH_FAILED = "twitch_failed"
+
+
+def _fallback_on(job) -> bool:
+    """May this job be kept as our own recording if Twitch will not clip it?"""
+    return bool(job is not None and getattr(job, "platform", "") == "twitch"
+                and dashboard_api.twitch_fallback_usable(getattr(job, "channel", "")))
+
+
+def _is_manual(job) -> bool:
+    """The "Clip now" button: the web process queues it, no stream worker cuts
+    a file for it, so its recording never arrives and that says nothing about
+    the channel."""
+    return any((s or {}).get("type") == "MANUAL" for s in (getattr(job, "trigger_signals", None) or []))
+
+
+async def _stop_not_clippable(channel: str, uid: str) -> None:
+    """Stop a channel Twitch will never clip for this account, and say why.
+    Removing it also frees the slot, which matters on a plan capped at 3 or
+    10 streams."""
+    if channel:
+        try:
+            await dashboard_api.stop_stream_internal(channel, uid)
+        except Exception:
+            log.warning("not_clippable_stop_failed", channel=channel)
+    if uid:
+        try:
+            await dashboard_api.broadcast(
+                {"event": "clip_failed", "channel": channel or "that channel",
+                 "message": (f"{channel} has clipping restricted on Twitch, so we "
+                             f"can't create clips there. Monitoring stopped.")},
+                user_id=uid,
+            )
+        except Exception:
+            pass
+
+
+def _start_fallback(job, reason: str) -> None:
+    """Hand a job Twitch would not clip to `_fall_back`, off the queue. From
+    here that task owns the moment's file and its place in the in-flight
+    count (a recording about to land is a review-queue slot, like a Twitch
+    clip still being made)."""
+    _twitch_in_flight[job.user_id] = _twitch_in_flight.get(job.user_id, 0) + 1
+    task = asyncio.create_task(_fall_back(job, reason), name=f"finish-clip-{job.clip_id[:8]}")
+    _finishing.add(task)
+    task.add_done_callback(_finishing.discard)
+
+
+async def _fallback_missed(job, reason: str) -> None:
+    """No recording arrived for a moment Twitch would not clip."""
+    key = (job.user_id, job.channel)
+    if reason == _refusals.NOT_AUTHORIZED and not _is_manual(job):
+        misses = _fallback_misses.get(key, 0) + 1
+        _fallback_misses[key] = misses
+        if misses >= _FALLBACK_MISSES_TO_STOP:
+            _fallback_misses.pop(key, None)
+            _not_authorized_until.pop(key, None)
+            log.warning("clip_channel_not_clippable", channel=job.channel, user_id=job.user_id,
+                        recording="none arrived")
+            await _stop_not_clippable(job.channel, job.user_id)
+        return
+    if reason in (_refusals.TITLE_AUTOMOD, _refusals.CLASSIFICATION):
+        # The standing notice already says Twitch is refusing this channel.
+        # Before the fallback these moments were skipped without a word, and
+        # a toast for each one is the 265-in-six-hours problem again.
+        return
+    await _tell_clip_failed(job)
+
+
+async def _fall_back(job, reason: str) -> None:
+    """Keep one moment as the file the stream worker cuts from live capture,
+    because Twitch would not make the clip. Waits for the cut to FINISH, then
+    stores a file-only clip (the same record a Kick clip has, marked
+    `file_only`); no file in time means no clip, said the way that reason was
+    said before."""
+    kept = False
+    try:
+        tail = job.clip_post_roll or job.post_roll
+        due = float(job.created_at) + tail + settings.clip_capture_segment_s * 2 + 1.0
+        wait = max(_FALLBACK_MIN_WAIT_S, due - time.time() + _FALLBACK_FILE_MARGIN_S)
+        if not await dashboard_api.wait_for_clip_file(job.clip_id, wait):
+            log.warning("twitch_fallback_no_file", clip_id=job.clip_id, channel=job.channel,
+                        user_id=job.user_id, reason=reason, waited_s=round(wait))
+            await _fallback_missed(job, reason)
+            return
+        meta = ClipProcessor.file_only_record(job, reason)
+        kept = bool(await dashboard_api.notify_clip_ready(meta.to_dict()))
+        if kept:
+            _fallback_misses.pop((job.user_id, job.channel), None)
+            log.info("twitch_fallback_clip", clip_id=job.clip_id, channel=job.channel,
+                     user_id=job.user_id, reason=reason)
+            # The record did not exist when the cut finished, so what that cue
+            # does for a record (its picture, the library copy, Autopilot) is
+            # done now.
+            await dashboard_api.on_clip_file_ready(job.clip_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        _log_clip_error(job, exc)
+        await _tell_clip_failed(job)
+    finally:
+        left = _twitch_in_flight.get(job.user_id, 0) - 1
+        if left > 0:
+            _twitch_in_flight[job.user_id] = left
+        else:
+            _twitch_in_flight.pop(job.user_id, None)
+        if not kept:
+            _discard_clip_file(job)
+
+
 def _log_clip_error(job, exc: BaseException) -> None:
     """The ERROR for a clip job that failed. Call it inside the except block:
     it formats the exception being handled.
@@ -327,6 +477,7 @@ async def _finish_twitch_clip(job, pending: PendingTwitchClip,
     """Wait for Twitch to finish one clip, off the queue, then do what the
     queue used to do after its poll."""
     kept = False
+    fell_back = False
     try:
         async with slots:
             meta = await asyncio.wait_for(pending.finish(), timeout=_FINISH_TIMEOUT_S)
@@ -335,14 +486,21 @@ async def _finish_twitch_clip(job, pending: PendingTwitchClip,
         raise
     except Exception as exc:
         _log_clip_error(job, exc)
-        await _tell_clip_failed(job)
+        if _fallback_on(job):
+            # Twitch took the request and never made the clip. The recording
+            # of the moment was cut long ago; keep that instead of losing it.
+            fell_back = True
+        else:
+            await _tell_clip_failed(job)
     finally:
         left = _twitch_in_flight.get(job.user_id, 0) - 1
         if left > 0:
             _twitch_in_flight[job.user_id] = left
         else:
             _twitch_in_flight.pop(job.user_id, None)
-        if not kept:
+        if fell_back:
+            _start_fallback(job, FALLBACK_TWITCH_FAILED)    # it owns the file now
+        elif not kept:
             _discard_clip_file(job)
 
 
@@ -398,6 +556,10 @@ async def run_clip_processor() -> None:
             # trying not to spend.
             _until = _title_automod_until.get(job.channel, 0.0)
             if _until > time.time():
+                if _fallback_on(job):
+                    _start_fallback(job, _refusals.TITLE_AUTOMOD)
+                    handed_off = True
+                    continue
                 log.info("clip_skipped_title_automod", channel=job.channel,
                          user_id=job.user_id,
                          retry_in_s=round(_until - time.time()))
@@ -414,6 +576,10 @@ async def run_clip_processor() -> None:
             # whole saving.
             _ccl_until = _classification_until.get(job.channel, 0.0)
             if _ccl_until > time.time():
+                if _fallback_on(job):
+                    _start_fallback(job, _refusals.CLASSIFICATION)
+                    handed_off = True
+                    continue
                 log.info("clip_skipped_classification", channel=job.channel,
                          user_id=job.user_id,
                          retry_in_s=round(_ccl_until - time.time()))
@@ -421,6 +587,22 @@ async def run_clip_processor() -> None:
             if _ccl_until:
                 _classification_until.pop(job.channel, None)
                 log.info("clip_classification_retrying", channel=job.channel)
+
+            # A channel that restricts clipping, for THIS account. Only ever
+            # set with the fallback on (without it the channel was stopped).
+            # Inside the window the moment is recorded without asking Twitch;
+            # after it Twitch is asked again, which is how real clips come
+            # back when the user follows the channel or the streamer lifts it.
+            _na_key = (job.user_id, job.channel)
+            _na_until = _not_authorized_until.get(_na_key, 0.0)
+            if _na_until > time.time() and _fallback_on(job):
+                _start_fallback(job, _refusals.NOT_AUTHORIZED)
+                handed_off = True
+                continue
+            if _na_until:
+                _not_authorized_until.pop(_na_key, None)
+                log.info("clip_not_authorized_retrying", channel=job.channel,
+                         user_id=job.user_id)
 
             log.info("processing_clip_job", clip_id=job.clip_id, channel=job.channel,
                      user_id=job.user_id, platform=job.platform, age_s=round(age, 1))
@@ -483,19 +665,26 @@ async def run_clip_processor() -> None:
             # ONCE per backoff window, not once per moment. The old generic path
             # sent a toast on every failure, which on this channel meant 265 of
             # them in six hours, all saying something untrue about trying again.
+            _rec = _fallback_on(job)
             if _uid and _first:
                 try:
                     await dashboard_api.broadcast(
                         {"event": "clip_failed", "channel": _ch or "that channel",
                          "message": (f"Twitch is rejecting clips on {_ch} because its "
                                      f"stream title did not pass Twitch's automod. "
-                                     f"Nothing is wrong with your account — clipping "
-                                     f"resumes on its own once the streamer changes "
-                                     f"their title.")},
+                                     f"Nothing is wrong with your account — "
+                                     + ("until the streamer changes their title, "
+                                        "Highlightz keeps its own recording of each "
+                                        "moment instead." if _rec else
+                                        "clipping resumes on its own once the streamer "
+                                        "changes their title."))},
                         user_id=_uid,
                     )
                 except Exception:
                     pass
+            if _rec:
+                _start_fallback(job, _refusals.TITLE_AUTOMOD)
+                handed_off = True
             continue
         except twitch_clips.ClipClassificationError:
             # Twitch will not classify this broadcast, so Create Clip refuses.
@@ -515,6 +704,7 @@ async def run_clip_processor() -> None:
             # ONCE per window. The generic path said "it'll try again on the
             # next moment" on every single trigger, which on a channel in this
             # state is untrue every time it is said.
+            _rec = _fallback_on(job)
             if _uid and _first:
                 try:
                     await dashboard_api.broadcast(
@@ -524,12 +714,19 @@ async def run_clip_processor() -> None:
                                      f"classification. This usually means the "
                                      f"streamer needs to set their Content "
                                      f"Classification Labels on Twitch. Nothing is "
-                                     f"wrong with your account, and clipping resumes "
-                                     f"by itself once Twitch sorts it out.")},
+                                     f"wrong with your account, "
+                                     + ("and until Twitch sorts it out Highlightz "
+                                        "keeps its own recording of each moment "
+                                        "instead." if _rec else
+                                        "and clipping resumes by itself once Twitch "
+                                        "sorts it out."))},
                         user_id=_uid,
                     )
                 except Exception:
                     pass
+            if _rec:
+                _start_fallback(job, _refusals.CLASSIFICATION)
+                handed_off = True
             continue
         except twitch_clips.ClipNotAuthorizedError:
             # The broadcaster has clipping restricted. This will NEVER succeed,
@@ -542,24 +739,38 @@ async def run_clip_processor() -> None:
             # which matters on a plan capped at 3 or 10 streams.
             _uid = getattr(job, "user_id", "") if job else ""
             _ch  = getattr(job, "channel", "") if job else ""
+            if _fallback_on(job):
+                # TWITCH_FILE_FALLBACK: the channel keeps being monitored and
+                # each moment is kept as our own recording. Twitch is asked
+                # again after the window (see _not_authorized_until).
+                _first = (_uid, _ch) not in _not_authorized_until
+                _not_authorized_until[(_uid, _ch)] = time.time() + _NOT_AUTHORIZED_RETRY_S
+                log.warning("clip_channel_restricted_recording", channel=_ch, user_id=_uid,
+                            retry_twitch_in_s=_NOT_AUTHORIZED_RETRY_S, first=_first)
+                _refusals.record(_ch, _refusals.NOT_AUTHORIZED, _uid)
+                await _tell_refused(_uid)
+                if _uid and _first:
+                    try:
+                        await dashboard_api.broadcast(
+                            {"event": "clip_failed", "channel": _ch or "that channel",
+                             "message": (f"{_ch} has clipping restricted on Twitch, so "
+                                         f"Twitch will not make clips there for your "
+                                         f"account. Highlightz keeps its own recording "
+                                         f"of each moment instead. Following or "
+                                         f"subscribing to the channel on Twitch may "
+                                         f"lift the restriction; Twitch clips come "
+                                         f"back by themselves if it does.")},
+                            user_id=_uid,
+                        )
+                    except Exception:
+                        pass
+                _start_fallback(job, _refusals.NOT_AUTHORIZED)
+                handed_off = True
+                continue
             log.warning("clip_channel_not_clippable", channel=_ch, user_id=_uid)
             _refusals.record(_ch, _refusals.NOT_AUTHORIZED, _uid)
             await _tell_refused(_uid)
-            if _ch:
-                try:
-                    await dashboard_api.stop_stream_internal(_ch, _uid)
-                except Exception:
-                    log.warning("not_clippable_stop_failed", channel=_ch)
-            if _uid:
-                try:
-                    await dashboard_api.broadcast(
-                        {"event": "clip_failed", "channel": _ch or "that channel",
-                         "message": (f"{_ch} has clipping restricted on Twitch, so we "
-                                     f"can't create clips there. Monitoring stopped.")},
-                        user_id=_uid,
-                    )
-                except Exception:
-                    pass
+            await _stop_not_clippable(_ch, _uid)
             continue
         except Exception as exc:
             _log_clip_error(job, exc)
@@ -569,7 +780,14 @@ async def run_clip_processor() -> None:
                 await asyncio.sleep(queue_backoff)
                 queue_backoff = min(queue_backoff * 2, _QUEUE_RETRY_MAX)
                 continue
-            await _tell_clip_failed(job)
+            if _fallback_on(job):
+                # Create Clip failed for a reason of Twitch's or ours (it has
+                # been logged above). The recording of the moment is still
+                # being cut; keep that rather than lose the moment.
+                _start_fallback(job, FALLBACK_TWITCH_FAILED)
+                handed_off = True
+            else:
+                await _tell_clip_failed(job)
         finally:
             # Not kept means the file goes (_discard_clip_file says why). A
             # `continue` above still runs this. A clip handed off is not this
@@ -819,6 +1037,21 @@ async def main() -> None:
                     note="see THE SPLIT in docs/HANDOFF.md before using this in production")
     else:
         dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)
+
+    # TWITCH_FILE_FALLBACK: say once, at start, that it is on, because it
+    # changes what a refusal from Twitch does (see "When Twitch will not make
+    # the clip" above). On without capture it can do nothing, and that is an
+    # error worth an email rather than a switch quietly doing nothing.
+    if settings.twitch_file_fallback:
+        if settings.clip_capture_enabled:
+            log.warning("twitch_file_fallback_on",
+                        note="a Twitch moment Twitch will not clip is kept as our own "
+                             "recording; Twitch is still asked first")
+        else:
+            log.error("twitch_file_fallback_needs_capture",
+                      fix="TWITCH_FILE_FALLBACK is on but CLIP_CAPTURE_ENABLED is not, so "
+                          "there is no recording to keep and it does nothing. Turn "
+                          "capture on, or take TWITCH_FILE_FALLBACK out of .env")
 
     async def _force_clip(channel: str, user_id: str = "") -> None:
         from src.queue.job_queue import ClipJob

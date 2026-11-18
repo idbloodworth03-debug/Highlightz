@@ -131,6 +131,11 @@ def test_what_the_code_stores_on_a_clip_is_what_the_policy_describes():
         # Disclosed anyway in the clip-metadata bullet, because the list being
         # complete is worth more than the argument that it need not be.
         "age_restricted",
+        # A Twitch moment Twitch would not clip, kept as the recorded file
+        # (TWITCH_FILE_FALLBACK). Disclosed in the same bullet while the
+        # switch is on (api._FILEONLY_FIELDS); never set while it is off.
+        # tests/test_twitch_file_fallback.py holds both directions.
+        "file_only", "fallback_reason",
     }
     actual = {f.name for f in dataclasses.fields(ClipMetadata)}
     undisclosed = actual - covered

@@ -1147,6 +1147,30 @@ _SWEEP_MIN_AGE_SECS = 900.0
 # means "gone": the cut lands ~30 s after the catch on prod and _file_state
 # calls it pending for _CLIP_FILE_WAIT_S; fifteen minutes is far outside both.
 _VIDEO_GONE_GRACE_S = 900.0
+
+
+def _file_only(clip: dict) -> bool:
+    """Is this clip nothing but the video Highlightz cut, with no platform-
+    hosted clip behind it? Every Kick clip (Kick has no clip API), and a
+    Twitch clip kept from the recording because Twitch would not make one
+    (TWITCH_FILE_FALLBACK, `file_only` on the record). With no video such a
+    clip is a dud: there is nowhere else it plays."""
+    return clip.get("platform") == "kick" or bool(clip.get("file_only"))
+
+
+def twitch_fallback_usable(channel: str) -> bool:
+    """May a Twitch moment on this channel be kept as our own recording when
+    Twitch will not clip it? The switch is on, capture is on (the recording
+    is the clip), and the broadcaster has not opted out: an opted-out channel
+    is never recorded, so there would be no file, and the promise is theirs.
+    Cannot read the opt-out list: no, rather than guess."""
+    if not (settings.twitch_file_fallback and settings.clip_capture_enabled):
+        return False
+    try:
+        from src.auth import optout
+        return not optout.is_opted_out(_clean_channel(channel))
+    except Exception:
+        return False
 # One bell note per account per day, however many passes remove something.
 _VIDEO_GONE_NOTICE_EVERY_S = 86400.0
 _video_gone_noticed: dict[str, float] = {}
@@ -1165,8 +1189,11 @@ async def sweep_videoless_kick_clips(grace_s: float = _VIDEO_GONE_GRACE_S,
     from src.stats import stream_stats
     now = time.time() if now is None else now
     listing = clip_files.existing_ids()
+    # Kick clips, and Twitch clips kept from the recording (`_file_only`):
+    # neither has a platform clip to fall back on. A normal Twitch clip is
+    # still never touched here.
     gone = [c for c in list(_clips.values())
-            if c.get("status") == "pending" and c.get("platform") == "kick"
+            if c.get("status") == "pending" and _file_only(c)
             and c.get("id") and c["id"] not in listing
             and now - float(c.get("created_at") or 0) > grace_s]
     # THE LISTING ONLY NOMINATES. It reads as empty when the directory cannot
@@ -1190,7 +1217,10 @@ async def sweep_videoless_kick_clips(grace_s: float = _VIDEO_GONE_GRACE_S,
         if removed:
             _save_clips()
     per_user: dict[str, int] = {}
+    not_kick: set[str] = set()                  # accounts that lost a Twitch recording
     for clip in removed:
+        if clip.get("platform") != "kick":
+            not_kick.add(clip.get("user_id") or "")
         _delete_clip_file(clip)                 # the picture, if one was kept
         try:
             stream_stats.record(stream_stats.VIDEO_GONE, clip)
@@ -1212,6 +1242,18 @@ async def sweep_videoless_kick_clips(grace_s: float = _VIDEO_GONE_GRACE_S,
             if not uid or now - _video_gone_noticed.get(uid, 0) < _VIDEO_GONE_NOTICE_EVERY_S:
                 continue
             _video_gone_noticed[uid] = now
+            if uid in not_kick:
+                # At least one was a Twitch moment kept as our own recording.
+                notes[uid] = {
+                    "title": "Some recorded clips were removed from your queue",
+                    "body": (f"{n} unreviewed clip{'s' if n != 1 else ''} had no video left, "
+                             "so we took them off your queue. These clips exist only as the "
+                             "video Highlightz recorded (every Kick clip, and a Twitch moment "
+                             "Twitch would not clip), and unreviewed videos are kept for a "
+                             "limited time to make room for new ones. Review or approve them "
+                             "soon after they land; approved clips are kept the longest."),
+                }
+                continue
             notes[uid] = {
                 "title": "Some Kick clips were removed from your queue",
                 "body": (f"{n} unreviewed Kick clip{'s' if n != 1 else ''} had no video left, "
@@ -3906,12 +3948,66 @@ async def _fetch_and_announce(clip_id: str, uid: str, slug: str) -> None:
     await on_clip_file_ready(clip_id)
 
 
+# WHEN A CLIP'S CUT HAS FINISHED. The cut is written straight to its final
+# name, so "the file exists" is true while ffmpeg is still writing it; the
+# moment it is whole is when the stream worker says so, which arrives here
+# (on_clip_file_ready), from this process or from an ingest worker. The Twitch
+# fallback (src/main.py, `_fall_back`) stores a clip only once its video is
+# whole, and this is what it waits on.
+_FILE_LANDED_KEEP_S = 900.0
+_files_landed: dict[str, float] = {}            # clip id -> when (monotonic)
+_file_waiters: dict[str, asyncio.Event] = {}
+
+
+def _note_file_landed(clip_id: str) -> None:
+    now = time.monotonic()
+    _files_landed[clip_id] = now
+    if len(_files_landed) > 512:
+        for cid in [c for c, t in _files_landed.items() if now - t > _FILE_LANDED_KEEP_S]:
+            _files_landed.pop(cid, None)
+    waiter = _file_waiters.get(clip_id)
+    if waiter is not None:
+        waiter.set()
+
+
+def _file_settled(clip_id: str, quiet_s: float = 5.0) -> bool:
+    """The file is there and nothing has written to it for a few seconds."""
+    try:
+        from src.clips import files as clip_files
+        p = clip_files.path_for(clip_id)
+        return bool(p and p.is_file() and time.time() - p.stat().st_mtime >= quiet_s)
+    except Exception:
+        return False
+
+
+async def wait_for_clip_file(clip_id: str, timeout: float) -> bool:
+    """True once this clip's video is whole on disk, False if `timeout`
+    seconds pass without it.
+
+    The cue is on_clip_file_ready. It may already have come (a clip Twitch
+    took a minute to give up on was cut long before), and it can be lost (an
+    ingest worker whose link dropped), so at the deadline the file itself has
+    the last word: there, and not written to for a few seconds."""
+    if clip_id in _files_landed:
+        return True
+    waiter = _file_waiters.setdefault(clip_id, asyncio.Event())
+    try:
+        await asyncio.wait_for(waiter.wait(), timeout=max(0.0, float(timeout)))
+        return True
+    except asyncio.TimeoutError:
+        return await asyncio.to_thread(_file_settled, clip_id)
+    finally:
+        if _file_waiters.get(clip_id) is waiter:
+            _file_waiters.pop(clip_id, None)
+
+
 async def on_clip_file_ready(clip_id: str) -> None:
     """Every path that makes a clip's file exist ends here: the capture cut
     (stream_worker), the Twitch fetch (above) and the on-demand fetch. An
     approved clip whose file arrived after the approval is Autopilot's cue,
     and the moment it can populate the Clip Editor."""
     from src.autopilot import runner as _autopilot
+    _note_file_landed(clip_id)
     # A clip with no platform thumbnail (every Kick clip) gets a frame of its
     # own video, made now while the video is certainly on disk. In the
     # background; the card asks for it too and the two share one run.
@@ -9016,7 +9112,11 @@ async def my_clip_refusals(request: Request):
     rows = [
         {"channel": r.get("channel", ""), "count": int(r.get("count", 0)),
          "reason": r.get("reason", ""), "last_seen": r.get("last_seen", 0),
-         "first_seen": r.get("first_seen", 0)}
+         "first_seen": r.get("first_seen", 0),
+         # While Twitch refuses, each moment is kept as Highlightz's own
+         # recording (TWITCH_FILE_FALLBACK): the notice says so instead of
+         # reading as "nothing is being clipped".
+         "recording": twitch_fallback_usable(r.get("channel", ""))}
         for r in clip_refusals.rows_for_user(uid)
         if (r.get("last_seen") or 0) > user_store.refusal_dismissed_at(
             user, r.get("channel", ""))
@@ -16075,7 +16175,7 @@ TOS_HTML = """<!DOCTYPE html>
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
   <h2>1. Description of Service</h2>
-  <p>Highlightz is a SaaS platform that monitors live streams on Twitch and Kick, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — turns each moment into a clip. On Twitch that means both a clip created using Twitch's official Clips API (created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account) and a video file of the moment held for your account as described below. On Kick, which offers no clip-creation interface, the video file is the clip. The Service also lets you edit that file (the Clip Editor), queue it and post it to third-party accounts you connect (the Scheduler), and, if you switch it on, do both automatically for every clip you approve (Autopilot).</p>
+  <p>Highlightz is a SaaS platform that monitors live streams on Twitch and Kick, automatically detects highlight moments from public signals such as chat activity and stream audio levels, and — at your direction and on your behalf — turns each moment into a clip. On Twitch that means both a clip created using Twitch's official Clips API (created, processed, hosted, and stored by Twitch on Twitch's own infrastructure under your Twitch account) and a video file of the moment held for your account as described below.<!--FILEONLY_TOS--> On Kick, which offers no clip-creation interface, the video file is the clip. The Service also lets you edit that file (the Clip Editor), queue it and post it to third-party accounts you connect (the Scheduler), and, if you switch it on, do both automatically for every clip you approve (Autopilot).</p>
   <p><strong>Recording of live broadcasts.</strong> While a channel you have added is being monitored, the Service may record a short rolling segment of that live public broadcast on its own servers, so that a moment it detects can also be saved as a video file for you. That rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is kept for a limited period &mdash; currently up to <!--CLIPDAYS--> days &mdash; and is deleted when you delete the clip, when your account is deleted, or when that period ends, whichever comes first. It is available only to the account the clip belongs to; it is not published, shared with other users, or hosted anywhere publicly accessible. A channel that has opted out under Section 5 is never recorded.</p>
   <p>To provide downloads, editing and scheduling, Highlightz stores a video file of each clip for the account that created it. That file is obtained either by recording the live public broadcast as it is transmitted, using the same publicly available stream a viewer receives, or, where that recording is unavailable, by retrieving the clip's video from Twitch at your request. A stored file is private to your account, is never kept for a channel whose broadcaster has opted out, and is deleted when you delete the clip or your account and in any case within the retention period stated in the Privacy Policy. Highlightz does not alter or publicly re-host clips or past broadcasts that Twitch hosts. To measure loudness we also read a stream's audio in real time and, when you scan a past broadcast, decode an audio-only rendition of it; that audio is measured and discarded, never written to disk or retained.</p>
   <p>The Service may also place in your review queue clips that were created on Twitch by someone other than you ("Highlight clips"). Highlightz does not create those clips; it points you to clips that already exist on Twitch. See Section 5.</p>
@@ -16209,7 +16309,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
-    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, the Twitch clip links generated for your account, and for a Kick clip the channel page it came from. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it. The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
+    <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, the Twitch clip links generated for your account, and for a Kick clip the channel page it came from. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it.<!--FILEONLY_FIELDS--> The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
     <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. Where the rolling recording did not capture a moment, we retrieve the clip's video from Twitch when you ask for it and store it under the same terms. A channel that has opted out is never recorded and its clips are never retrieved.</li>
     <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
     <li><strong>Session data</strong> — a server-side session cookie that keeps you signed in (see our <a href="/cookies">Cookie Policy</a>).</li>
@@ -16253,7 +16353,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
   <p>We implement reasonable technical and organizational safeguards including session-based authentication, HTTPS-only transmission, encryption of stored Twitch tokens at rest, and per-user data isolation. No system is perfectly secure; we encourage you to protect your Twitch account with a strong, unique password and two-factor authentication.</p>
 
   <h2>6a. Clips and Streamer Content</h2>
-  <p>Twitch clips you create through the Service are created with your Twitch account and are hosted by Twitch, not by us. The video file of each moment — recorded from the live broadcast, or fetched from Twitch at your request, and on Kick the only form the clip takes — is held under your account as described in Section 1, is available only to you, and leaves our servers only when you edit and download it or post it to an account you connected. You are solely responsible for the clips you create, for any recording made at your direction, and for how you share or distribute either, including where the broadcaster is somebody other than yourself. See Section 5 of our <a href="/tos">Terms of Service</a> for details on your responsibilities.</p>
+  <p>Twitch clips you create through the Service are created with your Twitch account and are hosted by Twitch, not by us. The video file of each moment — recorded from the live broadcast, or fetched from Twitch at your request, and on Kick<!--FILEONLY_PRIVACY--> the only form the clip takes — is held under your account as described in Section 1, is available only to you, and leaves our servers only when you edit and download it or post it to an account you connected. You are solely responsible for the clips you create, for any recording made at your direction, and for how you share or distribute either, including where the broadcaster is somebody other than yourself. See Section 5 of our <a href="/tos">Terms of Service</a> for details on your responsibilities.</p>
 
   <h2>7. Children</h2>
   <p>The Service is not directed at persons under 18 years of age. We do not knowingly collect personal data from minors. If you believe a minor has provided us with data, contact us and we will delete it promptly.</p>
@@ -16285,6 +16385,38 @@ PRIVACY_HTML = PRIVACY_HTML.replace(
 _CLIP_DAYS = str(settings.clip_file_max_age_days)
 TOS_HTML = TOS_HTML.replace("<!--CLIPDAYS-->", _CLIP_DAYS, 1)
 PRIVACY_HTML = PRIVACY_HTML.replace("<!--CLIPDAYS-->", _CLIP_DAYS, 1)
+
+# WHEN TWITCH WILL NOT MAKE THE CLIP (TWITCH_FILE_FALLBACK). With the switch
+# on, a Twitch moment can exist as the recorded file alone, and both documents
+# say "on Twitch that means a clip made by Twitch AND a file". That sentence
+# must not outlive its truth in either direction: said while the switch is
+# off it describes a collection that does not happen, and unsaid while it is
+# on it hides one. So, like the retention figure, it is rendered from the
+# setting. tests/test_twitch_file_fallback.py holds both directions.
+_FILEONLY_TOS = (" Where Twitch does not create the clip (for example because the "
+                 "broadcaster has restricted or switched off clipping on their channel, or "
+                 "because Twitch refuses or fails to make it), the Service keeps the "
+                 "recorded video file alone, and that file is then the clip; no clip is "
+                 "created on Twitch in that case.")
+_FILEONLY_PRIVACY = " (and on Twitch, where Twitch does not create the clip)"
+# The two fields the clip record gained (`file_only`, `fallback_reason`), in
+# the Privacy Policy's list of what a clip stores. Neither is about a person.
+_FILEONLY_FIELDS = (" Where Twitch did not create a clip and the recorded video is the "
+                    "clip, we record that it is, and which reason Twitch gave (for "
+                    "example that clipping is restricted on the channel); there is then "
+                    "no Twitch clip link, and that clip is not hosted by Twitch.")
+
+
+def _legal_with_fallback(tos: str, privacy: str, on: bool) -> tuple[str, str]:
+    return (tos.replace("<!--FILEONLY_TOS-->", _FILEONLY_TOS if on else "", 1),
+            privacy.replace("<!--FILEONLY_PRIVACY-->", _FILEONLY_PRIVACY if on else "", 1)
+                   .replace("<!--FILEONLY_FIELDS-->", _FILEONLY_FIELDS if on else "", 1))
+
+
+_TOS_TEMPLATE, _PRIVACY_TEMPLATE = TOS_HTML, PRIVACY_HTML     # for the tests: both directions
+TOS_HTML, PRIVACY_HTML = _legal_with_fallback(
+    TOS_HTML, PRIVACY_HTML,
+    bool(settings.twitch_file_fallback and settings.clip_capture_enabled))
 
 COOKIES_HTML = """<!DOCTYPE html>
 <html lang="en">

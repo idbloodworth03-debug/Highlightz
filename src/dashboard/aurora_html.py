@@ -3097,6 +3097,11 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
   // A Kick clip has no hosted clip page; it links to the channel instead.
   const outHref = twHref || clip.platform_url || '';
   const outName = clip.platform === 'kick' ? 'Kick' : 'Twitch';
+  // A Twitch moment Twitch would not clip, kept as the video Highlightz
+  // recorded (TWITCH_FILE_FALLBACK). There is no clip on Twitch to open, so
+  // its link says what it really opens: the channel.
+  const recorded = !!clip.file_only && clip.platform !== 'kick';
+  const openTitle = recorded ? 'Open the channel on Twitch' : 'Open on ' + outName;
   // A moment viewers clipped, surfaced with the score deliberately never
   // consulted (src/trigger/suggested_clips.py). It is a different KIND of card,
   // not a decorated one, so it gets its own badge and suppresses the trigger
@@ -3222,6 +3227,8 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
         {clip.age_restricted && <span className="rd-agebadge"
           title={clip.platform === 'kick'
             ? 'This channel is flagged mature on Kick. The clip is a file Highlightz captured and plays here.'
+            : recorded
+            ? 'This channel is flagged mature on Twitch. The clip is a file Highlightz recorded and plays here.'
             : 'This channel is flagged mature on Twitch. The clip plays on Twitch, not in this player.'}>
           <Icon name="zap" size={11}/>Age-restricted
         </span>}
@@ -3243,11 +3250,11 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
                 call on a clip that slipped through would white-screen the app. */}
             <button className="rd-btn live sm" onClick={e=>{e.stopPropagation();onApprove&&onApprove(clip.id)}}><Icon name="check" size={14}/>Approve</button>
             <button className="rd-btn danger sm" onClick={e=>{e.stopPropagation();onReject&&onReject(clip.id)}}><Icon name="x" size={14}/>Reject</button>
-            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title={'Open on '+outName} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{textDecoration:'none',flex:'0 0 auto'}} title={openTitle} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
             {edBtn}
           </> : libraryMode && clip.status==='approved' ? <>
-            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>Open on {outName}</a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn grad sm" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/>{recorded ? 'Channel on Twitch' : <>Open on {outName}</>}</a>}
             {dlBtn}
             {edBtn}
             {postBtn}
@@ -3255,7 +3262,7 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
           </> : <span className="rd-resolved">
             <Icon name={clip.status==='approved'?'check':'x'} size={14} style={{color:clip.status==='approved'?'var(--live)':'var(--danger)'}}/>
             {clip.status==='approved'?'Approved':'Rejected'}
-            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title={'Open on '+outName} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
+            {outHref && <a href={outHref} target="_blank" rel="noopener" className="rd-btn sm" style={{marginLeft:4,textDecoration:'none',flex:'0 0 auto'}} title={openTitle} onClick={e=>e.stopPropagation()}><Icon name="play" size={13}/></a>}
             {dlBtn}
             {edBtn}
             {clip.status==='approved' && postBtn}
@@ -4002,7 +4009,12 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
   // not available and to watch it on kick. Then you go on kick and it's not
   // there either"). Every one of that channel's clips had its file.
   const kick = clip.platform === 'kick';
-  const canLinkOut = !embedSrc && !fileSrc && !!outHref && !kick;
+  // THE SAME IS TRUE OF A TWITCH MOMENT TWITCH WOULD NOT CLIP. It was kept as
+  // the video Highlightz recorded (file_only, TWITCH_FILE_FALLBACK), so it is
+  // not on Twitch: no tap-through, no "plays on Twitch", and its own line
+  // under the player saying what it is.
+  const fileOnly = kick || !!clip.file_only;
+  const canLinkOut = !embedSrc && !fileSrc && !!outHref && !fileOnly;
   const openClip = () => { if (outHref) window.open(outHref, '_blank', 'noopener'); };
   const sigMap = {};
   for (const s of (clip.trigger_signals||[])) {
@@ -4033,12 +4045,14 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
             local file. A Kick clip is a file Highlightz cut and plays right
             here, mature flag or not — "plays on Twitch" under a Kick clip
             was a real bug report (2026-09-15). */}
-        {kick && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:clip.file_state === 'pending' ? 'rgba(83,252,24,.08)' : 'rgba(255,255,255,.05)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+        {fileOnly && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:clip.file_state === 'pending' ? (kick ? 'rgba(83,252,24,.08)' : 'rgba(99,102,241,.10)') : 'rgba(255,255,255,.05)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
           {clip.file_state === 'pending'
             ? <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>Cutting the video now.</b> It plays here the moment it lands, usually within a minute or two. No need to refresh.</span>
-            : <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>No video for this clip.</b> A Kick clip exists only as the file Highlightz recorded, so it is not on Kick either.</span>}
+            : kick
+            ? <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>No video for this clip.</b> A Kick clip exists only as the file Highlightz recorded, so it is not on Kick either.</span>
+            : <span style={{color:'var(--fg-3)'}}><b style={{color:'var(--fg)'}}>No video for this clip.</b> Twitch would not make this clip, so it exists only as the file Highlightz recorded, and it is not on Twitch either.</span>}
         </div>}
-        {gated && !kick && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
+        {gated && !fileOnly && !fileSrc && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(250,204,21,.10)',borderBottom:'1px solid rgba(250,204,21,.22)'}}>
           <span style={{color:'var(--pending)',fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
             <Icon name="zap" size={13}/>Age-restricted on {outName}
           </span>
@@ -4054,6 +4068,10 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
         {fileSrc && clip.platform === 'kick' && <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(83,252,24,.08)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
           <span style={{color:'var(--fg-3)'}}>Captured by Highlightz from the live broadcast.</span>
           {outHref && <a href={outHref} target="_blank" rel="noopener" style={{color:'#53fc18',textDecoration:'none',fontWeight:600}}>Open channel on Kick ↗</a>}
+        </div>}
+        {fileSrc && !kick && clip.file_only && <div style={{display:'flex',alignItems:'center',justifyContent:'center',flexWrap:'wrap',gap:12,padding:'8px 12px',fontSize:12,background:'rgba(99,102,241,.10)',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+          <span style={{color:'var(--fg-3)'}}>Twitch would not make this clip, so this is the video Highlightz recorded from the live broadcast. It downloads, edits and posts like any clip.</span>
+          {outHref && <a href={outHref} target="_blank" rel="noopener" style={{color:'var(--acc)',textDecoration:'none',fontWeight:600}}>Open channel on Twitch ↗</a>}
         </div>}
 
         <div className="rd-modal-body">
@@ -4172,6 +4190,12 @@ function ClipModal({ clip, onClose, onApprove, onReject, onEdit, onPost, isAdmin
                           Highlightz recorded from the live stream, and videos are held for a
                           limited time to make room for new ones. Download or post the ones you
                           want soon after they land; approved clips are kept the longest.</>
+                      : clip.file_only && clip.file_state !== 'off'
+                      ? <><b>This clip's video is gone.</b> Twitch would not make this clip, so
+                          it existed only as the file Highlightz recorded from the live stream,
+                          and videos are held for a limited time to make room for new ones.
+                          Download or post the ones you want soon after they land; approved
+                          clips are kept the longest.</>
                       : clip.file_state === 'expired' && clip.file_cleared_at
                       ? <><b>This video was cleared.</b> After a week away, saved clip videos
                           on Free are cleared to free up space. The clip itself is still
@@ -4683,18 +4707,25 @@ function SortPicker({ sorts, sortBy, setSortBy, sortDir, setSortDir, compact }) 
 // actually is. Kept as one map beside the banner so the wording is in one
 // place; the admin table has its own, blunter copy, because an operator wants
 // the cause and a customer wants to know whether to keep waiting.
+// `rec` is said INSTEAD of `who` while Highlightz is keeping its own
+// recording of each moment (TWITCH_FILE_FALLBACK; the server sends
+// `recording` with the row). Then the queue is not empty and the channel is
+// not stopped, and a notice that still said so would be wrong twice.
 const REFUSAL_COPY = {
   classification: {
     what: 'Twitch has not determined this channel’s content rating, and it will not create clips until it does.',
-    who: 'The streamer needs to set their Content Classification Labels. Clipping resumes on its own once they do.'
+    who: 'The streamer needs to set their Content Classification Labels. Clipping resumes on its own once they do.',
+    rec: 'Until the streamer sets their Content Classification Labels, Highlightz keeps its own recording of each moment, and it lands in your queue like any clip.'
   },
   title_automod: {
     what: 'The stream title did not pass Twitch’s automod, and Twitch refuses to clip while it stands.',
-    who: 'It clears by itself when the streamer renames their stream — we keep trying in the background.'
+    who: 'It clears by itself when the streamer renames their stream — we keep trying in the background.',
+    rec: 'Until the streamer renames their stream, Highlightz keeps its own recording of each moment, and it lands in your queue like any clip.'
   },
   not_authorized: {
-    what: 'This broadcaster has clipping turned off on Twitch.',
-    who: 'Only they can change that, so we stopped monitoring the channel to free the slot.'
+    what: 'This broadcaster has clipping restricted on Twitch (often to followers or subscribers) or turned off.',
+    who: 'Following or subscribing to the channel on Twitch may lift it; add the channel again if it does. We stopped monitoring it to free the slot.',
+    rec: 'Highlightz keeps its own recording of each moment instead, and it lands in your queue like any clip. Following or subscribing to the channel on Twitch may lift the restriction, and Twitch clips come back by themselves if it does.'
   },
 };
 
@@ -4786,7 +4817,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
             <span className="ic"><Icon name="alert" size={16}/></span>
             <div className="tx">
               <b>Twitch will not clip {r.channel}.</b>{' '}
-              {copy.what}{copy.who ? ' ' + copy.who : ''}
+              {copy.what}{(r.recording && copy.rec) ? ' ' + copy.rec : (copy.who ? ' ' + copy.who : '')}
               {' '}Nothing is wrong with your account.
             </div>
             <button className="rd-lost-x" onClick={()=>onDismissRefusal(r.channel)}

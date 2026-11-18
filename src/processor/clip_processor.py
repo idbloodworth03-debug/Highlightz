@@ -170,6 +170,39 @@ class ClipProcessor:
         # question, asked off the queue (see its docstring).
         return PendingTwitchClip(meta, slug, channel)
 
+    @staticmethod
+    def file_only_record(job: ClipJob, reason: str) -> ClipMetadata:
+        """The record for a Twitch moment Twitch would not clip, kept as the
+        file the stream worker cuts from live capture (TWITCH_FILE_FALLBACK).
+
+        The same shape as a Kick clip, for the same reason: there is no
+        platform-hosted clip, no embed and no watch page, so the record points
+        at the channel and the video is /clips/{id}/file. `file_only` is what
+        tells every reader of the record so (a Kick clip is known by its
+        platform). It makes no call and waits for nothing: whether the file
+        exists is the caller's question (src/main.py, `_fall_back`), and the
+        record is only stored once it does."""
+        tail = job.clip_post_roll or job.post_roll
+        return ClipMetadata(
+            id=job.clip_id,
+            channel=job.channel,
+            platform="twitch",
+            trigger_score=job.trigger_score,
+            trigger_signals=job.trigger_signals,
+            chat_snapshot=job.chat_snapshot,
+            stream_title=job.stream_title,
+            game=job.game,
+            virality_score=job.virality_score,
+            clip_title=job.clip_title,
+            user_id=job.user_id,
+            age_restricted=getattr(job, "age_restricted", False),
+            platform_url=f"https://www.twitch.tv/{job.channel}",
+            duration_seconds=float(job.pre_roll + tail),
+            status="pending",
+            file_only=True,
+            fallback_reason=reason,
+        )
+
     async def _process_kick(self, job: ClipJob, meta: ClipMetadata, channel: str) -> ClipMetadata:
         """A Kick clip is the FILE the stream worker cuts from its live capture
         buffer — nothing else exists. Kick has no public clip-creation API

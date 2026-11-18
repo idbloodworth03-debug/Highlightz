@@ -330,6 +330,23 @@ class Settings(BaseSettings):
     # seconds, so anything past this is stuck. MAX_MB rejects a file that is
     # not the ~30s clip it claims to be.
     clip_fetch_enabled: bool = False
+    # TWITCH_FILE_FALLBACK. When Twitch will not make a clip, keep OUR OWN
+    # recording of the moment as the clip instead (owner, 2026-11-18: "B but
+    # make it only as a back up if those cases happen otherwise use the
+    # normal clipping method"). Twitch's own clip is still tried first, every
+    # time; this is only what happens when it refuses (the broadcaster has
+    # clipping restricted or off, the stream title fails automod, the channel
+    # is unclassified) or fails (the clip never finishes, Create Clip errors).
+    # The clip is then the file cut from live capture, exactly as every Kick
+    # clip is, so it needs CLIP_CAPTURE_ENABLED and is never made for a
+    # broadcaster who has opted out (they are never recorded).
+    #
+    # OFF BY DEFAULT, like capture and the Twitch fetch before it, and for the
+    # same reason: it is a decision, not a deploy. For a restricted channel it
+    # makes a clip the broadcaster's own Twitch setting said no to. The risk
+    # the owner accepted is in docs/HANDOFF.md ("Clips Twitch will not make");
+    # this switch is also how it is turned back off in one line.
+    twitch_file_fallback: bool = False
     clip_fetch_timeout_s: int = 120
     clip_fetch_max_mb: int = 200
 

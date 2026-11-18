@@ -9883,6 +9883,133 @@ returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
 
+## Clips Twitch will not make: our own recording as the backup (2026-11-18)
+
+**Owner, 2026-11-18:** "can we have some sort of clipping being done for
+streams that cant be clipped on twitch is this possible so those users can
+still clip them?" Three cases were put to them (Twitch failing for reasons
+that are not the streamer saying no; clipping limited to followers or
+subscribers; clipping switched off), with the recommendation to do only the
+first two and the reason: for the third, the clip overrides a setting the
+broadcaster chose, it is the case most likely to bring complaints to Twitch,
+and the realistic penalty is the app's API access, which would stop clip
+creation for everybody. **The owner chose all three: "B but make it only as a
+back up if those cases happen otherwise use the normal clipping method".**
+That is a decision made with the risk stated, like capture and the Twitch
+fetch before it. Do not relitigate it, and do not quietly widen it: Twitch's
+own clip is asked for first, every time.
+
+**The switch: `TWITCH_FILE_FALLBACK` (`config/settings.py`), OFF by default.**
+Deploying this changes nothing. It needs `CLIP_CAPTURE_ENABLED` (the recording
+IS the clip; on without capture the site logs the error
+`twitch_file_fallback_needs_capture` at start), and it is never used for a
+broadcaster who has opted out (`api.twitch_fallback_usable`: they are never
+recorded, and an opt-out list that cannot be read counts as "no"). It is also
+the way back: take the line out and restart.
+- on: `cd /opt/highlightz && sed -i '/^TWITCH_FILE_FALLBACK=/d' .env && printf '\nTWITCH_FILE_FALLBACK=true\n' >> .env && systemctl restart highlightz`
+- off: `cd /opt/highlightz && sed -i '/^TWITCH_FILE_FALLBACK=/d' .env && systemctl restart highlightz`
+**NOT TURNED ON IN PRODUCTION when this was written.**
+
+**What it does (`src/main.py`, "When Twitch will not make the clip").** The
+clip queue asks Twitch as before. When Twitch refuses or fails, the moment is
+handed to `_fall_back`, off the queue, which waits for the stream worker's cut
+of that moment to FINISH and then stores a **file-only clip**: the record a
+Kick clip has, platform `twitch`, `file_only: true`, `fallback_reason`,
+`platform_url` the channel page, no `twitch_url` / `embed_url` /
+`twitch_clip_id` (`ClipProcessor.file_only_record`).
+| Twitch says | before | with the switch on |
+|---|---|---|
+| 403, clipping restricted or off (`ClipNotAuthorizedError`) | channel STOPPED, "Monitoring stopped" | channel keeps running; the moment is recorded; a window per (account, channel) of `_NOT_AUTHORIZED_RETRY_S` (1 h) in which Twitch is not asked; then asked again |
+| title fails automod / channel unclassified | 10 / 5 minute window, every moment in it SKIPPED | same windows (Twitch is still spared the call), every moment in them recorded |
+| Create Clip errors, or the clip never finishes | "couldn't be captured", the cut thrown away | the cut kept as the clip; no window |
+| the user's sign-in expired | channel stopped, "sign out and back in" | unchanged: that is theirs to fix |
+- **Why the window is per account for a restriction:** it is about who is
+  asking. A follower may clip where a stranger may not, so another account on
+  the same channel is still asked the normal way.
+- **How real Twitch clips come back:** when a window ends the next moment
+  asks Twitch. If it works, `_clip_succeeded` clears the refusal, the notice
+  leaves the tabs and nothing more is recorded instead.
+- **THE CARD ARRIVES WITH ITS VIDEO OR NOT AT ALL.** A Kick clip gets its card
+  first and its video a minute later; here the recording can fail (a buffer
+  miss, a recorder that is down) and a card with nothing behind it is a dud.
+  `api.wait_for_clip_file` waits on the cue the stream worker sends when the
+  cut is whole (`on_clip_file_ready`, from this process or an ingest worker);
+  the cut is written straight to its final name, so "the file exists" is not
+  that. A cue that came earlier is remembered for 15 minutes; a lost cue is
+  covered at the deadline by "the file is there and nothing has written to it
+  for 5 s". Deadline: when the cut was due plus 45 s, never under 10 s.
+- **No recording:** nothing is stored and the file is discarded. A plain
+  failure says "couldn't be captured" as before; a miss inside an automod or
+  classification window says nothing (it replaces a silent skip); a restricted
+  channel is stopped, as before the fallback, after 3 misses in a row
+  (`_FALLBACK_MISSES_TO_STOP`), and a recording that does arrive starts the
+  count again.
+- A recording on its way counts as a review-queue slot (`_twitch_in_flight`),
+  and a queue that filled meanwhile discards it.
+
+**What else knows about it.**
+- `api._file_only(clip)`: Kick, or `file_only`. The ten-minute sweep of
+  pending clips with no video (`sweep_videoless_kick_clips`, name kept) now
+  uses it, and its bell note says "recorded clips" when one was Twitch. The
+  dead-Twitch-clip sweep and the fetch from Twitch both need a
+  `twitch_clip_id`, so neither ever touches one.
+- The viewer and the card (`aurora_html.py`): `fileOnly = kick ||
+  clip.file_only` decides no link-out and no "plays on Twitch"; a line under
+  the player says Twitch would not make the clip and this is Highlightz's
+  recording; the card's link reads "Open the channel on Twitch". The picture
+  is a frame of our own video, as for Kick.
+- The standing notice: `/clip-refusals` rows carry `recording`, and
+  `REFUSAL_COPY` has a `rec` sentence said instead of `who`, so it stops
+  saying the channel was stopped when it was not. **Whether or not the switch
+  is on,** the restricted notice now says the restriction is often to
+  followers or subscribers and that following may lift it (it said "turned
+  off ... only they can change that", which sent nobody to the fix).
+- Terms §1, Privacy §1 and the Privacy list of what a clip stores say it
+  **only while the switch is on** (`api._legal_with_fallback`, three
+  placeholders, rendered at import like the retention figure).
+  `tests/test_legal_pages_match_the_code.py` caught the two new record fields
+  before they shipped undisclosed.
+- No new event: the clip arrives through `notify_clip_ready`, the messages
+  ride `clip_failed` and `refusals_changed`.
+
+**Left as they are, knowingly.**
+- "Clip now" on a restricted channel still makes nothing: the web process
+  queues that job and no stream worker cuts a file for it (the same is true of
+  a manual Kick clip). It is told as a missed clip and never counted against
+  the channel.
+- The landing FAQ, llms.txt and the tutorial still describe the normal path
+  only ("a real Twitch clip plus the video file"), which is still what
+  happens first. If the fallback becomes a selling point they need a line.
+- The team's training studio lists file-only clips with a link that goes
+  nowhere, as it already does for Kick clips.
+- The admin refusal list does not say which channels are being recorded.
+- The public showcase cannot feature one (it needs a Twitch clip link).
+
+**Blast radius with the switch OFF (production on deploy):** the stop of a
+restricted channel moved into `_stop_not_clippable` unchanged; every other
+new line is behind `_fallback_on(job)`. Two things do change for everybody:
+the wording of the restricted notice above, and `on_clip_file_ready` noting
+that a cut finished (a dict entry, pruned).
+
+**Verified.** `tests/test_twitch_file_fallback.py` (37), driving the real
+`run_clip_processor` with a scripted Twitch: off is off (three tests);
+recorded instead of stopped; asked first, not asked inside the window, asked
+again after it; per account; automod and classification; never-finished and
+failed; no recording, no card; three misses stop; manual never counts; queue
+full; opt-out, unreadable opt-out, expired sign-in and Kick untouched; the
+wait; the sweeps and the fetch; the notice; the viewer; the Terms both ways;
+no new event. **23 mutations each failed a test.** Full suite at the commit.
+**In a browser, against the real app with the switch on** (1280 and 390 px):
+a recorded Twitch clip's card and viewer, the video playing from
+`/clips/<id>/file`, the notice, no page errors, no sideways scroll; and the
+real sweep removed a recorded clip whose video was missing.
+**NOT verified:** anything against real Twitch. No real 403 from a restricted
+channel, no real cut of a real stream, has gone through this; this container
+has no Twitch credentials. The first restricted channel on production with
+the switch on is the proof, and `journalctl -u highlightz | grep
+twitch_fallback` shows each one (`twitch_fallback_clip`,
+`twitch_fallback_no_file`).
+
 ## THE SPLIT: stream workers into processes of their own (started 2026-11-18)
 
 **Owner, 2026-11-18:** "split it up lets start it". This is the open project.
@@ -10170,6 +10297,15 @@ as now. Until that stage the switch must not be turned on in production.
      cap whoever is recording. `deploy/highlightz.service` restricts nothing
      a worker needs (it starts streamlink and ffmpeg the same way today), and
      stopping the unit stops the workers with it (one control group).
+   - **Found while building the Twitch fallback (2026-11-18), not fixed:**
+     `clip_files.discard` / `discarded` is a registry in ONE process's memory
+     (the 2026-10-13 fix: a moment the queue drops gets no file). With a
+     channel in an ingest worker the queue is in the web process and the cut
+     in the worker, so the worker never hears that a moment was dropped and
+     cuts the file anyway; the six-hourly orphan sweep removes it. Harmless
+     for a trial on one channel; before every channel moves, the discard has
+     to cross the link (a cast to the owning worker) or the 2026-10-13
+     problem is back at full size.
    - **Still not done, and only the trial can do it:** a real Twitch and a
      real Kick channel live in a worker; approve, reject, undo, pause,
      resume, remove, force a clip; kill a worker by hand. Nothing here has
