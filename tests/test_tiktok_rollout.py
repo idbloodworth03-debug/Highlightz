@@ -131,7 +131,10 @@ def test_an_ordinary_account_sees_youtube_and_instagram_as_soon(client):
 @pytest.mark.parametrize("who", ["boss", "early"])
 def test_admins_and_early_access_can_connect_everything(client, who):
     rows = _rows(client.login(who))
-    assert all(r["configured"] and not r["held"] for r in rows.values())
+    # X has no keys in this fixture, so it does not exist: only the admin has
+    # a row for it at all (the set-up card), and it is not connectable.
+    assert ("x" in rows) == (who == "boss")
+    assert all(r["configured"] and not r["held"] for k, r in rows.items() if k != "x")
     r = client.get("/publish/connect/instagram", follow_redirects=False)
     assert r.status_code in (302, 307)
 

@@ -43,6 +43,12 @@ def test_ideal_and_hard_limits_are_distinct_for_every_platform():
     """Conflating them either scares users off valid clips or lets through
     ones that quietly lose their format."""
     for p in plat.PLATFORMS:
+        if p.id == "x":
+            # X has ONE cut-off for an ordinary account (2:20): under it the
+            # video is a video, over it the uploader says no. Inventing a
+            # softer number below it would be a warning about nothing.
+            assert p.ideal_max_s == p.hard_max_s == 140.0
+            continue
         assert p.ideal_max_s < p.hard_max_s, f"{p.id} has no room between them"
 
 

@@ -71,6 +71,18 @@ PLATFORMS: tuple[Platform, ...] = (
              "Short — different feed, different reach. Caption limit here is "
              "the TITLE limit, which is what people paste into.",
     ),
+    Platform(
+        id="x", label="X",
+        # 2:20 is the cut-off for an ordinary account and the uploader
+        # refuses past it; longer is a paid-account feature we do not assume.
+        ideal_max_s=140.0, hard_max_s=140.0, caption_max=280,
+        # X shows any shape from tall to wide as it is, so there is no ratio
+        # to warn about.
+        preferred_ratio="", formats=("mp4", "mov"),
+        upload_url="https://x.com/compose/post",
+        note="280 characters, counted X's way: a longer caption is cut at a "
+             "word. Videos up to 2 minutes 20.",
+    ),
 )
 
 BY_ID = {p.id: p for p in PLATFORMS}
@@ -108,7 +120,7 @@ def check_fit(platform_id: str, duration_s: float, ratio: str,
             issues.append(
                 f"{duration_s:.0f}s is over {p.ideal_max_s:.0f}s, where "
                 f"{p.label} reach usually drops off.")
-    if ratio and ratio != p.preferred_ratio:
+    if ratio and p.preferred_ratio and ratio != p.preferred_ratio:
         issues.append(
             f"{p.label} expects {p.preferred_ratio}; {ratio} gets cropped or "
             f"letterboxed.")
@@ -120,5 +132,8 @@ def check_fit(platform_id: str, duration_s: float, ratio: str,
 
 
 def public_specs() -> list[dict]:
-    """What the dashboard needs. Plain dicts so this crosses JSON unchanged."""
-    return [asdict(p) for p in PLATFORMS]
+    """What the dashboard needs. Plain dicts so this crosses JSON unchanged.
+    A platform the operator has not set up at all (release.offered) is left
+    out, so it is not a destination anybody can tick."""
+    from src.publish import release
+    return [asdict(p) for p in PLATFORMS if release.offered(p.id)]

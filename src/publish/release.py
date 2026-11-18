@@ -17,16 +17,31 @@ from __future__ import annotations
 
 from config.settings import settings
 
-ORDER = ("youtube", "tiktok", "instagram")
-LABELS = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
+ORDER = ("youtube", "tiktok", "instagram", "x")
+LABELS = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram", "x": "X"}
 # The platforms Autopilot posts to by itself. TikTok is never one: its
 # Direct Post rules put the choices on the person, every post.
-AUTO = ("youtube", "instagram")
+AUTO = ("youtube", "instagram", "x")
+# Platforms that do not exist ANYWHERE on the site until the operator has put
+# their app keys in: no chip, no "coming soon", no destination to tick. X was
+# added on 2026-11-18 and costs money per post; announcing it as "coming
+# soon" before the owner has an X app would be a promise with nothing behind
+# it. The original three were announced long ago and stay announced.
+OPTIONAL = ("x",)
+
+
+def offered(platform: str) -> bool:
+    """Does this platform exist on the site at all right now?"""
+    if platform not in OPTIONAL:
+        return True
+    from src.publish import providers
+    p = providers.get(platform)
+    return bool(p and p.configured())
 
 
 def public_platforms() -> tuple[str, ...]:
     want = {p.strip().lower() for p in str(settings.public_platforms or "").split(",")}
-    return tuple(p for p in ORDER if p in want)
+    return tuple(p for p in ORDER if p in want and offered(p))
 
 
 def live_platforms() -> tuple[str, ...]:
@@ -36,7 +51,7 @@ def live_platforms() -> tuple[str, ...]:
 
 def held_platforms() -> tuple[str, ...]:
     live = set(live_platforms())
-    return tuple(p for p in ORDER if p not in live)
+    return tuple(p for p in ORDER if p not in live and offered(p))
 
 
 def auto_posting_live() -> bool:
@@ -85,7 +100,11 @@ def open_for(platform: str, user: dict | None) -> bool:
 
 def join(ids) -> str:
     """("youtube", "instagram") -> "YouTube and Instagram"."""
-    names = [LABELS[p] for p in ids]
+    return join_words([LABELS[p] for p in ids])
+
+
+def join_words(names) -> str:
+    names = list(names)
     if len(names) <= 1:
         return "".join(names)
     return ", ".join(names[:-1]) + " and " + names[-1]

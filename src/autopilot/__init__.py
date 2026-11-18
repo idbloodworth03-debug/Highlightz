@@ -49,13 +49,13 @@ TIMINGS = ("now", "spaced", "daily")
 # "instead of combining clips just keep it only to one clip"); see
 # plan.limits_for(), where a future difference between them would go.
 MODES = ("clipper", "streamer")
-PLATFORMS = ("youtube", "tiktok", "instagram")
+PLATFORMS = ("youtube", "tiktok", "instagram", "x")
 # What Autopilot may post to BY ITSELF. TikTok is left out on purpose: its Direct
 # Post rules require the person to choose who can view, the interactions and the
 # commercial-content disclosure and to agree to its terms for each post, so a
 # TikTok post is always made by hand from the posting screen. (A saved config
 # that still lists it is quietly cleaned by `normalize`.)
-AUTO_PLATFORMS = ("youtube", "instagram")
+AUTO_PLATFORMS = ("youtube", "instagram", "x")
 CAPTION_MAX = 2200
 TITLE_MAX = 60
 

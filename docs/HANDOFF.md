@@ -8946,3 +8946,99 @@ three plan rows, the bar for a Pro and a Free account with the right button,
 the Scheduler chips (Connect YouTube, Connect TikTok, Instagram · soon) and
 hint, Autopilot's hint, the bar closing and staying closed after a reload; no
 page errors, no sideways scroll.
+
+## Posting to X: built, and it does not exist until its keys are in (2026-11-18)
+
+Owner, 2026-11-18, right after the YouTube release: "lets get X active now
+too". Nothing for X existed (no platform, no provider), so this is a build,
+not a switch. **Not run against X**: there are no X keys on prod yet, the dev
+session cannot reach `api.x.com` or `docs.x.com`, and the calls are written
+from X's documentation as web search reported it. The owner's first post as
+admin is the proof; every refusal X makes is shown on the card in X's words.
+
+**What X needs from the owner (given in chat):** an app in the X developer
+console (console.x.com) with OAuth 2.0 user authentication, type "Web App",
+callback `https://highlightz.app/publish/connect/x/callback`; its OAuth 2.0
+Client ID and Client Secret as `X_CLIENT_ID` / `X_CLIENT_SECRET` in prod
+`.env`; and **credit bought in the console**. No review to wait for: a post is
+public at once.
+
+**X BILLS PER POST. This is the product's first cost that grows with use.**
+Pay-per-use since 2026-02, no free tier for a new developer: about $0.015 a
+post, about $0.20 for a post whose text has a link, credit prepaid, HTTP 402
+"credits depleted" when it is gone (third-party write-ups of X's price list,
+2026-11; not read on X's own page). Guards, all in `config/settings.py`:
+- `X_DAILY_POSTS_PER_USER` (default 10): past it a post is a RETRYABLE
+  failure ("Today's 10 posts to X from Highlightz are used. This one goes out
+  by itself when the next slot opens.") and the worker's 15-minute retry
+  sends it when the rolling 24 hours allow. Counted on the connection
+  (`extra["posts"]`, never in `public()`), after the post exists. Worst case
+  per account: 10 x $0.015 x 30 = $4.50 a month. A reconnect resets the count
+  (known, left alone).
+- `X_ALLOW_LINKS` (default off): links are removed from the text sent to X
+  and the card says "Links were left out of the X post." The matcher is
+  approximate on purpose (scheme, `www.`, or a bare domain on a common
+  ending).
+- 402 is told as ours ("Highlightz's posting credit with X has run out. That
+  is ours to fix, not yours; the post will be retried."), stays retryable, and
+  is `log.error("x_credits_depleted")` so the alert email reaches the owner.
+
+**The provider, `src/publish/providers/x.py`:** PKCE sign-in at
+`x.com/i/oauth2/authorize` (scopes `tweet.read tweet.write users.read
+media.write offline.access`), token exchange at `api.x.com/2/oauth2/token`
+with the secret as HTTP Basic, `GET /2/users/me` for the @handle; then
+`POST /2/media/upload/initialize`, `/{id}/append` in 4 MB multipart segments
+(built by hand: `_http.request` takes bytes), `/{id}/finalize`, a STATUS poll
+until `succeeded`, and `POST /2/tweets` with the media id. Text is cut to 280
+counted X's way (twitter-text weights: emoji and CJK are two, a link is 23),
+at a word, with an ellipsis; an empty caption posts the video alone.
+
+**Refresh tokens are single use on X**, so `providers.ensure_fresh` now takes
+a lock per connection and re-reads the stored tokens inside it (a Post now
+landing during the worker's refresh would otherwise send a dead token and
+strand the account). Applies to every provider; the others were not affected.
+
+**X is OPTIONAL (`release.OPTIONAL`, `release.offered`).** With no keys it is
+not "coming soon", it is absent: not in `public_platforms`, `held_platforms`,
+`/publish/platforms`, or an account's `/publish/connections` (the admin keeps
+a row for the set-up card). Typing `x` into `PUBLIC_PLATFORMS` without keys
+changes no page (held by a test that compares every surface). With keys but
+not public it reads "Posting to Instagram and X is coming soon." and the admin
+can connect and test. Public: `PUBLIC_PLATFORMS=tiktok,youtube,x`.
+
+**X is posted to by itself** (`release.AUTO`, `autopilot.AUTO_PLATFORMS`),
+like YouTube; TikTok still never is.
+
+**Wording.** The "named" branch added for YouTube now names whatever is live
+(`_rel_accounts`, `_rel_products`, `_rel_only_youtube`): "Connect your
+YouTube channel and X account once...", the line above the headline
+("now posts to YouTube Shorts and X"), the plan row ("Posts to YouTube Shorts
+and X for you"), structured data, link previews, both briefs, the paywall.
+`_rel_mixed()` is now "anything but exactly YouTube + Instagram with nothing
+held", since the old "everything" wording names only that pair. Compare: the
+Shorts/Reels cell is decided by membership, and X adds "It posts to X by
+itself too." Privacy Policy lists X among connectable accounts. Dashboard:
+X mark in `POST_BRAND`, `AUTO_IDS`, and the "New" bar names what opened and
+is closed per platform (`hz_yt_shorts_seen` holds a list; the first day's
+`1` means YouTube), its button connecting whichever account is still to do.
+
+**Platform limits (`platforms.py`):** 280 characters, mp4/mov, 2:20 (one
+cut-off, so ideal == hard, exempted by name in `test_publish_platforms`), no
+preferred ratio (the fit check skips an empty one, in Python and in JS).
+
+Realtime: no new event (connect, disconnect and post results ride the
+existing ones). Tests: `tests/test_x_posting.py` (26: the whole conversation
+against canned answers, the cap, links, the 280 cut, 402, 429/401/5xx, the
+refresh lock, absent-without-keys, and the rows and connect redirect through
+the real API), three more in `tests/test_youtube_rollout.py` for the pages
+with X open / in the switch with no keys / set up but held; six mutations
+each failed a test. Full suite 4584 passed; JSX parsed with Babel. Seen in a
+browser at 1440 and 390 px with YouTube and X open: the line above the
+headline, the plan rows, the bar, Connect X on the Scheduler, the hints.
+
+**Not verified, say so when it matters:** the exact request and response
+shapes X accepts (above all the multipart append and the STATUS poll); X's
+prices; whether an ordinary account may post 2:20 through the API; X's
+automation rules for posting on a user's behalf (their OAuth consent is the
+basis, and the cap keeps volume low). `docs.x.com` and `api.x.com` are outside
+the dev session's allowed hosts.

@@ -32,7 +32,7 @@ log = structlog.get_logger(__name__)
 
 _INDEX = Path(settings.local_storage_path) / "publish_connections.json"
 
-PLATFORMS = ("youtube", "tiktok", "instagram")
+PLATFORMS = ("youtube", "tiktok", "instagram", "x")
 
 
 @dataclass

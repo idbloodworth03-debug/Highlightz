@@ -63,8 +63,9 @@ def content_type(fmt: str) -> str:
 
 
 def _registry():
-    from . import youtube, tiktok, instagram
-    return {p.id: p for p in (youtube.PROVIDER, tiktok.PROVIDER, instagram.PROVIDER)}
+    from . import youtube, tiktok, instagram, x
+    return {p.id: p for p in (youtube.PROVIDER, tiktok.PROVIDER, instagram.PROVIDER,
+                              x.PROVIDER)}
 
 
 def get(platform: str):
@@ -75,17 +76,40 @@ def all_providers():
     return list(_registry().values())
 
 
+# One refresh at a time per connection. X's refresh tokens are single use:
+# each refresh returns a new one and kills the old, so a Post now landing
+# while the worker refreshes the same account would send the dead token and
+# strand the connection ("connect again") for no reason the user could see.
+_refresh_locks: dict[tuple[str, str], "asyncio.Lock"] = {}
+
+
 async def ensure_fresh(provider, conn) -> None:
     """Refresh the access token if it is about to expire, and persist it.
 
     Called before every post. A provider whose tokens do not expire (or that
     hands out none) leaves expires_at at 0 and this is a no-op.
     """
+    import asyncio
     from src.publish import connections
     if not conn.expires_at:
         return
     if conn.expires_at - time.time() > provider.refresh_margin_s:
         return
+    lock = _refresh_locks.setdefault((conn.user_id, conn.platform), asyncio.Lock())
+    async with lock:
+        # Whoever held the lock may have refreshed this very account: read
+        # what is stored now before spending the refresh token again.
+        stored = connections.get(conn.user_id, conn.platform)
+        if stored is not None and stored is not conn and stored.expires_at > conn.expires_at:
+            conn.access_token, conn.refresh_token = stored.access_token, stored.refresh_token
+            conn.expires_at = stored.expires_at
+        if conn.expires_at - time.time() > provider.refresh_margin_s:
+            return
+        await _refresh(provider, conn)
+
+
+async def _refresh(provider, conn) -> None:
+    from src.publish import connections
     if not conn.refresh_token and not provider.refreshes_without_refresh_token:
         raise ProviderError(f"Your {provider.label} connection has expired. Connect it again.",
                             reauth=True)

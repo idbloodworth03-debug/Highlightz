@@ -5861,6 +5861,8 @@ const POST_BRAND = {
               path:<><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r=".6" fill="#e1306c"/></>},
   youtube:   {bg:'rgba(255,0,51,.14)', fill:'#ff0033', text:'#ff4d6a',
               path:<path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2C2 8.8 2 12 2 12s0 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z"/>},
+  x:         {bg:'rgba(255,255,255,.10)', fill:'#ffffff', text:'#ffffff',
+              path:<path d="M17.6 3h3.1l-6.8 7.8L22 21h-6.3l-4.9-6.4L5.2 21H2.1l7.3-8.3L1.7 3h6.4l4.4 5.9zm-1.1 16.2h1.7L7.2 4.7H5.4z"/>},
   other:     {bg:'rgba(255,255,255,.10)', fill:'#ffffff', text:'#ffffff', path:<circle cx="12" cy="12" r="6"/>},
 };
 
@@ -5874,7 +5876,7 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
   // disconnect or a dead token shows here with no refresh.
   const [dropping, setDropping]   = useState('');
   const [acctErr, setAcctErr]     = useState('');
-  const POST_ORDER = ['tiktok', 'instagram', 'youtube'];
+  const POST_ORDER = ['tiktok', 'instagram', 'youtube', 'x'];
   const postable = (connections || []).filter(c => c.connected || c.configured)
     .sort((a, b) => POST_ORDER.indexOf(a.id) - POST_ORDER.indexOf(b.id));
   const dropAccount = async (c) => {
@@ -7405,7 +7407,7 @@ function fitIssues(pf, secs, ratio, caption, fmt) {
         's Shorts cutoff — posts as a normal video, not a Short.'
       : Math.round(secs) + 's is over ' + Math.round(pf.ideal_max_s) +
         's, where ' + pf.label + ' reach usually drops off.');
-  if (ratio && ratio !== pf.preferred_ratio)
+  if (ratio && pf.preferred_ratio && ratio !== pf.preferred_ratio)
     out.push(pf.label + ' expects ' + pf.preferred_ratio + '; ' + ratio +
              ' gets cropped or letterboxed.');
   if (caption && caption.length > pf.caption_max)
@@ -9200,7 +9202,7 @@ function AddClipPicker({ clips, items, onClose, mode = 'add', onPick = null }) {
    card. Closing it does not stop the upload. */
 function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onClose,
                         campaigns = [], initialCampaign = '' }) {
-  const ORDER = ['tiktok', 'instagram', 'youtube'];
+  const ORDER = ['tiktok', 'instagram', 'youtube', 'x'];
   const specs = [...(platforms || [])].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
   const conn = {}; (connections || []).forEach(c => { conn[c.id] = c; });
   const [picked, setPicked] = useState(() => new Set());
@@ -10034,7 +10036,10 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
 // open to ordinary accounts (/me.features.posting, from PUBLIC_PLATFORMS). It
 // used to promise YouTube and Instagram auto-posting to Free users while both
 // were still "coming soon" (audit, 2026-10-20).
-const PITCH_NAMES = {youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok'};
+const PITCH_NAMES = {youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok', x: 'X'};
+// The ones posted to with nobody in the loop. TikTok is never one. X joined
+// on 2026-11-18 and is only in a list here when the server offers it.
+const AUTO_IDS = ['youtube', 'instagram', 'x'];
 function pitchList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
 // The platforms Highlightz posts to BY ITSELF (never TikTok) that THIS account
 // may connect, and the ones still "soon" for it (PUBLIC_PLATFORMS). Every
@@ -10042,8 +10047,8 @@ function pitchList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).jo
 // (2026-11-18) and "YouTube and Instagram" stopped being one fact. With
 // neither open the old wording stands, as it did while only TikTok was.
 function autoPosting(connections) {
-  const cs = (connections || []).filter(c => c.id === 'youtube' || c.id === 'instagram');
-  const pick = ok => ['youtube', 'instagram'].filter(id => cs.some(c => c.id === id && ok(c))).map(id => PITCH_NAMES[id]);
+  const cs = (connections || []).filter(c => AUTO_IDS.includes(c.id));
+  const pick = ok => AUTO_IDS.filter(id => cs.some(c => c.id === id && ok(c))).map(id => PITCH_NAMES[id]);
   const open = pick(c => c.configured), soon = pick(c => !c.configured);
   return {open, soon,
           and: pitchList(open) || 'YouTube and Instagram',
@@ -10055,7 +10060,7 @@ function autoPosting(connections) {
           note: ((connections || []).find(c => c.id === 'youtube') || {}).private_note || ''};
 }
 function schedulerPitch(open) {
-  const auto = ['youtube', 'instagram'].filter(p => open.includes(p)).map(p => PITCH_NAMES[p]);
+  const auto = AUTO_IDS.filter(p => open.includes(p)).map(p => PITCH_NAMES[p]);
   const tiktok = open.includes('tiktok');
   const soon = ['youtube', 'tiktok', 'instagram'].filter(p => !open.includes(p)).map(p => PITCH_NAMES[p]);
   let s;
@@ -12158,8 +12163,10 @@ function RdApp() {
   const [connections, setConnections] = useState([]);
   // "New: YouTube Shorts" bar, closed by this viewer (a convenience only: the
   // bar itself is derived from /me and the connections).
-  const [ytSeen, setYtSeen] = useState(()=>{ try { return !!localStorage.getItem('hz_yt_shorts_seen'); } catch { return false; } });
-  const closeYtNew = ()=>{ setYtSeen(true); try { localStorage.setItem('hz_yt_shorts_seen', '1'); } catch {} };
+  // Which platforms' news this viewer has closed: 'youtube,x'. ('1' is what
+  // the first day of this bar stored, when YouTube was the only news.)
+  const [ytSeen, setYtSeen] = useState(()=>{ try { const v = localStorage.getItem('hz_yt_shorts_seen') || ''; return v === '1' ? 'youtube' : v; } catch { return ''; } });
+  const closeYtNew = (ids)=>{ const v = [...new Set([...ytSeen.split(','), ...ids].filter(Boolean))].join(','); setYtSeen(v); try { localStorage.setItem('hz_yt_shorts_seen', v); } catch {} };
   const refetchConnections = useCallback(()=>{
     fetch('/publish/connections').then(r=>r.ok?r.json():null)
       .then(d=>{ if(d) setConnections(d.platforms||[]); }).catch(()=>{});
@@ -13193,17 +13200,24 @@ function RdApp() {
             and goes on connect with no reload. */}
         {(()=>{
           const f = me.features || {};
-          if (ytSeen || !(f.posting || []).includes('youtube') || me.subscription_status === 'past_due') return null;
+          if (me.subscription_status === 'past_due') return null;
+          // The news: YouTube Shorts and X, whichever are open to accounts
+          // and this viewer has not closed the bar for.
+          const NEWS = {youtube: 'YouTube Shorts', x: 'X'};
+          const seen = ytSeen.split(',');
+          const live = Object.keys(NEWS).filter(p => (f.posting || []).includes(p));
+          if (!live.some(p => !seen.includes(p))) return null;
           const pro = !!(me.plan_limits && me.plan_limits.uploads);
-          // A Pro account: only once its connections have answered and its
-          // channel is not connected, so the bar never flashes at someone
-          // who already did this.
-          if (pro && !(connections || []).some(c => c.id === 'youtube' && c.configured && !c.connected)) return null;
+          // A Pro account: only once its connections have answered and one
+          // of them is still to connect, so the bar never flashes at someone
+          // who already did this. The button connects that one.
+          const todo = (connections || []).find(c => live.includes(c.id) && c.configured && !c.connected);
+          if (pro && !todo) return null;
           return (
             <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:8,padding:'8px 24px',background:'var(--grad-soft)',borderBottom:'1px solid var(--hair)',fontSize:12,color:'var(--fg)',fontWeight:600}}>
-              <span>New: Highlightz posts your clips to YouTube Shorts for you. <span style={{color:'var(--fg-2)',fontWeight:500}}>{pro ? 'Connect your channel, then switch on Autopilot.' : 'Included with Pro, with the Clip Editor and Autopilot.'}{f.youtube_note ? ' ' + f.youtube_note : ''}</span></span>
-              <a href={pro ? '/publish/connect/youtube' : '/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap',flexShrink:0}}>{pro ? 'Connect YouTube' : 'See Pro'}</a>
-              <button onClick={closeYtNew} aria-label="Close" title="Close" style={{background:'none',border:'none',color:'var(--fg-3)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'4px 8px'}}>&times;</button>
+              <span>New: Highlightz posts your clips to {pitchList(live.map(p => NEWS[p]))} for you. <span style={{color:'var(--fg-2)',fontWeight:500}}>{pro ? 'Connect your account, then switch on Autopilot.' : 'Included with Pro, with the Clip Editor and Autopilot.'}{f.youtube_note ? ' ' + f.youtube_note : ''}</span></span>
+              <a href={pro ? '/publish/connect/' + todo.id : '/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap',flexShrink:0}}>{pro ? 'Connect ' + PITCH_NAMES[todo.id] : 'See Pro'}</a>
+              <button onClick={()=>closeYtNew(live)} aria-label="Close" title="Close" style={{background:'none',border:'none',color:'var(--fg-3)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'4px 8px'}}>&times;</button>
             </div>);
         })()}
         <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>

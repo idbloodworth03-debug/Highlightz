@@ -88,9 +88,10 @@ print("PILL::" + api._proof_youtube())
 _KEYS = ("LANDING", "RAW", "LLMS", "FULL", "PAYWALL", "ROW", "COMPARE", "PILL")
 
 
-def _surfaces(platforms: str, audited: bool = False) -> dict:
+def _surfaces(platforms: str, audited: bool = False, x_keys: bool = False) -> dict:
     env = dict(os.environ, UPLOADS_ENABLED="true", PUBLIC_PLATFORMS=platforms,
-               TIKTOK_AUDITED="true", YOUTUBE_AUDITED="true" if audited else "false")
+               TIKTOK_AUDITED="true", YOUTUBE_AUDITED="true" if audited else "false",
+               X_CLIENT_ID="i" if x_keys else "", X_CLIENT_SECRET="s" if x_keys else "")
     out = subprocess.run([sys.executable, "-c", _SNIP], env=env,
                          capture_output=True, text=True, timeout=180)
     assert out.returncode == 0, out.stderr[-2000:]
@@ -191,6 +192,51 @@ def test_everything_still_returns_when_every_platform_opens():
     assert "Connect your YouTube and Instagram accounts once" in s["LANDING"]
 
 
+# ── X opened the same day ("lets get X active now too") ─────────────────────
+
+@pytest.fixture(scope="module")
+def with_x():
+    return _surfaces("tiktok,youtube,x", x_keys=True)
+
+
+def test_with_x_open_every_page_names_it_and_still_not_instagram(with_x):
+    s = with_x
+    for name in _PAGES:
+        low = s[name].lower()
+        for bad in ("youtube, tiktok and instagram", "youtube and instagram accounts",
+                    "connect youtube or instagram and it posts"):
+            assert bad not in low, f"{name} still says {bad!r}"
+    assert "Connect your YouTube channel and X account once and the Scheduler posts your clips to them for you" in s["LANDING"]
+    assert "posted to YouTube and X by itself" in s["LANDING"]
+    assert "auto-posting to YouTube and X built in." in s["RAW"]
+    assert "posts them to YouTube, TikTok and X." in s["RAW"]
+    assert "posted to YouTube, TikTok and X from the Scheduler" in s["LLMS"]
+    assert "to the YouTube and X accounts you connect" in s["LLMS"]
+    assert "post it to YouTube, TikTok and X for you" in s["PAYWALL"]
+    assert "now posts to YouTube Shorts and X" in s["PILL"]
+    assert "Autopilot Yes Posts to YouTube Shorts and X for you Yes Front of the line No" in s["LANDING"]
+    assert "| Posts to YouTube Shorts and X for you | No | Yes | Yes |" in s["FULL"]
+    for name in ("LANDING", "LLMS", "FULL"):
+        assert "Posting to Instagram is coming soon." in s[name], name
+    # The compare row is about Shorts and Reels: X being open ticks neither.
+    assert s["ROW"].startswith("'Shorts'|") and "It posts to X by itself too." in s["ROW"]
+
+
+def test_x_in_the_switch_without_its_keys_changes_no_page(live):
+    """`x` typed into PUBLIC_PLATFORMS before the keys are in must not put a
+    word about X on the site: it does not exist until it is set up."""
+    s = _surfaces("tiktok,youtube,x", x_keys=False)
+    for name in ("LANDING", "RAW", "LLMS", "FULL", "PAYWALL", "ROW", "PILL"):
+        assert s[name] == live[name], f"{name} changed with no X keys"
+
+
+def test_x_set_up_but_held_is_coming_soon_and_nothing_more():
+    s = _surfaces("tiktok,youtube", x_keys=True)
+    assert "Posting to Instagram and X is coming soon." in s["LANDING"]
+    assert "now posts to YouTube Shorts<" in s["PILL"]
+    assert "Posts to YouTube Shorts for you Yes" in s["LANDING"]
+
+
 # ── 6. the dashboard ─────────────────────────────────────────────────────────
 
 def test_the_dashboard_names_the_platforms_that_are_open():
@@ -208,11 +254,17 @@ def test_the_dashboard_names_the_platforms_that_are_open():
 
 def test_the_new_bar_is_derived_and_goes_when_the_channel_is_connected():
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
-    assert "New: Highlightz posts your clips to YouTube Shorts for you." in h
-    assert "(f.posting || []).includes('youtube')" in h          # only once released
-    assert "c.id === 'youtube' && c.configured && !c.connected" in h
+    # It names what opened (YouTube Shorts, then X the same day), from /me.
+    assert "const NEWS = {youtube: 'YouTube Shorts', x: 'X'};" in h
+    assert "New: Highlightz posts your clips to {pitchList(live.map(p => NEWS[p]))} for you." in h
+    assert "Object.keys(NEWS).filter(p => (f.posting || []).includes(p))" in h    # only once released
+    assert "live.includes(c.id) && c.configured && !c.connected" in h
+    assert "'/publish/connect/' + todo.id" in h                   # the button connects that one
     assert "f.youtube_note ? ' ' + f.youtube_note : ''" in h      # the caveat rides with it
-    assert "hz_yt_shorts_seen" in h
+    # Closed per platform, so closing the YouTube news does not hide X's; the
+    # first day's '1' still means YouTube.
+    assert "hz_yt_shorts_seen" in h and "v === '1' ? 'youtube' : v" in h
+    assert "if (!live.some(p => !seen.includes(p))) return null;" in h
     assert "refresh" not in h[h.index("New: Highlightz posts your clips"):][:900].lower()
 
 

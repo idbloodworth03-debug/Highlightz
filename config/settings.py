@@ -514,6 +514,20 @@ class Settings(BaseSettings):
     # (SELF_ONLY); the card says so when that happens.
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
+    # X (Twitter). The OAuth 2.0 Client ID and Client Secret of the app in the
+    # X developer console (console.x.com; app type "Web App", callback
+    # https://highlightz.app/publish/connect/x/callback). Blank = X does not
+    # exist anywhere on the site: no chip, no row, no word of it.
+    x_client_id: str = ""
+    x_client_secret: str = ""
+    # X BILLS PER POST (pay-per-use since 2026-02: about $0.015 a post, about
+    # $0.20 when the text has a link). Autopilot posts every clip an account
+    # approves, so one account is held to this many posts to X in any 24
+    # hours; past it a post waits and goes out when a slot opens. 0 = no cap.
+    x_daily_posts_per_user: int = 10
+    # Links are left out of the text sent to X, because one link costs what
+    # thirteen posts do. Turn on to send captions as written.
+    x_allow_links: bool = False
     # HAS TIKTOK AUDITED THE APP? Off until they have, because an unaudited
     # app may only post SELF_ONLY and asking for anything else makes
     # video/init refuse the whole post with "Please review our integration

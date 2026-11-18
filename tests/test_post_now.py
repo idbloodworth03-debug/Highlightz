@@ -214,7 +214,7 @@ def test_the_scheduler_has_post_now_and_it_is_always_visible():
 
 def test_the_dialog_offers_tiktok_and_instagram_and_ticks_nothing():
     dlg = _fn(_page(), "PostNowDialog")
-    assert "['tiktok', 'instagram', 'youtube']" in dlg
+    assert "['tiktok', 'instagram', 'youtube', 'x']" in dlg       # X joined 2026-11-18
     assert "useState(() => new Set())" in dlg, "something is pre-ticked"
     assert "fetch('/publish/post-now'" in dlg
     # Live: follows the App's queue state, not a poll of its own.

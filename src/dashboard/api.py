@@ -7080,8 +7080,14 @@ def _connections_payload(uid: str) -> list[dict]:
     user = user_store.get_by_id(uid)
     mine = {c.platform: c for c in pub_conns.for_user(uid)}
     rows = []
+    admin = bool(user and user.get("is_admin"))
     for p in providers.all_providers():
         c = mine.get(p.id)
+        # A platform the operator has not set up at all (X until its keys are
+        # in) is not "soon", it is absent: no chip for anyone but the admin,
+        # whose set-up card needs the row for its callback URL and key names.
+        if not release.offered(p.id) and not admin and c is None:
+            continue
         # A platform not yet open to this account (PUBLIC_PLATFORMS) reads
         # exactly like one the operator has not set up: "soon", no Connect.
         held = not release.open_for(p.id, user)
@@ -7107,6 +7113,7 @@ _PUBLISH_ENV_KEYS = {
     "youtube":   ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     "tiktok":    ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
     "instagram": ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
+    "x":         ["X_CLIENT_ID", "X_CLIENT_SECRET"],
 }
 
 
@@ -7783,7 +7790,7 @@ async def publish_post_now(request: Request):
             targets.append(p)
     if not targets:
         raise HTTPException(status_code=400,
-                            detail="Choose where to post it: TikTok, Instagram or YouTube.")
+                            detail="Choose where to post it first.")
     from src.publish import release
     from src.auth import users as _us
     _me = _us.get_by_id(uid)
@@ -11585,7 +11592,7 @@ async def llms_full_txt():
     w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
     w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
     if _posts_to_shorts():
-        w(f"| Posts to YouTube Shorts for you | {yn(f, 'uploads')} | {yn(pro, 'uploads')} | {yn(sd, 'uploads')} |")
+        w(f"| Posts to {_rel_products()} for you | {yn(f, 'uploads')} | {yn(pro, 'uploads')} | {yn(sd, 'uploads')} |")
     w(f"| Front of the line when the server is busy | {yn(f, 'priority')} | {yn(pro, 'priority')} | {yn(sd, 'priority')} |")
     w(f"| Clip videos kept {settings.clip_file_max_age_days} days | {yn(f, 'keep_files')} | {yn(pro, 'keep_files')} | {yn(sd, 'keep_files')} |")
     w(f"| No fee on campaigns you run | {yn(f, 'no_campaign_fee')} | {yn(pro, 'no_campaign_fee')} | {yn(sd, 'no_campaign_fee')} |")
@@ -14554,13 +14561,44 @@ def _rel_mixed() -> bool:
     states, "TikTok alone" and "everything", and the second one names
     Instagram; this is the third."""
     from src.publish import release
-    return release.auto_posting_live() and not release.all_live()
+    # ...and the fourth: X (2026-11-18). The "everything" wording names
+    # YouTube and Instagram and nothing else, so it is only right for exactly
+    # that pair; any other set that posts by itself is named from what is
+    # live, by the branches this guards.
+    return release.auto_posting_live() and not (
+        release.all_live() and release.auto_live() == ("youtube", "instagram"))
 
 
 def _rel_auto_names() -> str:
-    """"YouTube", or "YouTube and Instagram": what is posted to by itself."""
+    """"YouTube", or "YouTube and X": what is posted to by itself."""
     from src.publish import release
     return release.join(release.auto_live())
+
+
+_REL_ACCOUNT = {"youtube": "YouTube channel", "instagram": "Instagram account", "x": "X account"}
+_REL_PRODUCT = {"youtube": "YouTube Shorts", "instagram": "Instagram Reels", "x": "X"}
+
+
+def _rel_accounts() -> str:
+    """"YouTube channel", "YouTube channel and X account": what to connect."""
+    from src.publish import release
+    return release.join_words([_REL_ACCOUNT[p] for p in release.auto_live()])
+
+
+def _rel_products() -> str:
+    """"YouTube Shorts", "YouTube Shorts and X": where the clips end up."""
+    from src.publish import release
+    return release.join_words([_REL_PRODUCT[p] for p in release.auto_live()])
+
+
+def _rel_only_youtube() -> bool:
+    from src.publish import release
+    return release.auto_live() == ("youtube",)
+
+
+def _rel_one_auto() -> bool:
+    from src.publish import release
+    return len(release.auto_live()) == 1
 
 
 def _rel_youtube_sentence() -> str:
@@ -14576,10 +14614,13 @@ def _proof_youtube() -> str:
     landing page"). Same switch as the posting itself, so it is never there
     while YouTube is "coming soon", and it leads to the Scheduler block."""
     from src.publish import release
-    if "youtube" not in release.auto_live():
+    # X joined it the same day; the line names whatever is posted to by
+    # itself. Not for Instagram alone: that would be the old "everything"
+    # release, which was never announced this way.
+    if not {"youtube", "x"} & set(release.auto_live()):
         return ""
     return ('<a class="proof-new" href="#post"><b>New </b><span><span class="proof-new-k">'
-            'Autopilot: </span>now posts to YouTube Shorts</span> '
+            'Autopilot: </span>now posts to ' + _rel_products() + '</span> '
             '<span aria-hidden="true">&rarr;</span></a>')
 
 
@@ -14607,9 +14648,10 @@ def _released(key: str, limits: dict) -> str:
 
 
 def _posts_to_shorts() -> bool:
-    """Is YouTube posted to by itself for an ordinary account today?"""
+    """Is YouTube or X posted to by itself for an ordinary account today?
+    (The row it guards names them: "Posts to YouTube Shorts and X for you".)"""
     from src.publish import release
-    return "youtube" in release.auto_live()
+    return bool({"youtube", "x"} & set(release.auto_live()))
 
 
 def _pricing() -> str:
@@ -14652,7 +14694,7 @@ def _pricing() -> str:
             # Named on the plans the day it opened (owner, 2026-11-18: "make
             # it known everywhere"). Only while YouTube is really posted to
             # by itself, so the TikTok-only table is the table it always was.
-            *([("Posts to YouTube Shorts for you", "Yes" if limits.get("uploads") else "No")]
+            *([("Posts to " + _rel_products() + " for you", "Yes" if limits.get("uploads") else "No")]
               if _posts_to_shorts() else []),
             # Studio's four (2026-11-03), on every column so the difference
             # is read across, not described.
@@ -14740,8 +14782,9 @@ def _editor_section() -> str:
           "clip with one press. Your account stays yours; Highlightz only holds "
           "what it needs to post.")
          if tiktok_only else
-         "Connect your YouTube channel from the Scheduler tab and your clips go "
-         "up as Shorts; TikTok posts from the clip with one press. Your account "
+         "Connect your " + _rel_accounts() + " from the Scheduler tab and your clips "
+         + ("go up as Shorts" if _rel_only_youtube() else "are posted there for you")
+         + "; TikTok posts from the clip with one press. Your account "
          "stays yours; Highlightz only holds what it needs to post."
          if _rel_mixed() else
          "YouTube and Instagram Reels, from the Scheduler tab; TikTok posts from the "
@@ -14790,8 +14833,10 @@ def _editor_section() -> str:
                 "for vertical and queued in the Scheduler by itself, ready to post. "
                 + _rel_held_sentence().replace("Posting to", "Automatic posting to").strip()
                 if not _rel_auto() else
-                "Connect your YouTube channel once and the Scheduler posts your "
-                "clips to it as Shorts for you, at the time you set. Switch on "
+                "Connect your " + _rel_accounts() + " once and the Scheduler posts your "
+                "clips to " + ("it as Shorts" if _rel_only_youtube() else
+                               "it" if _rel_one_auto() else "them")
+                + " for you, at the time you set. Switch on "
                 "Autopilot and every clip you approve is reframed for vertical and "
                 "posted with nobody in the loop. TikTok is one press from the clip. "
                 + _rel_held_sentence() + _rel_youtube_sentence().strip()
@@ -15064,12 +15109,14 @@ def _faq() -> str:
             "switch it on and every clip you approve is reframed for vertical and queued "
             "in the Scheduler by itself. " + _rel_held_sentence()
             if settings.uploads_enabled and not _rel_auto() else
-            "The Scheduler takes every clip you export and posts it to the YouTube "
-            "channel you connect as a Short, at the time you pick, with one caption "
+            "The Scheduler takes every clip you export and posts it to the "
+            + _rel_accounts() + " you connect" + (" as a Short" if _rel_only_youtube() else "")
+            + ", at the time you pick, with one caption "
             "checked against the platform's limits first; TikTok you post with one press, "
             "on TikTok's own posting screen. Autopilot, also Pro, does it all for you: "
             "switch it on and every clip you approve is reframed for vertical and posted "
-            "to YouTube by itself. " + _rel_held_sentence() + _rel_youtube_sentence()
+            "to " + _rel_auto_names() + " by itself. "
+            + _rel_held_sentence() + _rel_youtube_sentence()
             if _rel_mixed() else
             "The Scheduler takes every clip you export and "
             "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
@@ -15649,7 +15696,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Account information</strong> — your Twitch user ID, login, display name, and avatar URL, obtained when you sign in via Twitch OAuth2, or your Kick user ID, username and avatar URL when you sign in via Kick OAuth2 (the Kick access token is used once to identify you and is not kept); when your account was created and when you last signed in; the referral code, if any, on the link you signed up through, so we know which outreach brought you here; your answer to the question we ask when you sign up about where you heard of us, and anything you add to it, for the same reason; and, if you ever opened the payment page, when you first did, so we can tell where people stop.</li>
     <li><strong>Email address</strong> — the email on your Twitch account, which Twitch provides to us only if you approve the <code>user:read:email</code> permission on the sign-in screen, and the billing email on your Stripe customer record if you subscribe. We use it to contact you about your account and to prevent the same person paying twice for two accounts. We do not sell it, share it, or add you to a mailing list. You can ask us to delete it at any time, and deleting your account deletes it with the rest of your data.</li>
     <li><strong>Twitch access tokens</strong> — the OAuth access and refresh tokens that authorize the Service to create clips on your behalf. These are stored in encrypted form and are never shared.</li>
-    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok or Instagram account from Settings, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+    <li><strong>Connected posting accounts</strong> — if you connect a YouTube, TikTok, Instagram or X account from Settings, the OAuth tokens that authorize the Service to upload clips to that account, and the account's public name. For TikTok we also read the account's profile picture and posting options when you open the posting screen, to show which account you are posting to and what it allows; the picture is not stored. A clip is uploaded only when you post it, or, for YouTube and Instagram, when you schedule it or switch on Autopilot for that account; a TikTok post is made only when you press Post, with the visibility and other settings you choose each time. The tokens are stored in encrypted form, used only to post the clips you choose, never shared, and deleted when you disconnect the account or delete yours. Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
