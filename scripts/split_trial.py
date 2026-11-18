@@ -235,6 +235,9 @@ def show(env_path: pathlib.Path, store: pathlib.Path) -> int:
         print()
     print("  Best first: on an admin account (you can press its buttons), live now,")
     print("  listed by the fewest accounts. Copy ONE of the commands as it is.")
+    print("  STARTING A TRIAL RESTARTS THE SITE ONCE (as a deploy does): tabs reconnect by")
+    print("  themselves and live channels take a moment to come back.")
+    print("  The status is as last saved: a channel added a moment ago reads \"starting\".")
     print()
     for name, row in rows:
         who = "admin account" if row["admin"] else f"listed by {row['accounts']} account{'' if row['accounts'] == 1 else 's'}"

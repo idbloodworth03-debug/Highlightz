@@ -105,8 +105,12 @@ def milestones(summary: dict) -> list[tuple[str, int]]:
     return [(words, total.get(event, 0)) for event, words in MILESTONES]
 
 
-def verdict(*, asked: int, found: int, summary: dict, only: list, journal: bool) -> list[str]:
-    """What to do, in words. The worst thing first, and only one of them."""
+def verdict(*, asked: int, found: int, summary: dict, only: list, journal: bool,
+            unlisted: list | None = None) -> list[str]:
+    """What to do, in words. The worst thing first, and only one of them.
+
+    `unlisted`: the names in INGEST_ONLY that nobody has added (None when
+    streams.json could not be read)."""
     end = ["To turn the split off (every channel is then watched in the one process,",
            "as before):",
            "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py stop"]
@@ -132,6 +136,19 @@ def verdict(*, asked: int, found: int, summary: dict, only: list, journal: bool)
         return [f"A WORKER DIED {summary['lost']} TIME(S) in this window and was started again.",
                 "Its channels were interrupted for a few seconds each time. Once after a",
                 "deploy is nothing; more than that needs a look before going further."] + end
+    if only and unlisted is not None and len(unlisted) == len(only):
+        # 2026-11-18: production sat like this (INGEST_ONLY=CHANNEL, the
+        # placeholder) and this said "CLEAN SO FAR ... leave it running
+        # through a live stream", so the owner waited for something that
+        # could not happen. No channel in a worker is not a clean trial; it
+        # is no trial.
+        return ["THE TRIAL HAS NOT STARTED. INGEST_ONLY names "
+                + (f"\"{only[0]}\", which nobody has added," if len(only) == 1
+                   else f"{len(only)} channels nobody has added,"),
+                "so no channel is in a worker and there is nothing to wait for: every",
+                "channel is being watched in the one process, as always. For the channels",
+                "a trial could use, each with the command that starts it:",
+                "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py"]
     errors = sum(sum(w["errors"].values()) for w in summary["workers"].values())
     if errors:
         return [f"THE WORKERS LOGGED {errors} ERROR(S), named above. Some are ordinary (a",
@@ -167,11 +184,24 @@ def _stream_cost():
 
 
 def workers_running() -> list[dict]:
-    """The ingest worker processes on this machine: index and memory. From
-    /proc, the same reading scripts/stream_cost.py takes."""
+    """The ingest worker processes on this machine: index, memory, and how
+    many live channels each is capturing RIGHT NOW. From /proc, the same
+    reading scripts/stream_cost.py takes: a live channel is its audio
+    meter's streamlink (the recorder's where the meter is off), which is a
+    child of the process watching it."""
     cost = _stream_cost()
-    out = [{"index": row[5], "rss": row[1]} for row in cost.procs().values() if row[0] == "worker"]
-    return sorted(out, key=lambda v: v["index"])
+    snap = cost.procs()
+    out = {pid: {"index": row[5], "rss": row[1], "live": 0, "_rec": 0}
+           for pid, row in snap.items() if row[0] == "worker"}
+    for pid, row in snap.items():
+        if row[0] in ("meter_streamlink", "recorder_streamlink"):
+            owner = cost._watcher(pid, snap)            # noqa: SLF001
+            if owner in out:
+                out[owner]["live" if row[0] == "meter_streamlink" else "_rec"] += 1
+    for v in out.values():
+        v["live"] = v["live"] or v["_rec"]
+        del v["_rec"]
+    return sorted(out.values(), key=lambda v: v["index"])
 
 
 def channels(store: pathlib.Path, count: int, only: list) -> dict:
@@ -265,15 +295,28 @@ def main(argv: list[str]) -> int:
     print(f"  worker processes found : {len(running)}"
           + ("" if not running else "   ("
              + ", ".join(f"worker {w['index']}: {w['rss'] / mb:.0f}MB" for w in running) + ")"))
+    for w in running:
+        n = w.get("live", 0)
+        print(f"  worker {w['index']}, right now    : "
+              + (f"capturing {n} live channel{'' if n == 1 else 's'}" if n
+                 else "capturing nothing (no channel of its own is live)"))
+    unlisted = None
     if asked > 0:
         ch = channels(pathlib.Path(settings.local_storage_path), asked, only)
+        if ch.get("readable") and only:
+            unlisted = ch["missing"]
         if not ch.get("readable"):
             print("  channels               : streams.json could not be read from here")
         elif only:
             for name, row in sorted(ch["rows"].items()):
+                # The file is written when a channel is added, removed or
+                # paused, not when it goes live: a channel added a minute ago
+                # reads "starting" here for as long as nobody saves again.
+                # What is true NOW is the line above (from /proc) and the
+                # list further down (from the journal).
                 said = ", ".join(f"{s} x{n}" if n > 1 else s for s, n in row["statuses"].most_common())
-                print(f"  {name[:22]:<22} : worker {row['worker']}, {said}"
-                      + (f"   (listed by {row['listed']} accounts)" if row["listed"] > 1 else ""))
+                print(f"  {name[:22]:<22} : worker {row['worker']}   (last saved as: {said}"
+                      + (f"; listed by {row['listed']} accounts" if row["listed"] > 1 else "") + ")")
             for name in ch["missing"]:
                 print(f"  {name[:22]:<22} : NOT LISTED BY ANYBODY   <- nobody has added this "
                       "channel, so nothing is in a worker.")
@@ -319,7 +362,8 @@ def main(argv: list[str]) -> int:
         print("  card: each should behave exactly as it does for any other channel.")
 
     print()
-    for line in verdict(asked=asked, found=len(running), summary=summary, only=only, journal=readable):
+    for line in verdict(asked=asked, found=len(running), summary=summary, only=only,
+                        journal=readable, unlisted=unlisted):
         print("  " + line)
     return 0
 

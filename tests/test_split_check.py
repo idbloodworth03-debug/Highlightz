@@ -107,6 +107,26 @@ def test_the_verdict_is_the_worst_thing_and_only_that(kw, starts):
     assert _v(**kw)[0].startswith(starts)
 
 
+def test_a_trial_that_names_nobody_has_not_started_and_is_never_called_clean():
+    """What production showed on 2026-11-18: INGEST_ONLY=CHANNEL, one idle
+    worker, and a verdict of "CLEAN SO FAR ... leave it running through a
+    live stream". There was nothing to wait for."""
+    idle = K.summarize(HEALTHY[:3] + [L("job_queue_connected", ingest=0)])
+    v = _v(summary=idle, only=["channel"], unlisted=["channel"])
+    assert v[0].startswith('THE TRIAL HAS NOT STARTED. INGEST_ONLY names "channel", which nobody has added,')
+    assert "CLEAN" not in " ".join(v) and "leave it running" not in " ".join(v)
+    assert any("scripts/split_trial.py" in x and "stop" not in x for x in v)
+    two = _v(summary=idle, only=["a", "b"], unlisted=["a", "b"])
+    assert two[0].startswith("THE TRIAL HAS NOT STARTED. INGEST_ONLY names 2 channels nobody has added,")
+    # One real channel among them: the trial HAS started, on that one.
+    assert _v(only=["somebody", "typo"], unlisted=["typo"])[0].startswith("CLEAN, AND A CHANNEL HAS DONE")
+    # streams.json unreadable: nothing is claimed about names.
+    assert _v(only=["channel"], unlisted=None)[0].startswith("CLEAN, AND")
+    # A worker that died is still the first thing said.
+    died = K.summarize(HEALTHY[:3] + [L("ingest_worker_lost", "error", index=0)])
+    assert _v(summary=died, only=["channel"], unlisted=["channel"])[0].startswith("A WORKER DIED")
+
+
 def test_clean_is_never_said_over_a_death_or_a_forbidden_import():
     bad = HEALTHY + [L("ingest_worker_lost", "error", index=0),
                      L("x", "error", ingest=0, error="must not be imported")]
@@ -149,11 +169,13 @@ def test_the_whole_thing_runs_and_prints_no_field_of_any_line(tmp_path, monkeypa
     monkeypatch.setattr(settings, "local_storage_path", str(tmp_path))
     monkeypatch.setattr(settings, "ingest_workers", 1)
     monkeypatch.setattr(settings, "ingest_only", "somebody")
-    monkeypatch.setattr(K, "workers_running", lambda: [{"index": 0, "rss": 74 * 1048576}])
+    monkeypatch.setattr(K, "workers_running", lambda: [{"index": 0, "rss": 74 * 1048576, "live": 1}])
     assert K.main([f"--log={f}", "--minutes=5"]) == 0
     out = capsys.readouterr().out
     assert "INGEST_WORKERS=1, INGEST_ONLY names 1 channel" in out and "worker 0: 74MB" in out
-    assert "somebody               : worker 0, live" in out
+    assert "worker 0, right now    : capturing 1 live channel" in out
+    # The file's status is the last one SAVED, and is said to be.
+    assert "somebody               : worker 0   (last saved as: live)" in out
     assert "worker_session_error" in out and "THE WORKERS LOGGED 1 ERROR(S)" in out
     assert "cut a clip's video                 : yes (2)" in out
     for private in ("SECRET", "person@example.com", "10.0.0.9", "token="):
@@ -166,7 +188,7 @@ def test_it_reads_this_machine_for_real():
     import os
     cost = K._stream_cost()
     assert cost.procs()[os.getpid()][0] == "other_python"
-    assert all(set(w) == {"index", "rss"} and w["rss"] > 0 for w in K.workers_running())
+    assert all(set(w) == {"index", "rss", "live"} and w["rss"] > 0 for w in K.workers_running())
 
 
 def test_it_never_prints_a_command_line_or_a_field():
@@ -176,3 +198,41 @@ def test_it_never_prints_a_command_line_or_a_field():
     # summarize keeps the event's name and the level; nothing else leaves it.
     body = src[src.index("def summarize("):src.index("def milestones(")]
     assert body.count("d.get(") == 3 and 'd["event"]' in body
+
+
+def test_the_whole_thing_says_not_started_for_the_placeholder(tmp_path, monkeypatch, capsys):
+    """Production, 2026-11-18, end to end: the placeholder in .env, one idle
+    worker, a busy web process. The last words are "has not started", with
+    the command that lists real channels, and never "clean"."""
+    from config.settings import settings
+    f = tmp_path / "app.log"
+    f.write_text("\n".join([L("ingest_worker_up", index=0), L("job_queue_connected", ingest=0)]
+                           + [L("dashboard_request")] * 50))
+    (tmp_path / "streams.json").write_text(json.dumps(
+        [{"channel": "theirchannel", "status": "starting", "user_id": "owner"}]))
+    monkeypatch.setattr(settings, "local_storage_path", str(tmp_path))
+    monkeypatch.setattr(settings, "ingest_workers", 1)
+    monkeypatch.setattr(settings, "ingest_only", "CHANNEL")
+    monkeypatch.setattr(K, "workers_running", lambda: [{"index": 0, "rss": 69 * 1048576, "live": 0}])
+    assert K.main([f"--log={f}"]) == 0
+    out = capsys.readouterr().out
+    assert "channel                : NOT LISTED BY ANYBODY" in out
+    assert "worker 0, right now    : capturing nothing" in out
+    assert 'THE TRIAL HAS NOT STARTED. INGEST_ONLY names "channel", which nobody has added,' in out
+    assert "CLEAN" not in out and "leave it running" not in out
+
+
+def test_what_a_worker_is_capturing_is_read_from_proc(monkeypatch):
+    """A channel is its meter's streamlink, a child of the worker watching
+    it; the recorder is not counted on top, and the web process's own
+    channels are not the worker's."""
+    MB = 1048576
+    snap = {1: ("app", 400 * MB, 0, 0, 0, -1), 10: ("worker", 70 * MB, 0, 0, 1, 0),
+            11: ("worker", 60 * MB, 0, 0, 1, 1),
+            100: ("meter_streamlink", MB, 0, 0, 10, -1), 101: ("recorder_streamlink", MB, 0, 0, 10, -1),
+            102: ("meter_streamlink", MB, 0, 0, 1, -1), 103: ("recorder_streamlink", MB, 0, 0, 11, -1)}
+    cost = K._stream_cost()
+    monkeypatch.setattr(cost, "procs", lambda: snap)
+    monkeypatch.setattr(K, "_stream_cost", lambda: cost)
+    assert K.workers_running() == [{"index": 0, "rss": 70 * MB, "live": 1},
+                                   {"index": 1, "rss": 60 * MB, "live": 1}]

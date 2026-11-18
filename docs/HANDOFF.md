@@ -10218,12 +10218,35 @@ as now. Until that stage the switch must not be turned on in production.
          a worker at all) until the repair;
        - `25aff63` or later: a trial on a channel called "channel", which
          nobody lists: one idle worker, everything else as always.
-     The repair given was one command: print the commit that was running,
-     take both lines out, deploy, restart, then `split_trial.py` to list the
-     channels. **If the owner's paste shows "was running" in the middle
-     range, say plainly what was affected and for how long.** The rule this
-     produced is in `CLAUDE.md` ("Commands for the owner are pasted exactly
-     as written").
+     **WHICH IT WAS (owner's paste, same day): production was at `73b62c1`,
+     the harmless case.** One idle worker (69 MB), every channel in the web
+     process, no errors. It also means everything through `73b62c1` (the
+     seam, the Free pause, the YouTube page) has been live with real streams
+     since that restart, and that a worker process starts and stays up under
+     the production unit. The owner, with many users active, chose not to
+     restart again: the files were updated on disk WITHOUT a restart
+     (`git fetch && git reset --hard`, then `split_trial.py`; safe here
+     because every module changed after `73b62c1` was already loaded), the
+     owner added `theburntpeanut` to their admin account, and the trial is
+     to be started with `split_trial.py start theburntpeanut` (one restart).
+     The rule this produced is in `CLAUDE.md` ("Commands for the owner are
+     pasted exactly as written").
+     **Two things the check got wrong that day, both fixed:** (1) with
+     `INGEST_ONLY` naming nobody it said "CLEAN SO FAR ... leave it running
+     through a live stream", so the owner ran it three times waiting for
+     something that could not happen; it now says "THE TRIAL HAS NOT
+     STARTED" (after a missing worker, a forbidden import and a death,
+     before anything that reads as clean). (2) It printed the status in
+     `streams.json` as if current. **That file is written when a channel is
+     added, removed or paused (12 call sites of `_save_streams`), never when
+     a worker reports**, so a channel added a minute ago reads "starting"
+     for as long as nobody saves again. The check now says "last saved as",
+     and shows what each worker is capturing right now from /proc.
+     **Seen in that paste and not looked at:** the web process wrote about
+     147,000 structured log lines in 30 minutes (about 80 a second) with 59
+     or so channels live. Each is a JSON dump and a write on the loop. Worth
+     a `split_check`-style count by event name before the next round of
+     loop work.
      Several names may be given (`start a,b`; one Twitch and one Kick is the
      best trial). **No real trial has run on production yet**: the only time
      the switch was on there is the mistake described above.
