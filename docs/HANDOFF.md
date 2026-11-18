@@ -9971,18 +9971,55 @@ as now. Until that stage the switch must not be turned on in production.
        of the dashboard attempted, 65 MB per idle worker, and the workers
        exited with the web process. NOT verified: a real channel going live
        in a worker (needs Twitch or Kick credentials and the network).
-3. **Profiles and Kick chat. NEXT, and what blocks production:**
-   - approve / reject / sensitivity / preset / undo in the dashboard change a
-     `StreamerProfile` in the WEB process's `ProfileManager` cache and save
-     it; with the split on, the worker holds its own copy of that profile,
-     never sees the change, and its next save (every 30 s) overwrites the
-     dashboard's. Six places in api.py (`get_profile_manager`).
-   - Kick chat is delivered to the web process (`kick_events._dispatch`
-     feeds `asyncio.Queue`s that, with the split on, nobody in the web
-     process is listening to), so a Kick channel in a worker has no chat.
-     `kick_events.ensure_subscribed` would also be called from the worker
-     and write `kick_event_subscriptions.json` from two processes.
-4. The gate per worker; admin page and `stream_cost` / `loop_profile` per
-   process.
+3. **Profiles and Kick chat: done (2026-11-18).**
+   - **Profiles** (`src/profiles/ops.py`). A change is a dict
+     (`record_clip` / `restore` / `set`) and `ops.apply` makes it on the
+     ProfileManager of the process it runs in, returning
+     `{profile, before, touched}`. `api.py` asks
+     `_profile_held_elsewhere(uid, channel)` before each of its four changes
+     (undo, approve, reject, sensitivity/preset): true only with the split on
+     and a worker watching that channel, in which case
+     `Ingest.change()` calls the worker (`profile_apply`) and the answer goes
+     to the tabs; otherwise the original code runs untouched. `Ingest._watching`
+     is "told to watch, not yet heard to have stopped"; a worker's `stopped`
+     cast carries the profile's last state and the worker forgets it, so a
+     returning channel reads the file again. A worker that cannot be reached:
+     the change is made in the web process from what the worker last saved,
+     never dropped. The web process's copy follows every `profile_updated` a
+     worker sends. **Trap found by the tests:** `StreamerProfile.from_dict`
+     removes keys from the dict it is given; copy before calling it on
+     anything that is going on to a tab.
+   - **Kick chat** (`kick_events._remote`). In a worker, the first `listen`
+     for a broadcaster casts `kick_listen`, the last `unlisten` casts
+     `kick_unlisten`, and `ensure_subscribed` is a call to the web process
+     (which alone owns `kick_event_subscriptions.json`; no answer = not
+     subscribed). The web side listens like any chat session would and a pump
+     task per (worker, broadcaster) casts each message on as `kick_chat`
+     (droppable, like chat for a stalled session); pumps die with the worker.
+   - **Checked and fine across processes:** `dismissed_suggestions` (reads
+     its file on every call), the user store (file, snapshot keyed on the
+     file), opt-outs (file), the append-only ledgers.
+   - Tests: `tests/test_ingest_profiles.py` (11), `tests/test_ingest_kick.py`
+     (6), both with real worker processes.
+4. **NEXT. The gate, and seeing what each process is doing.** Until this is
+   done the switch must stay off in production, because the live limit
+   would be measuring the wrong loop:
+   - `headroom` measures the WEB loop. With the split on, a channel's cost
+     lands on its worker's loop. Each worker already reports `loop_pct`,
+     `lag_ms`, `rss_mb` every 2 s (`Pool.status()`); `acquire_live_slot`
+     must judge the loop of the worker the channel hashes to
+     (`Ingest.h_acquire` knows the index), with the box's CPU and memory as
+     now. The carried-count note becomes per worker or is dropped.
+   - Admin: a line per process (pid, up, restarts, loop %, channels).
+     `/admin/overview` -> `ingest: ingest.status()`.
+   - `scripts/stream_cost.py` finds ONE app process and its main thread;
+     with the split it has to list the web process and each worker.
+     `scripts/loop_profile.py` only reaches the web process: add a worker
+     handler that runs `loop_profile.Timing` there and returns the report.
+   - Twitch chat and anything else that keeps per-process connections: read
+     `stream_worker._run_chat` once more for shared state.
+   - Before stage 5, on a machine with real credentials: one Twitch and one
+     Kick channel live in a worker; approve, reject, undo, pause, resume,
+     remove; kill a worker by hand.
 5. Production: `INGEST_WORKERS=4`, watched, with the single-process mode one
    env line away.

@@ -86,6 +86,23 @@ class Remote:
         except (TypeError, ValueError):
             return 0, 0
 
+    # ── Kick chat (src/chat/platform/kick_events.py, `_remote`) ──────────────
+
+    def kick_listen(self, broadcaster_id: str) -> None:
+        self._link.cast("kick_listen", str(broadcaster_id))
+
+    def kick_unlisten(self, broadcaster_id: str) -> None:
+        self._link.cast("kick_unlisten", str(broadcaster_id))
+
+    async def kick_ensure_subscribed(self, broadcaster_id: str, slug: str = "",
+                                     renew: bool = False) -> bool:
+        try:
+            return bool(await self._link.call("kick_ensure_subscribed", str(broadcaster_id),
+                                              slug, bool(renew), timeout=DELIVERY_TIMEOUT_S))
+        except _NO_ANSWER as exc:
+            log.warning("ingest_no_answer", asked="kick_ensure_subscribed", error=str(exc)[:160])
+            return False
+
     async def trim_clip_store(self) -> int:
         # Asked of the web process, which alone knows which videos may go.
         try:

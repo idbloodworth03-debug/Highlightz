@@ -178,6 +178,10 @@ def build_handlers(state: dict, remote=None) -> dict:
                 final = None
             remote._link.cast("stopped", channel, user_id, final)   # noqa: SLF001
 
+    def kick_chat(broadcaster_id: str, author: str, content: str) -> None:
+        from src.chat.platform import kick_events
+        kick_events._dispatch(str(broadcaster_id), author, content)     # noqa: SLF001
+
     async def profile_apply(uid: str, channel: str, op: dict, platform: str = "twitch"):
         """A change made in the dashboard (approve, reject, undo, sensitivity,
         preset) to a profile this worker holds: made on the same object its
@@ -202,7 +206,7 @@ def build_handlers(state: dict, remote=None) -> dict:
 
     out = {"ping": lambda: "pong", "probe": probe}
     if remote is not None:
-        out.update(spawn=spawn, stop=stop, profile_apply=profile_apply)
+        out.update(spawn=spawn, stop=stop, profile_apply=profile_apply, kick_chat=kick_chat)
     return out
 
 
@@ -214,6 +218,11 @@ async def _prepare(link, state: dict):
     from src.ingestion.remote import Remote
     remote = Remote(link)
     host._remote = remote                       # noqa: SLF001  (the one place it is set)
+    # Kick chat arrives at the web process; here it is asked for and
+    # forwarded (kick_events._remote), and the `kick_chat` handler below puts
+    # each message where the worker's chat session is waiting for it.
+    from src.chat.platform import kick_events
+    kick_events._remote = remote                # noqa: SLF001
     tasks = []
     try:
         from src.billing.plans import uid_priority_level

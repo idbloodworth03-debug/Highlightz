@@ -61,7 +61,13 @@ class Ingest:
             "trim_clip_store": self.h_trim,
             "log_error": self.h_log,
             "stopped": self.h_stopped,
+            "kick_listen": self.h_kick_listen,
+            "kick_unlisten": self.h_kick_unlisten,
+            "kick_ensure_subscribed": self.h_kick_ensure,
         }, on_ready=self.on_ready, on_lost=self.on_lost, module=module, python=python)
+        # (worker, Kick broadcaster id) -> the task forwarding that
+        # broadcaster's chat to that worker.
+        self._kick_pumps: dict[tuple[int, str], "asyncio.Task"] = {}
         # stream key -> the worker told to watch it and not yet heard to have
         # stopped. While a key is here that worker holds the channel's
         # PROFILE, and a change to it is sent there (`change`).
@@ -71,6 +77,9 @@ class Ingest:
         await self.pool.start()
 
     async def stop(self) -> None:
+        for task in self._kick_pumps.values():
+            task.cancel()
+        self._kick_pumps.clear()
         await self.pool.stop()
 
     def status(self) -> list[dict]:
@@ -123,6 +132,8 @@ class Ingest:
         channels hold no slot any more and are not live; say so. on_ready
         starts them again when the next one is up."""
         hit = 0
+        for key in [k for k in self._kick_pumps if k[0] == index]:
+            self._kick_pumps.pop(key).cancel()      # nobody there to forward chat to
         # The profiles it held are gone with it; what it last saved is on
         # disk. Forget this process's copies so the next read is the file.
         for key in [k for k, i in self._watching.items() if i == index]:
@@ -272,6 +283,41 @@ class Ingest:
             self._remember_profile(user_id, final)
         else:
             self._forget_profile(user_id, channel)
+
+    # ── Kick chat: delivered here, wanted there ──────────────────────────────
+
+    def h_kick_listen(self, index: int, broadcaster_id: str) -> None:
+        """A worker's chat session wants this broadcaster's messages. Listen
+        for them here like any session would (kick_events.listen) and pass
+        each one on. Chat is droppable, as it is for a stalled session."""
+        import asyncio
+        from src.chat.platform import kick_events
+        key = (index, str(broadcaster_id))
+        if key in self._kick_pumps and not self._kick_pumps[key].done():
+            return
+        link = self.pool.workers[index].link
+
+        async def pump() -> None:
+            q = kick_events.listen(key[1])
+            try:
+                while True:
+                    item = await q.get()
+                    if item:
+                        link.cast("kick_chat", key[1], item[0], item[1], droppable=True)
+            finally:
+                kick_events.unlisten(key[1], q)
+
+        self._kick_pumps[key] = asyncio.create_task(pump(), name=f"kick-forward-{index}")
+
+    def h_kick_unlisten(self, index: int, broadcaster_id: str) -> None:
+        task = self._kick_pumps.pop((index, str(broadcaster_id)), None)
+        if task is not None:
+            task.cancel()
+
+    async def h_kick_ensure(self, index: int, broadcaster_id: str, slug: str = "",
+                            renew: bool = False) -> bool:
+        from src.chat.platform import kick_events
+        return bool(await kick_events.ensure_subscribed(str(broadcaster_id), slug, renew=bool(renew)))
 
     def h_log(self, index: int, event: str, level: str = "error", fields: dict | None = None) -> None:
         """A worker's error, counted as one of ours: src/alerts mails the

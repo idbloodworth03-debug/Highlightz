@@ -232,19 +232,40 @@ def _signed_by(key, message_id: str, timestamp: str, body: bytes, signature: str
 QUEUE_MAX = 5000
 _listeners: dict[str, set[asyncio.Queue]] = {}
 
+# THE SPLIT (docs/HANDOFF.md, "THE SPLIT", stage 3). Kick sends chat to the
+# WEB process: the webhook is an HTTP request, and handle_delivery below
+# verifies it and calls _dispatch there. A stream worker in a process of its
+# own has to be sent what was dispatched, and it must not talk to Kick about
+# subscriptions itself: that state (kick_event_subscriptions.json, the
+# in-flight set, the retry clocks) has one owner, the web process.
+#
+# None in the web process, and in a single process: everything below is then
+# exactly what it was. In an ingest worker it is the Remote
+# (src/ingestion/remote.py): the first listener for a broadcaster asks the
+# web process to forward that broadcaster's chat, the last one to leave says
+# stop, and ensure_subscribed is asked of the web process.
+_remote = None
+
 
 def listen(broadcaster_id: str) -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
-    _listeners.setdefault(str(broadcaster_id), set()).add(q)
+    bid = str(broadcaster_id)
+    first = bid not in _listeners
+    _listeners.setdefault(bid, set()).add(q)
+    if first and _remote is not None:
+        _remote.kick_listen(bid)
     return q
 
 
 def unlisten(broadcaster_id: str, q: asyncio.Queue) -> None:
-    qs = _listeners.get(str(broadcaster_id))
+    bid = str(broadcaster_id)
+    qs = _listeners.get(bid)
     if qs is not None:
         qs.discard(q)
         if not qs:
-            _listeners.pop(str(broadcaster_id), None)
+            _listeners.pop(bid, None)
+            if _remote is not None:
+                _remote.kick_unlisten(bid)
 
 
 def _dispatch(broadcaster_id: str, author: str, content: str) -> int:
@@ -463,6 +484,10 @@ async def ensure_subscribed(broadcaster_id: str, slug: str = "", *, renew: bool 
     create is refused the old one is deleted and the create tried again.
     A renewal at most every RENEW_GAP_S; a failed first attempt is retried
     after RETRY_GAP_S."""
+    if _remote is not None:
+        # In an ingest worker: the web process owns Kick subscriptions.
+        return bool(await _remote.kick_ensure_subscribed(str(broadcaster_id), slug, renew))
+
     bid = str(broadcaster_id or "")
     if not bid:
         return False
