@@ -50,6 +50,7 @@ import os
 import re
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import structlog
@@ -100,8 +101,60 @@ def _dir_bytes(path: Path) -> int:
 
 
 def total_bytes() -> int:
-    """Bytes held by every channel's ring buffer right now."""
+    """Bytes held by every channel's ring buffer right now. Walks every
+    channel's folder: use total_bytes_shared() from anything that runs on the
+    loop or more than once in a while."""
     return _dir_bytes(_ROOT)
+
+
+# ── Disk work stays off the loop, and the whole-store total is shared ────────
+#
+# Measured on production with 44 channels live (2026-11-18,
+# scripts/loop_profile.py): each recorder's prune was a 29 ms step on the
+# app's one loop, every 5 seconds, 22 recorders of them: about 13% of the one
+# core that runs chat scoring, every request and every socket, spent listing
+# files. And it grew with the SQUARE of the channel count, because every
+# recorder's prune also walked every OTHER channel's folder to add up the
+# global total: N recorders, each reading N folders.
+#
+# Two changes, neither of which alters what is kept or deleted:
+#   * the listing and unlinking run on a worker thread;
+#   * the global total is measured once for everybody, at most every
+#     _TOTAL_MAX_AGE seconds, instead of once per recorder per prune.
+#
+# A pool of its own, two threads: these are milliseconds of file work, and the
+# default pool also runs caption transcription, which can hold a thread for
+# minutes. A prune that waits behind that is a ring buffer that stops being
+# trimmed.
+_IO = ThreadPoolExecutor(max_workers=2, thread_name_prefix="recorder-io")
+_TOTAL_MAX_AGE = 15.0
+_total = {"at": 0.0, "bytes": 0}
+
+
+async def _off_loop(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_IO, fn, *args)
+
+
+async def total_bytes_shared() -> int:
+    """The same figure as total_bytes(), measured off the loop and at most
+    once every _TOTAL_MAX_AGE seconds for the whole process.
+
+    The stamp is taken BEFORE the walk, so the recorders that ask while it is
+    under way use the last figure instead of each starting a walk of their own.
+    The cap this feeds is a safety valve on a disk with tens of GB to spare;
+    being a few seconds behind costs nothing.
+    """
+    now = time.monotonic()
+    if now - _total["at"] < _TOTAL_MAX_AGE:
+        return _total["bytes"]
+    _total["at"] = now
+    try:
+        _total["bytes"] = await _off_loop(total_bytes)
+    except Exception as exc:
+        # Ask again next time rather than trusting a figure nobody measured.
+        _total["at"] = 0.0
+        log.warning("clip_capture_total_failed", error=str(exc))
+    return _total["bytes"]
 
 
 def select_segments(segs: list[tuple[Path, float]], start_ts: float,
@@ -290,16 +343,19 @@ class ClipRecorder:
         """
         while self._running:
             try:
-                self._prune_once()
+                # Off the loop: a directory listing and some unlinks (see
+                # "Disk work stays off the loop" above).
+                await _off_loop(self._prune_once)
                 # The global cap is checked here rather than at write time
                 # because ffmpeg owns the writes; the lever we actually have is
                 # to stop feeding it. Capture stopping is a degraded feature;
                 # a full disk is a dead product.
                 cap = settings.clip_capture_max_total_mb * MB
-                if cap and total_bytes() > cap:
+                used = await total_bytes_shared() if cap else 0
+                if cap and used > cap:
                     log.error("clip_capture_over_global_cap",
                               channel=self.channel,
-                              used_mb=round(total_bytes() / MB),
+                              used_mb=round(used / MB),
                               cap_mb=settings.clip_capture_max_total_mb)
                     await self.stop()
                     return

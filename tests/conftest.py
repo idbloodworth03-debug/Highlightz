@@ -21,3 +21,13 @@ def _isolate_trial_ledger(tmp_path, monkeypatch):
     """
     from src.auth import trial_ledger
     monkeypatch.setattr(trial_ledger, "_LEDGER_FILE", tmp_path / "trials.json")
+
+
+@pytest.fixture(autouse=True)
+def _forget_shared_ledger_scans():
+    """The admin pages keep a whole-ledger read for a minute
+    (stream_stats._shared). A test must never be handed the previous test's."""
+    from src.stats import stream_stats
+    stream_stats.forget_scans()
+    yield
+    stream_stats.forget_scans()

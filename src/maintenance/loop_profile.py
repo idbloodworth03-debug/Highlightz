@@ -76,7 +76,11 @@ MIN_S, MAX_S, DEFAULT_S = 5.0, 60.0, 20.0
 SLOW_S = 0.050
 # Task names that end in something about one account or one channel
 # ("worker-<user>:<channel>"). The report keeps the kind and drops the rest.
-_PER_ITEM = ("worker-", "post-", "fetch-fallback-", "capture-", "render-", "vod-", "Task-")
+# The second line is from the first report off production (2026-11-18), which
+# listed "recorder-prune-<channel>" twenty-two times and hid the total among
+# "223 smaller ones".
+_PER_ITEM = ("worker-", "post-", "fetch-fallback-", "capture-", "render-", "vod-", "Task-",
+             "audiometer-reader-", "engine-", "profile-", "recorder-prune-", "finish-clip-")
 
 _running = threading.Lock()
 
@@ -164,6 +168,30 @@ class Timing:
                 "rows": {k: tuple(v) for k, v in self.rows.items()}}
 
 
+def grouped(rows: dict) -> dict:
+    """Task rows that differ only after their last hyphen become one row.
+
+    task_kind() knows the per-channel names it has been told about. This
+    catches the ones it has not: "newthing-xqc" and "newthing-lacy" are summed
+    as "newthing-*", so a job that runs once per channel shows its TOTAL, and
+    no channel's name is printed for it. A name seen only once is left alone.
+    """
+    by: dict[str, list[str]] = {}
+    for name in rows:
+        if name.startswith("task: ") and "-" in name[6:]:
+            by.setdefault(name.rsplit("-", 1)[0], []).append(name)
+    out = dict(rows)
+    for prefix, names in by.items():
+        if len(names) < 2 or prefix in rows:
+            continue
+        for n in names:
+            out.pop(n)
+        out[f"{prefix}-*  ({len(names)} of them)"] = (
+            sum(rows[n][0] for n in names), sum(rows[n][1] for n in names),
+            max(rows[n][2] for n in names))
+    return out
+
+
 def _dur(s: float) -> str:
     if s >= 1:
         return f"{s:.1f}s"
@@ -174,7 +202,7 @@ def _dur(s: float) -> str:
 
 def render(result: dict, live: int | None = None, top: int = 22) -> str:
     wall = result["seconds"]
-    rows = sorted(result["rows"].items(), key=lambda kv: -kv[1][0])
+    rows = sorted(grouped(result["rows"]).items(), key=lambda kv: -kv[1][0])
     busy = sum(v[0] for _k, v in rows)
     steps = sum(v[1] for _k, v in rows)
     pct = lambda s: 100.0 * s / wall                              # noqa: E731

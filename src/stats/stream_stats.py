@@ -26,6 +26,7 @@ them sessions by date, not by broadcast id.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections import defaultdict
@@ -404,6 +405,69 @@ def totals_by_user() -> dict[str, dict]:
     return out
 
 
+# ── The whole-ledger reads, off the loop and shared ──────────────────────────
+#
+# all_rows() and totals_by_user() parse EVERY line this file has ever been
+# given. They were called straight from request handlers: /admin/overview,
+# which an open admin page asks for every 30 seconds, and /admin/users, every
+# 60. Measured on production with 44 channels live (2026-11-18,
+# scripts/loop_profile.py): one such request held the app's one loop for 1.6
+# SECONDS. For that long no chat was read, no audio was scored and no socket
+# answered, for every channel and every user, because somebody had the admin
+# page open in a tab.
+#
+# Two changes:
+#   * the parse runs on a worker thread, so the loop keeps turning;
+#   * its result is kept for _SCAN_MAX_AGE seconds and shared by every caller,
+#     so two admin pages, or the two endpoints, do not each parse the file.
+#
+# THE COST, ACCEPTED: lifetime totals on the admin page can be up to a minute
+# behind. They are counts in the tens of thousands on a page that redraws
+# every 30 seconds; nothing is decided from their last minute. Everything a
+# USER sees (missed_since, for_user) still reads the file directly.
+_SCAN_MAX_AGE = 60.0
+_scans: dict[str, tuple[float, object]] = {}
+_scan_locks: dict[tuple[str, int], asyncio.Lock] = {}
+
+
+def forget_scans() -> None:
+    """Drop what the shared reads remember (tests; a ledger rewritten on disk)."""
+    _scans.clear()
+    _scan_locks.clear()
+
+
+async def _shared(name: str, fn):
+    hit = _scans.get(name)
+    if hit is not None and time.monotonic() - hit[0] < _SCAN_MAX_AGE:
+        return hit[1]
+    # One parse at a time per reading: the callers that arrive while it is
+    # under way wait for it instead of starting their own. Keyed by loop as
+    # well, so a lock is never carried from one event loop into another.
+    key = (name, id(asyncio.get_running_loop()))
+    lock = _scan_locks.get(key)
+    if lock is None:
+        lock = _scan_locks[key] = asyncio.Lock()
+    async with lock:
+        hit = _scans.get(name)
+        if hit is not None and time.monotonic() - hit[0] < _SCAN_MAX_AGE:
+            return hit[1]
+        value = await asyncio.to_thread(fn)
+        _scans[name] = (time.monotonic(), value)
+        return value
+
+
+async def all_rows_shared() -> list[dict]:
+    """all_rows(), parsed off the loop at most once a minute. Each caller gets
+    its own top-level copies: one of them adds a username to every row."""
+    return [dict(r) for r in await _shared("rows", all_rows)]
+
+
+async def totals_by_user_shared() -> dict[str, dict]:
+    """totals_by_user(), parsed off the loop at most once a minute. Read-only:
+    the caller must not change what it is handed."""
+    return await _shared("totals", totals_by_user)
+
+
 def for_channel(user_id: str, channel: str) -> dict | None:
     for c in for_user(user_id):
         if c["channel"].lower() == channel.lower():
@@ -432,6 +496,8 @@ def delete_all_for_user(user_id: str) -> int:
             tmp = _LOG_FILE.with_suffix(".jsonl.tmp")
             tmp.write_text("".join(kept), encoding="utf-8")
             tmp.replace(_LOG_FILE)
+            # "Delete my account" has to mean it on the admin page too, now.
+            forget_scans()
     except OSError as exc:
         log.warning("stream_stats_purge_failed", error=str(exc))
     return dropped

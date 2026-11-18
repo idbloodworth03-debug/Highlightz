@@ -174,18 +174,25 @@ def test_the_reconcile_lapse_tells_a_lapsing_user_the_truth(monkeypatch):
     from src.auth import users as user_store
     from src.billing import stripe_billing as sb
 
-    monkeypatch.setattr(user_store, "update_subscription", lambda *a, **k: None)
+    user = {"id": "u9", "subscription_status": "active", "plan": "pro",
+            "stripe_customer_id": "cus_x"}
+    # The store shows the account as it was until reconcile writes, then as
+    # cancelled. (It used to answer "canceled" from the first read; reconcile
+    # now re-reads before writing, and an account that already looks different
+    # is one a webhook just changed, which it leaves alone.)
+    state = {"written": False}
+    monkeypatch.setattr(user_store, "update_subscription",
+                        lambda *a, **k: state.update(written=True))
     monkeypatch.setattr(user_store, "set_plan", lambda *a: None)
     monkeypatch.setattr(user_store, "get_by_id",
-                        lambda uid: {"id": uid, "subscription_status": "canceled"})
+                        lambda uid: ({"id": uid, "subscription_status": "canceled"}
+                                     if state["written"] else dict(user)))
 
     async def _truth(cust):
         return {"status": "inactive", "plan": None, "raw": "canceled",
                 "trial_end": 0, "subscription": ""}
     monkeypatch.setattr(sb, "authoritative_subscription", _truth)
 
-    user = {"id": "u9", "subscription_status": "active", "plan": "pro",
-            "stripe_customer_id": "cus_x"}
     msgs = _capture_lapse_broadcast(
         monkeypatch, api, lambda: asyncio.run(api.reconcile_one_user(user)))
     assert msgs, "reconcile downgraded somebody silently"

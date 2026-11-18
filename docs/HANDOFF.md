@@ -9266,3 +9266,79 @@ loop, one window at a time, the request file, the watcher surviving anything,
 no signals and nothing to install, the report). Full suite 4633 passed. Run
 against the real app locally (`python -m src.main` with Redis, requests coming
 in): the request was picked up and the report named the real activities.
+
+## What was filling the loop, and taking it off (2026-11-18, second reading)
+
+**The second reading, 43-44 channels live** (owner pasted both scripts,
+2026-11-18, after `MAX_CONCURRENT_STREAMS=44`): `stream_cost.py` put the
+app's one loop at **64.8%**, about 46 live by its 70% line; clip store 26.02
+of 77.08 GB (the cap now follows the disk). `loop_profile.py`, 20 s, 54,806
+steps: **busy 63.1%**, thread CPU 57.1% (6% of the busy time BLOCKED).
+
+| share | what | what it was |
+|---|---|---|
+| 17.7% | `task: billing-reconcile` | 236 ms steps, longest 533 ms: a blocking Stripe HTTPS call inside `async def authoritative_subscription`, once per customer, during the hourly check (and 2 min after every restart) |
+| 8.1% | starlette middleware coro | ONE step of 1.6 s: an admin endpoint parsing the whole lifetime ledger on the loop |
+| ~13% | `recorder-prune-<channel>` x22 | 29 ms each, every 5 s: listing the channel's segments AND `total_bytes()`, a recursive glob of EVERY channel's folder. N recorders x N folders |
+| 3.1% | `_SelectorSocketTransport._read_ready` | socket reads (chat, sockets, requests) |
+| rest | per-channel `engine-`, `audiometer-reader-`, `profile-`, `finish-clip-`, clip-processor | the actual work; `finish-clip` and `clip-processor` hold the loop 125-138 ms at a time (not yet looked at) |
+
+So about 40 of the 63 points were housekeeping, not channels. **The sustained
+cost of a live channel on the loop is nearer 0.6% than the 1.4% the totals
+suggested**, which by the loop alone is over 100 live.
+
+**Fixed (commit of this section):**
+1. **Recorder prune** (`src/ingestion/clip_recorder.py`): the listing and
+   unlinking run on a two-thread pool of their own (`_IO`; the default pool
+   also runs caption transcription), and the whole-store total is
+   `total_bytes_shared()`: measured off the loop at most every 15 s for the
+   whole process, stamped before the walk so the other recorders use the last
+   figure meanwhile. What is kept and deleted is unchanged; the global cap
+   still stops capture, a few seconds later at worst.
+2. **Admin ledger reads** (`src/stats/stream_stats.py`): `all_rows_shared()`
+   and `totals_by_user_shared()` parse on a worker thread, one parse at a time
+   per reading, kept 60 s (`_SCAN_MAX_AGE`). `/admin/overview` (asked for every
+   30 s by an open admin page), `/admin/users` (every 60 s) and
+   `/admin/stream-stats` use them. `/admin/users` also counted clips once per
+   ACCOUNT (users x clips); it is two `Counter`s now. **Accepted cost: lifetime
+   totals on the admin page can be a minute behind.** What a user sees
+   (`missed_since`, `for_user`) still reads the file directly. `conftest.py`
+   forgets the kept reads around every test.
+3. **Hourly billing check** (`src/billing/stripe_billing.py`):
+   `authoritative_subscription` and `live_subscriptions_by_user` make their
+   Stripe call with `asyncio.to_thread`. Because the app now keeps running
+   during the call, `reconcile_one_user` re-reads the account afterwards and
+   **leaves it alone if status, plan or customer changed meanwhile** (a
+   webhook landed; its write is newer than Stripe's answer in hand). Three
+   older tests modelled the store as already-updated from the first read and
+   were rewritten to show `before` until the write.
+   **NOT changed: every other Stripe call** (checkout, portal, the webhook's
+   `has_other_live_subscription` / `customer_email`, cancels, refunds: about
+   19 call sites in async functions) still blocks the loop for its round trip.
+   They are per user action, not periodic, so they were not in the reading.
+   Converting them is NOT mechanical: the webhook handler is effectively
+   serialized today BECAUSE nothing in it yields, and two events for one
+   customer would be able to apply out of order once it does. It needs a lock
+   around `_process_stripe_event` first.
+4. **The profiler** groups per-channel tasks into one row per kind (the known
+   prefixes in `_PER_ITEM`, and any other names that differ only after their
+   last hyphen), so the next report shows `recorder-prune` as one total and
+   prints no channel names.
+
+**Told to the owner:** the resize they did in the meantime could not, by
+itself, let more channels in; with these fixes it can. One command: deploy,
+`MAX_CONCURRENT_STREAMS=60` (a step; expected loop about 35% there, 70% if
+only the prune fix worked), then both scripts again with the channels live
+before going further. The new droplet's size has not been read back.
+
+**Next, in order, from the next reading:** `finish-clip` / `clip-processor`
+holds (synchronous work when a clip is finished); `profile-<channel>` (14 ms
+steps: a JSON write per channel on the loop); `engine` and `audiometer-reader`
+are the real per-channel floor. After that the limit is the box (CPU about 100
+live on four cores by the last reading), and THEN a bigger server or a second
+one is what adds capacity.
+
+Tests: `tests/test_loop_relief.py` (13) and two in
+`tests/test_admin_stripe_sync.py` (a webhook mid-check is not overwritten;
+the two Stripe calls do not run on the loop's thread). Full suite 4648 passed.
+Not yet run on production.

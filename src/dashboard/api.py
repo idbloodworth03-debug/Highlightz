@@ -6049,6 +6049,23 @@ async def reconcile_one_user(user: dict) -> dict:
         # how a Stripe outage cancels paying customers.
         return {"ok": False, "reason": "Stripe could not be reached", "drift": []}
 
+    # DID THE ACCOUNT CHANGE WHILE STRIPE WAS BEING ASKED? The call above runs
+    # on a worker thread since 2026-11-18, so the rest of the app, the webhook
+    # included, keeps going during it. `user` is what the account looked like
+    # BEFORE the call. If a webhook has written to it since (somebody's payment
+    # going through, a cancellation), that is newer than the answer in hand,
+    # and writing the answer over it would undo it until the next hourly check.
+    # Leave the account alone this round.
+    # (An account that is no longer there at all is not this case: the writes
+    # below simply find nobody, as they always have.)
+    fresh = _rc_store.get_by_id(uid)
+    if fresh is not None and any(fresh.get(k) != user.get(k) for k in
+                                 ("subscription_status", "plan", "stripe_customer_id")):
+        return {"ok": True, "drift": [], "stripe_status": truth["raw"],
+                "app_status": truth["status"], "plan": truth["plan"],
+                "subscription": truth["subscription"],
+                "reason": "left alone: the account changed while Stripe was being asked"}
+
     was   = get_plan(user)
     local = user.get("subscription_status")
 
@@ -7120,7 +7137,7 @@ async def admin_stream_stats(request: Request):
     from src.auth import users as user_store
     _require_admin(request)
     names = {u["id"]: u.get("username") or u["id"] for u in user_store.get_all()}
-    rows = stream_stats.all_rows()
+    rows = await stream_stats.all_rows_shared()        # off the loop, shared
     for r in rows:
         r["username"] = names.get(r["user_id"], r["user_id"])
     return {"rows": rows,
@@ -8476,13 +8493,22 @@ async def admin_list_users(request: Request):
     # rejected 30 of 40 would read as having taken 10 clips, the opposite of
     # the truth. stream_stats is the append-only census that exists for this.
     from src.stats import stream_stats
-    outcomes = stream_stats.totals_by_user()
+    # Off the loop and shared (stream_stats._shared): this used to parse the
+    # whole lifetime ledger inside the request, every 60 seconds for each open
+    # admin page, and nothing else ran while it did.
+    outcomes = await stream_stats.totals_by_user_shared()
+    # ONE pass over the channels and one over the clips. Counting inside the
+    # loop below walked every clip once for EVERY account: users times clips,
+    # a few million steps on the app's one loop per request.
+    import collections as _c
+    stream_n = _c.Counter(s.get("user_id") for s in list(_streams.values()))
+    clip_n = _c.Counter(c.get("user_id") for c in list(_clips.values()))
     for u in users:
         uid = u["id"]
-        u["stream_count"] = sum(1 for s in _streams.values() if s.get("user_id") == uid)
+        u["stream_count"] = stream_n.get(uid, 0)
         # What is in their library RIGHT NOW — a different question from how
         # many they have ever approved, and both are worth seeing.
-        u["clip_count"] = sum(1 for c in _clips.values() if c.get("user_id") == uid)
+        u["clip_count"] = clip_n.get(uid, 0)
         o = outcomes.get(uid) or {}
         u["clips_caught"]   = o.get("caught", 0)
         u["clips_approved"] = o.get("approved", 0)
@@ -9376,7 +9402,11 @@ async def admin_overview(request: Request, tz: str = ""):
         active.append({"key": key, "label": label, "users": len(hit),
                        "paying": sum(1 for uid in hit if uid in paying_ids)})
 
-    rows = stream_stats.all_rows()
+    # The whole lifetime ledger. Parsed off the loop and kept for a minute
+    # (stream_stats._shared): this endpoint is asked for every 30 seconds by
+    # an open admin page, and parsing it here froze every channel for over a
+    # second each time.
+    rows = await stream_stats.all_rows_shared()
     caught = sum(r.get("caught", 0) for r in rows)
     kept = sum(r.get("approved", 0) for r in rows)
     rejected = sum(r.get("rejected", 0) for r in rows)

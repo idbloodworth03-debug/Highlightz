@@ -277,6 +277,23 @@ def test_a_comp_that_once_subscribed_is_not_downgraded_by_the_sweep(monkeypatch)
     assert "app-managed" in result["reason"]
 
 
+def _store(monkeypatch, user_store, before: dict, after: dict, writes: list | None = None):
+    """The account store as reconcile sees it: `before` until it writes, then
+    `after`. These tests used to hand back `after` from the first read, which
+    was harmless while reconcile never re-read the account; since 2026-11-18 it
+    does (the Stripe call no longer freezes the app, so the account can change
+    during it), and an account that already looks different is left alone."""
+    state = {"written": False}
+
+    def _write(*a, **k):
+        state["written"] = True
+        if writes is not None:
+            writes.append(a)
+    monkeypatch.setattr(user_store, "update_subscription", _write)
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: dict(after if state["written"] else before, id=uid))
+
+
 def test_a_real_trial_that_stripe_says_is_live_is_still_applied(monkeypatch):
     """Only the DOWNGRADE is refused. Real state from Stripe still lands, or
     the protection above would freeze every trialing account forever."""
@@ -286,12 +303,11 @@ def test_a_real_trial_that_stripe_says_is_live_is_still_applied(monkeypatch):
     from src.auth import users as user_store
 
     writes = []
-    monkeypatch.setattr(user_store, "update_subscription",
-                        lambda *a, **k: writes.append(a))
+    user = {"id": "u4", "subscription_status": "trialing",
+            "stripe_customer_id": "cus_1", "plan": "pro"}
+    _store(monkeypatch, user_store, user,
+           {"subscription_status": "active", "plan": "pro"}, writes)
     monkeypatch.setattr(user_store, "set_plan", lambda *a: None)
-    monkeypatch.setattr(user_store, "get_by_id",
-                        lambda uid: {"id": uid, "subscription_status": "active",
-                                     "plan": "pro"})
 
     async def _truth(cust):
         return {"status": "active", "plan": "pro", "raw": "active",
@@ -302,11 +318,78 @@ def test_a_real_trial_that_stripe_says_is_live_is_still_applied(monkeypatch):
         return None
     monkeypatch.setattr(api, "broadcast", _noop)
 
-    user = {"id": "u4", "subscription_status": "trialing",
-            "stripe_customer_id": "cus_1", "plan": "pro"}
     result = asyncio.run(api.reconcile_one_user(user))
     assert ("status", "trialing", "active") in result["drift"]
     assert writes, "the trial→paid transition was not written"
+
+
+def test_an_account_a_webhook_changed_mid_check_is_left_alone(monkeypatch):
+    """The Stripe call runs on a worker thread now, so a webhook can land
+    while it is out. Stripe's answer was read BEFORE that webhook: writing it
+    would undo a payment that just went through until the next hourly check."""
+    import asyncio
+    from src.dashboard import api
+    from src.billing import stripe_billing
+    from src.auth import users as user_store
+
+    writes, sent = [], []
+    monkeypatch.setattr(user_store, "update_subscription", lambda *a, **k: writes.append(a))
+    monkeypatch.setattr(user_store, "set_plan", lambda *a: writes.append(a))
+    monkeypatch.setattr(user_store, "set_billing", lambda *a: writes.append(a))
+    # What the check was handed: no subscription. What the store holds by the
+    # time Stripe has answered: the webhook has made them an active Pro.
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: {"id": uid, "subscription_status": "active", "plan": "pro",
+                                     "stripe_customer_id": "cus_1"})
+
+    async def _stale(cust):
+        return {"status": "inactive", "plan": None, "raw": "none", "trial_end": 0,
+                "subscription": "", "price_id": None, "monthly": None}
+    monkeypatch.setattr(stripe_billing, "authoritative_subscription", _stale)
+
+    async def _bcast(msg, user_id=None):
+        sent.append(msg.get("event"))
+    monkeypatch.setattr(api, "broadcast", _bcast)
+
+    before = {"id": "u6", "subscription_status": "none", "plan": "",
+              "stripe_customer_id": "cus_1"}
+    result = asyncio.run(api.reconcile_one_user(before))
+    assert result["ok"] and result["drift"] == []
+    assert "changed while Stripe was being asked" in result["reason"]
+    assert writes == [] and sent == [], "a stale answer from Stripe was written over a newer one"
+
+
+def test_the_stripe_calls_of_the_hourly_check_do_not_run_on_the_loop(monkeypatch):
+    """`async def` around a blocking HTTPS call froze every channel for as long
+    as Stripe took to answer: 17.7% of the app's one loop while the check ran
+    (production, 2026-11-18)."""
+    import asyncio
+    import threading
+    from src.billing import stripe_billing
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_stub")
+    seen = []
+
+    class _R:
+        data = []
+
+    class _C:
+        def __init__(self):
+            self.subscriptions = self
+
+        def list(self, params=None):
+            seen.append(threading.current_thread() is threading.main_thread())
+            return _R()
+    monkeypatch.setattr(stripe_billing, "_client", lambda: _C())
+
+    async def go():
+        a = await stripe_billing.authoritative_subscription("cus_1")
+        b = await stripe_billing.live_subscriptions_by_user()
+        return a, b
+    a, b = asyncio.run(go())
+    assert a["status"] == "inactive" and b == []
+    assert seen == [False, False], "Stripe was called on the loop's own thread"
 
 
 def test_reconciling_a_trial_carries_stripes_trial_end_across(monkeypatch):
@@ -320,12 +403,11 @@ def test_reconciling_a_trial_carries_stripes_trial_end_across(monkeypatch):
 
     ends = int(time.time()) + 5 * 86400
     writes = []
-    monkeypatch.setattr(user_store, "update_subscription",
-                        lambda *a, **k: writes.append(a))
+    user = {"id": "u5", "subscription_status": "none",
+            "stripe_customer_id": "cus_1"}
+    _store(monkeypatch, user_store, user,
+           {"subscription_status": "trialing", "plan": "pro"}, writes)
     monkeypatch.setattr(user_store, "set_plan", lambda *a: None)
-    monkeypatch.setattr(user_store, "get_by_id",
-                        lambda uid: {"id": uid, "subscription_status": "trialing",
-                                     "plan": "pro"})
 
     async def _truth(cust):
         return {"status": "trialing", "plan": "pro", "raw": "trialing",
@@ -336,8 +418,6 @@ def test_reconciling_a_trial_carries_stripes_trial_end_across(monkeypatch):
         return None
     monkeypatch.setattr(api, "broadcast", _noop)
 
-    user = {"id": "u5", "subscription_status": "none",
-            "stripe_customer_id": "cus_1"}
     asyncio.run(api.reconcile_one_user(user))
     assert writes and writes[0][3] == ends, \
         f"the trial end was not carried across: {writes}"

@@ -1,5 +1,6 @@
 """Stripe subscription billing helpers."""
 
+import asyncio
 import json
 
 import stripe
@@ -335,7 +336,10 @@ async def live_subscriptions_by_user() -> list[dict] | None:
         return None
     try:
         client = _client()
-        subs = client.subscriptions.list(params={"status": "all", "limit": 100})
+        # On a worker thread (see authoritative_subscription): the SDK call is
+        # a blocking HTTPS request.
+        subs = await asyncio.to_thread(
+            client.subscriptions.list, params={"status": "all", "limit": 100})
         items = subs.data if hasattr(subs, "data") else []
     except Exception as exc:
         log.warning("stripe_live_subscription_scan_failed", error=str(exc))
@@ -394,7 +398,18 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
         return None
     try:
         client = _client()
-        subs = client.subscriptions.list(
+        # ON A WORKER THREAD. The Stripe SDK call is a blocking HTTPS request,
+        # a quarter of a second or more, and this function is `async` in name
+        # only: called on the loop it stopped EVERYTHING for that long (chat,
+        # audio scoring, every request, every socket). The hourly check calls
+        # it once per customer: measured on production 2026-11-18 it was 17.7%
+        # of the app's one loop while it ran, in 236 ms freezes.
+        #
+        # The price of not freezing is that the account can change while
+        # Stripe is being asked (a webhook landing). reconcile_one_user checks
+        # for exactly that before it writes anything.
+        subs = await asyncio.to_thread(
+            client.subscriptions.list,
             params={"customer": customer_id, "status": "all", "limit": 20})
         items = subs.data if hasattr(subs, "data") else []
     except Exception as exc:
