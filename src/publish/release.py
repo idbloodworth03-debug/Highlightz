@@ -44,6 +44,38 @@ def auto_posting_live() -> bool:
     return any(p in AUTO for p in live_platforms())
 
 
+def auto_live() -> tuple[str, ...]:
+    """The platforms posted to BY ITSELF that are open right now. Two states
+    were not enough once YouTube opened ahead of Instagram (2026-11-18): copy
+    that only knew "TikTok alone" or "everything" promised Instagram the day
+    YouTube went live. Anything that names platforms names these."""
+    return tuple(p for p in live_platforms() if p in AUTO)
+
+
+def all_live() -> bool:
+    """Every platform is open: the only state where "all three" is true."""
+    return not held_platforms()
+
+
+def youtube_private() -> bool:
+    """YouTube is open to accounts but has not audited the app, so what it
+    uploads lands private (YOUTUBE_AUDITED, config/settings.py). Every page
+    that says "posts to YouTube" says this beside it while it is true."""
+    return "youtube" in live_platforms() and not settings.youtube_audited
+
+
+def youtube_note() -> str:
+    """The sentence while it applies to ordinary accounts, else "" (/me)."""
+    return YOUTUBE_PRIVATE_NOTE if youtube_private() else ""
+
+
+# The one sentence, so the landing page, the FAQ, the briefs and the dashboard
+# cannot drift apart on it. It does not say the video can be made public by
+# hand: whether YouTube allows that for an unaudited app is not known.
+YOUTUBE_PRIVATE_NOTE = ("Until Google finishes reviewing Highlightz, YouTube keeps "
+                        "what it uploads private on your channel.")
+
+
 def open_for(platform: str, user: dict | None) -> bool:
     """May this account connect and post to `platform`?"""
     if user and (user.get("is_admin") or user.get("early_access")):

@@ -8941,7 +8941,8 @@ function AccountChips({ me, connections = [] }) {
         })}
       </div>
       <p className="sc-hint">
-        Connected YouTube and Instagram accounts are posted to for you; TikTok goes out when you press Post. Only the clips you choose, only while the account is connected.
+        Connected {autoPosting(connections).and} accounts are posted to for you; TikTok goes out when you press Post. Only the clips you choose, only while the account is connected.{autoPosting(connections).soonLine}
+        {autoPosting(connections).note ? ' ' + autoPosting(connections).note : ''}
       </p>
       {/* Admin-only setup card (2026-09-17): each platform that has no app
           keys yet, with the exact callback URL its console needs and the
@@ -9506,6 +9507,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
   // Neither YouTube nor Instagram can be connected by this account yet
   // (PUBLIC_PLATFORMS) — do not tell them to tick one.
   const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);
+  const ap = autoPosting(connections);
   const results = item.results || {};
   const auto   = [...picked].filter(p=>connected.has(p));
   const manual = [...picked].filter(p=>!connected.has(p));
@@ -9599,10 +9601,10 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           {!posting && !done && auto.length === 0 && (autoHeld
             // YouTube/Instagram not open to this account yet: only TikTok.
             ? <div className="sc-sub">Post it to TikTok with the clip's <b>Post</b> button in the Clip Library. Automatic posting to YouTube and Instagram is coming soon.</div>
-            : <div className="sc-sub">To post now, tick Instagram or YouTube above (connect it in <b>Settings</b>).
+            : <div className="sc-sub">To post now, tick {ap.or} above (connect it in <b>Settings</b>).
               TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>)}
           <div className="sc-sub">
-            Connected YouTube and Instagram accounts are posted to for you at this time; TikTok and the rest get a reminder and one-tap share.
+            Connected {ap.and} accounts are posted to for you at this time; TikTok and the rest get a reminder and one-tap share.{ap.note ? ' ' + ap.note : ''}
             {manual.length > 0 && <> Open: {manual.map((p,i)=>(
               <span key={p}>{i ? ', ' : ' '}<a href={(byId[p]||{}).upload_url} target="_blank" rel="noopener noreferrer">{(byId[p]||{}).label || p}</a></span>
             ))}</>}
@@ -9638,7 +9640,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
               button"). With nothing to post to it is disabled and says why. */}
           {!posting && !done &&
             <button className="rd-btn sm grad" onClick={postNow} disabled={auto.length === 0}
-              title={auto.length === 0 ? 'Choose Instagram or YouTube above (and connect it in Settings) to post now. TikTok is posted from the Post button on a clip.' : ''}>
+              title={auto.length === 0 ? 'Choose ' + ap.or + ' above (and connect it in Settings) to post now. TikTok is posted from the Post button on a clip.' : ''}>
               <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
@@ -9893,7 +9895,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
                       // YouTube/Instagram not open to this account yet
                       // (PUBLIC_PLATFORMS): do not send them to a "soon" chip.
                       ? <div className="hint">Automatic posting to YouTube and Instagram is coming soon. Until then Autopilot edits each clip and puts it in the Scheduler, ready for you to post to TikTok with one press.</div>
-                      : <div className="hint">No account connected yet. Connect Instagram or YouTube in Settings. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.</div>)
+                      : <div className="hint">No account connected yet. Connect {autoPosting(connections).or} in Settings. Until then Autopilot still edits each clip and puts it in the Scheduler as a reminder.{autoPosting(connections).soonLine}</div>)
                     : <div className="sc-pchips">
                         {connected.map(c=>{ const picked = cfg.platforms.includes(c.id); return (
                           <button key={c.id} className={'sc-pchip'+(picked?' on':'')} disabled={busy}
@@ -10034,6 +10036,24 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
 // were still "coming soon" (audit, 2026-10-20).
 const PITCH_NAMES = {youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok'};
 function pitchList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+// The platforms Highlightz posts to BY ITSELF (never TikTok) that THIS account
+// may connect, and the ones still "soon" for it (PUBLIC_PLATFORMS). Every
+// line that names them reads from here: YouTube opened ahead of Instagram
+// (2026-11-18) and "YouTube and Instagram" stopped being one fact. With
+// neither open the old wording stands, as it did while only TikTok was.
+function autoPosting(connections) {
+  const cs = (connections || []).filter(c => c.id === 'youtube' || c.id === 'instagram');
+  const pick = ok => ['youtube', 'instagram'].filter(id => cs.some(c => c.id === id && ok(c))).map(id => PITCH_NAMES[id]);
+  const open = pick(c => c.configured), soon = pick(c => !c.configured);
+  return {open, soon,
+          and: pitchList(open) || 'YouTube and Instagram',
+          or: open.length ? open.join(' or ') : 'Instagram or YouTube',
+          // "Instagram is coming soon." only once something else is open;
+          // with nothing open the screens already say so in their own words.
+          soonLine: open.length && soon.length ? ' ' + pitchList(soon) + (soon.length > 1 ? ' are' : ' is') + ' coming soon.' : '',
+          // What YouTube does with an upload until it has audited the app.
+          note: ((connections || []).find(c => c.id === 'youtube') || {}).private_note || ''};
+}
 function schedulerPitch(open) {
   const auto = ['youtube', 'instagram'].filter(p => open.includes(p)).map(p => PITCH_NAMES[p]);
   const tiktok = open.includes('tiktok');
@@ -10125,7 +10145,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
       {items.length === 0 && <div className="rd-how">
         {[['download','1','Export a clip','Anything you export in the Clip Editor lands here.'],
           ['chat','2','Write it once','One caption, reused for every platform. We check it fits before it goes out.'],
-          ['clock','3','Post it','Click a half hour in the week, or drag a clip onto one. Connected YouTube and Instagram accounts are posted to for you; TikTok and the rest get a reminder and one-tap share.']
+          ['clock','3','Post it','Click a half hour in the week, or drag a clip onto one. Connected ' + autoPosting(connections).and + ' accounts are posted to for you; TikTok and the rest get a reminder and one-tap share.']
         ].map(([icon,n,title,body])=>(
           <div className="rd-step" key={n}>
             <span className="sn">{n}</span>
@@ -12136,6 +12156,10 @@ function RdApp() {
   // refetchAll and updated by their events.
   const [queue, setQueue] = useState([]);
   const [connections, setConnections] = useState([]);
+  // "New: YouTube Shorts" bar, closed by this viewer (a convenience only: the
+  // bar itself is derived from /me and the connections).
+  const [ytSeen, setYtSeen] = useState(()=>{ try { return !!localStorage.getItem('hz_yt_shorts_seen'); } catch { return false; } });
+  const closeYtNew = ()=>{ setYtSeen(true); try { localStorage.setItem('hz_yt_shorts_seen', '1'); } catch {} };
   const refetchConnections = useCallback(()=>{
     fetch('/publish/connections').then(r=>r.ok?r.json():null)
       .then(d=>{ if(d) setConnections(d.platforms||[]); }).catch(()=>{});
@@ -13162,6 +13186,26 @@ function RdApp() {
           <span>Your payment did not go through. <span style={{color:'var(--fg-2)',fontWeight:500}}>You are on the Free plan, and your extra channels are paused, until it does.</span></span>
           <a href="/billing/portal" style={{marginLeft:'auto',color:'#000',background:'var(--pending)',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap'}}>Update card</a>
         </div>}
+        {/* YouTube Shorts posting opened to accounts (2026-11-18): said on
+            every screen until this account connects its channel or closes the
+            bar. Derived from /me (features.posting follows PUBLIC_PLATFORMS)
+            and the connections, both in refetchAll, so it appears on release
+            and goes on connect with no reload. */}
+        {(()=>{
+          const f = me.features || {};
+          if (ytSeen || !(f.posting || []).includes('youtube') || me.subscription_status === 'past_due') return null;
+          const pro = !!(me.plan_limits && me.plan_limits.uploads);
+          // A Pro account: only once its connections have answered and its
+          // channel is not connected, so the bar never flashes at someone
+          // who already did this.
+          if (pro && !(connections || []).some(c => c.id === 'youtube' && c.configured && !c.connected)) return null;
+          return (
+            <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:8,padding:'8px 24px',background:'var(--grad-soft)',borderBottom:'1px solid var(--hair)',fontSize:12,color:'var(--fg)',fontWeight:600}}>
+              <span>New: Highlightz posts your clips to YouTube Shorts for you. <span style={{color:'var(--fg-2)',fontWeight:500}}>{pro ? 'Connect your channel, then switch on Autopilot.' : 'Included with Pro, with the Clip Editor and Autopilot.'}{f.youtube_note ? ' ' + f.youtube_note : ''}</span></span>
+              <a href={pro ? '/publish/connect/youtube' : '/billing/paywall'} style={{marginLeft:'auto',color:'#fff',background:'#9146ff',textDecoration:'none',padding:'4px 12px',borderRadius:8,fontWeight:700,whiteSpace:'nowrap',flexShrink:0}}>{pro ? 'Connect YouTube' : 'See Pro'}</a>
+              <button onClick={closeYtNew} aria-label="Close" title="Close" style={{background:'none',border:'none',color:'var(--fg-3)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'4px 8px'}}>&times;</button>
+            </div>);
+        })()}
         <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>
           <ErrorBoundary key={view} where={view} onHome={view!=='review' ? ()=>setRoute('review') : null}>{screen}</ErrorBoundary>
         </main>

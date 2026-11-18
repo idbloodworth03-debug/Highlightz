@@ -60,6 +60,7 @@ from src.dashboard import funnel
 from src.trigger import dismissed_suggestions as _dismissed
 from src.billing import plans as _plans
 from src.publish.release import live_platforms as _release_live_platforms
+from src.publish.release import youtube_note as _release_youtube_note
 from src import language as _language
 from src.dashboard.aurora_html import DASHBOARD_HTML
 
@@ -1807,6 +1808,10 @@ async def me(request: Request):
                                 # accounts (PUBLIC_PLATFORMS, once uploads are
                                 # released), so upgrade copy promises only those.
                                 "posting": list(_release_live_platforms()),
+                                # YouTube is open but has not audited the app,
+                                # so uploads land private: said beside every
+                                # "posted to YouTube for you" in the dashboard.
+                                "youtube_note": _release_youtube_note(),
                                 # Exposed so the VOD screen can describe what a
                                 # scan actually does. With audio on it decodes
                                 # the stream's sound, which the old copy ("no
@@ -7083,6 +7088,12 @@ def _connections_payload(uid: str) -> list[dict]:
         rows.append({"id": p.id, "label": p.label,
                      "configured": p.configured() and not held, "held": held,
                      "connected": c is not None,
+                     # While YouTube has not audited the app, what is uploaded
+                     # lands private. On the row, not /me, so an admin or an
+                     # early-access account testing before release reads it too.
+                     "private_note": (release.YOUTUBE_PRIVATE_NOTE
+                                      if p.id == "youtube" and p.configured() and not held
+                                      and not settings.youtube_audited else ""),
                      # For the admin's setup card: the exact callback URL each
                      # console must have (derived from PUBLIC_BASE_URL, so a
                      # typo there breaks all three) and the .env keys to fill.
@@ -11102,7 +11113,8 @@ def render_landing(html: str | None = None) -> str:
     # block in Pricing. All three follow the same switch.
     from src.dashboard.site_nav import campaigns_tab
     html = campaigns_tab(html)
-    html = (html.replace("<!--PROOF_CAMPAIGNS-->", _proof_campaigns(), 1)
+    html = (html.replace("<!--PROOF_YOUTUBE-->", _proof_youtube(), 1)
+                .replace("<!--PROOF_CAMPAIGNS-->", _proof_campaigns(), 1)
                 .replace("<!--CAMPAIGNS-->", _campaigns_block(), 1))
 
     # THE FRAMES. Real clip previews from the curated showcase, or the
@@ -11351,6 +11363,11 @@ async def llms_txt():
     _auto = _rel.auto_posting_live()
     _held = _rel.join(_rel.held_platforms())
     _held_note = f" Posting to {_held} is coming soon." if live and _held else ""
+    # And while YouTube has not audited the app, what goes there lands private.
+    _held_note += (" " + _rel.YOUTUBE_PRIVATE_NOTE) if _rel.youtube_private() else ""
+    # What is posted to BY ITSELF (never TikTok): "those accounts" below must
+    # not include one that is only ever posted by hand.
+    _auto_to = _rel.join(_rel.auto_live())
     _pitch = (
         "so the clip can be downloaded and taken anywhere. Reframing for "
         "vertical (Clip Editor) and posting to YouTube, TikTok and Instagram "
@@ -11370,7 +11387,7 @@ async def llms_txt():
         f"caught clip for vertical, title it, add transitions and a sound, "
         f"export it frame by frame in the browser), "
         + (f"the Scheduler (post "
-           f"exported clips to the {_to} accounts you "
+           f"exported clips to the {_auto_to} accounts you "
            f"connect, at a time you set) and Autopilot (every clip you approve is "
            f"rendered vertical and queued to those accounts on a schedule you "
            f"choose, with nobody in the loop)."
@@ -11531,6 +11548,7 @@ async def llms_full_txt():
         "It is what the Clip Editor reframes for vertical and the Scheduler posts to "
         + _rel_live_phrase() + "; "
         + ("Autopilot (Pro, off by default) does both for every clip you approve. "
+           + _rel_held_sentence() + _rel_youtube_sentence()
            if _rel_auto() else
            "Autopilot (Pro, off by default) reframes and queues every clip you approve. "
            + _rel_held_sentence()))
@@ -11566,6 +11584,8 @@ async def llms_full_txt():
     w(f"| Clip Editor | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
     w(f"| Scheduler | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
     w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
+    if _posts_to_shorts():
+        w(f"| Posts to YouTube Shorts for you | {yn(f, 'uploads')} | {yn(pro, 'uploads')} | {yn(sd, 'uploads')} |")
     w(f"| Front of the line when the server is busy | {yn(f, 'priority')} | {yn(pro, 'priority')} | {yn(sd, 'priority')} |")
     w(f"| Clip videos kept {settings.clip_file_max_age_days} days | {yn(f, 'keep_files')} | {yn(pro, 'keep_files')} | {yn(sd, 'keep_files')} |")
     w(f"| No fee on campaigns you run | {yn(f, 'no_campaign_fee')} | {yn(pro, 'no_campaign_fee')} | {yn(sd, 'no_campaign_fee')} |")
@@ -12565,6 +12585,8 @@ LANDING_HTML = """<!DOCTYPE html>
   .proof-new b{color:var(--ember);font-weight:600}
   .proof-new:hover{color:var(--ink);border-color:var(--ink-3)}
   .proof-new:active{transform:translateY(1px)}
+  /* Two announcements (YouTube Shorts above Campaigns): they sit as a pair. */
+  .proof-new:has(+ .proof-new){margin-bottom:var(--s-2)}
   /* One line on a phone: the word Campaigns goes, the offer stays. */
   @media(max-width:520px){ .proof-new-k{display:none} }
   @media(max-width:360px){ .proof-new{letter-spacing:.06em;padding:var(--s-2) var(--s-3)} }
@@ -13010,6 +13032,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="proof" id="proof" aria-labelledby="proof-h">
   <div class="proof-bg"><!--FRAME_HERO--></div>
   <div class="proof-in wrap">
+    <!--PROOF_YOUTUBE-->
     <!--PROOF_CAMPAIGNS-->
     <!-- THE PAGE'S h1. A landing page with no h1 is a real SEO regression,
          and this is the sentence the page is about. .disp and .proof-h set
@@ -14273,7 +14296,9 @@ def _org_schema() -> str:
             "description": "Automatic Twitch and Kick clipping across every "
                            "channel you watch, using a transparent scoring "
                            "formula, with a vertical clip editor and "
-                           + ("auto-posting built in." if _rel_auto() else
+                           + ("auto-posting to " + _rel_auto_names() + " built in."
+                              if _rel_mixed() else
+                              "auto-posting built in." if _rel_auto() else
                               "posting to " + _rel_live_phrase() + " built in."
                               if settings.uploads_enabled else
                               "auto-posting coming soon."),
@@ -14523,6 +14548,41 @@ def _rel_auto() -> bool:
     return release.auto_posting_live()
 
 
+def _rel_mixed() -> bool:
+    """Something is posted by itself, but not every platform is open: YouTube
+    went live ahead of Instagram (2026-11-18). The copy below used to know two
+    states, "TikTok alone" and "everything", and the second one names
+    Instagram; this is the third."""
+    from src.publish import release
+    return release.auto_posting_live() and not release.all_live()
+
+
+def _rel_auto_names() -> str:
+    """"YouTube", or "YouTube and Instagram": what is posted to by itself."""
+    from src.publish import release
+    return release.join(release.auto_live())
+
+
+def _rel_youtube_sentence() -> str:
+    """"Until Google finishes reviewing Highlightz, ... private on your
+    channel. " while that is true (YOUTUBE_AUDITED off), else ""."""
+    from src.publish import release
+    return (release.YOUTUBE_PRIVATE_NOTE + " ") if release.youtube_private() else ""
+
+
+def _proof_youtube() -> str:
+    """The line above the first headline that says clips are posted to YouTube
+    Shorts for you (owner, 2026-11-18: "make it known everywhere on the
+    landing page"). Same switch as the posting itself, so it is never there
+    while YouTube is "coming soon", and it leads to the Scheduler block."""
+    from src.publish import release
+    if "youtube" not in release.auto_live():
+        return ""
+    return ('<a class="proof-new" href="#post"><b>New </b><span><span class="proof-new-k">'
+            'Autopilot: </span>now posts to YouTube Shorts</span> '
+            '<span aria-hidden="true">&rarr;</span></a>')
+
+
 def _rel_held_sentence() -> str:
     """"Posting to YouTube and Instagram is coming soon. " — or "" when every
     platform is open (or nothing is released, where other copy says so)."""
@@ -14544,6 +14604,12 @@ def _released(key: str, limits: dict) -> str:
     if not limits.get(key):
         return "No"
     return "Yes" if settings.uploads_enabled else "Soon"
+
+
+def _posts_to_shorts() -> bool:
+    """Is YouTube posted to by itself for an ordinary account today?"""
+    from src.publish import release
+    return "youtube" in release.auto_live()
 
 
 def _pricing() -> str:
@@ -14583,6 +14649,11 @@ def _pricing() -> str:
             # Opened to Pro with the Scheduler (2026-10-05); same entitlement,
             # so it reads Soon/Yes/No in step with the two rows above.
             ("Autopilot", _released("uploads", limits)),
+            # Named on the plans the day it opened (owner, 2026-11-18: "make
+            # it known everywhere"). Only while YouTube is really posted to
+            # by itself, so the TikTok-only table is the table it always was.
+            *([("Posts to YouTube Shorts for you", "Yes" if limits.get("uploads") else "No")]
+              if _posts_to_shorts() else []),
             # Studio's four (2026-11-03), on every column so the difference
             # is read across, not described.
             ("Front of the line", "Yes" if limits.get("priority") else "No"),
@@ -14669,6 +14740,10 @@ def _editor_section() -> str:
           "clip with one press. Your account stays yours; Highlightz only holds "
           "what it needs to post.")
          if tiktok_only else
+         "Connect your YouTube channel from the Scheduler tab and your clips go "
+         "up as Shorts; TikTok posts from the clip with one press. Your account "
+         "stays yours; Highlightz only holds what it needs to post."
+         if _rel_mixed() else
          "YouTube and Instagram Reels, from the Scheduler tab; TikTok posts from the "
          "clip with one press. Your account stays yours; Highlightz only holds what "
          "it needs to post."),
@@ -14715,9 +14790,15 @@ def _editor_section() -> str:
                 "for vertical and queued in the Scheduler by itself, ready to post. "
                 + _rel_held_sentence().replace("Posting to", "Automatic posting to").strip()
                 if not _rel_auto() else
+                "Connect your YouTube channel once and the Scheduler posts your "
+                "clips to it as Shorts for you, at the time you set. Switch on "
+                "Autopilot and every clip you approve is reframed for vertical and "
+                "posted with nobody in the loop. TikTok is one press from the clip. "
+                + _rel_held_sentence() + _rel_youtube_sentence().strip()
+                if _rel_mixed() else
                 "Connect your YouTube and Instagram accounts once and the Scheduler "
                 "posts your clips to them for you, at the time you set. TikTok is one "
-                "press from the clip.")
+                "press from the clip." + (" " + _rel_youtube_sentence()).rstrip())
     cta = ('<p class="edit-cta"><a href="/login" class="btn btn-dark btn-lg">Start free</a>'
            "<span>Both arrive with Pro, alongside the VOD Scanner. Clipping works "
            "today on every plan.</span></p>"
@@ -14983,10 +15064,17 @@ def _faq() -> str:
             "switch it on and every clip you approve is reframed for vertical and queued "
             "in the Scheduler by itself. " + _rel_held_sentence()
             if settings.uploads_enabled and not _rel_auto() else
+            "The Scheduler takes every clip you export and posts it to the YouTube "
+            "channel you connect as a Short, at the time you pick, with one caption "
+            "checked against the platform's limits first; TikTok you post with one press, "
+            "on TikTok's own posting screen. Autopilot, also Pro, does it all for you: "
+            "switch it on and every clip you approve is reframed for vertical and posted "
+            "to YouTube by itself. " + _rel_held_sentence() + _rel_youtube_sentence()
+            if _rel_mixed() else
             "The Scheduler takes every clip you export and "
             "posts it to the YouTube and Instagram accounts you connect, at the time you pick, "
             "with one caption checked against each platform's limits first; TikTok you post with one "
-            "press, on TikTok's own posting screen. ")
+            "press, on TikTok's own posting screen. " + _rel_youtube_sentence())
          + "Disconnect an account and Highlightz forgets its login."
          + ("" if settings.tiktok_audited else
             " TikTok may land a post as private until TikTok finishes "
@@ -15057,7 +15145,13 @@ _SOCIAL_SWAPS = (
       "then reframes it for vertical and posts it to " + _rel_live_phrase()),
      ("then reframes them for vertical and posts them to YouTube, TikTok and Instagram.",
       "then reframes them for vertical and posts them to " + _rel_live_phrase() + "."))
-    if not _rel_auto() else ())
+    if not _rel_auto() else
+    # YouTube open, Instagram not: "auto-posting" and "posts it for you" are
+    # true now, but the one sentence that NAMES the platforms must not name
+    # the one still held.
+    ((("then reframes them for vertical and posts them to YouTube, TikTok and Instagram.",
+       "then reframes them for vertical and posts them to " + _rel_live_phrase() + "."),)
+     if _rel_mixed() else ()))
 if _SOCIAL_SWAPS:
     for _was, _now in _SOCIAL_SWAPS:
         if _was not in LANDING_HTML:            # copy moved; say so rather than
@@ -15670,6 +15764,7 @@ COOKIES_HTML = """<!DOCTYPE html>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
     <tr><td><code>hz_platform</code></td><td>Remembers which platform tab you were last on, so the dashboard opens where you left it.</td><td>Until cleared</td><td>Preference</td></tr>
     <tr><td><code>hz_welcome_seen</code></td><td>Remembers that you have already seen the welcome screen, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
+    <tr><td><code>hz_yt_shorts_seen</code></td><td>Remembers that you closed the notice about posting to YouTube Shorts, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
   </table>
   <p>We do not use advertising cookies, tracking pixels, or third-party analytics cookies. We do not use Google Analytics or any equivalent service.</p>
 

@@ -181,6 +181,19 @@ def _auto_live() -> bool:
     return release.auto_posting_live()
 
 
+def _shorts_only() -> bool:
+    """YouTube Shorts is posted to by itself and Instagram Reels is not yet
+    (2026-11-18). The row is called "Shorts and Reels", so a plain tick would
+    claim half of it early; the cell says which half instead."""
+    from src.publish import release
+    return release.auto_live() == ("youtube",)
+
+
+def _yt_private() -> str:
+    from src.publish import release
+    return (" " + release.YOUTUBE_PRIVATE_NOTE) if release.youtube_private() else ""
+
+
 # ── the argument ─────────────────────────────────────────────────────────────
 
 HERO_TITLE = "Highlightz vs Opus Clip vs Eklipse"
@@ -275,7 +288,7 @@ FEATURES = (
     # itself — its Direct Post rules put the choices on the person each time —
     # so a row promising automatic TikTok posting would be a tick we cannot earn.
     ("Auto-posts to Shorts and Reels",
-     True if _auto_live() else "Soon", True, True,
+     "Shorts" if _shorts_only() else True if _auto_live() else "Soon", True, True,
      "Theirs today; ours shortly. The Scheduler is built and in testing — "
      "connect YouTube or Instagram and it posts at the time you set, with "
      "Autopilot cutting and queueing every clip you approve. TikTok will be one "
@@ -287,9 +300,15 @@ FEATURES = (
      "Shorts and Instagram Reels by itself is built and coming soon, so this "
      "row is not a tick yet."
      if not _auto_live() else
+     "Theirs to both; ours to Shorts today. Connect your YouTube channel and the "
+     "Scheduler posts at the time you set; Autopilot cuts and posts every clip "
+     "you approve by itself. Instagram Reels is built and coming soon. TikTok is "
+     "one press from the clip, never automatic." + _yt_private()
+     if _shorts_only() else
      "All three. Ours is the Scheduler: connect YouTube or Instagram and it "
      "posts at the time you set; Autopilot cuts and queues every clip you "
-     "approve by itself. TikTok is one press from the clip, never automatic."),
+     "approve by itself. TikTok is one press from the clip, never automatic."
+     + _yt_private()),
 
     ("Works on any uploaded video, not just live streams",
      "VOD only", True, True,
@@ -400,6 +419,11 @@ THEY_DO_BETTER = {
           "TikTok when you press Post; Shorts and Reels on a schedule are "
           "coming soon.")
          if not _auto_live() else
+         ("You want Reels or TikTok posted for you automatically.",
+          "They publish to TikTok, Shorts and Reels on a schedule. We post "
+          "Shorts on a schedule; Reels are coming soon, and TikTok goes out "
+          "only when you press Post.")
+         if _shorts_only() else
          ("You want TikTok posted for you automatically.",
           "They schedule TikTok posts. We post Shorts and Reels on a schedule, "
           "but TikTok only when you press Post.")),

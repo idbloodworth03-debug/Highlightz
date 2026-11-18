@@ -375,7 +375,12 @@ def test_the_queue_says_exactly_when_it_posts_and_when_it_only_reminds():
     # 2026-10-05: named precisely — only YouTube and Instagram are posted
     # for you; TikTok goes out when you press Post (it never was automatic,
     # and with the TikTok-only release it is what most accounts connect).
-    for phrase in ("connected youtube and instagram accounts are posted to for you",
+    # 2026-11-18: YouTube opened ahead of Instagram, so the platforms in that
+    # sentence are READ from the account's connections (autoPosting) instead
+    # of typed; with neither open it still reads "YouTube and Instagram".
+    for phrase in ("connected {autoposting(connections).and} accounts are posted to for you",
+                   "connected {ap.and} accounts are posted to for you at this time",
+                   "and: pitchlist(open) || 'youtube and instagram'",
                    "tiktok and the rest get a reminder and one-tap share",
                    "tiktok goes out when you press post",
                    "only the clips you choose, only while the account is connected"):

@@ -8857,3 +8857,92 @@ upload private with the note.
 - Whether asking for `private` avoids the lock (so the owner of the channel
   can flip it public in YouTube Studio) or the lock applies anyway. The note
   is worded for either.
+
+## YouTube opens to accounts ahead of Instagram, and the site says so everywhere (2026-11-18)
+
+Owner, 2026-11-18, after putting the Google keys on prod (both read "set"):
+"make the changes to the site and make it live. Make it known everywhere on
+the landing page and everywhere on the site." This reverses the 2026-10-05
+choice to keep YouTube "coming soon" until Google approves. It is the owner's
+call and was made knowing uploads land private (told twice the day before).
+
+**The switch is still `PUBLIC_PLATFORMS`.** The default stays `tiktok`; the
+go-live is `PUBLIC_PLATFORMS=tiktok,youtube` in prod `.env` and a restart
+(command given to the owner). Taking `youtube` back out and restarting undoes
+all of it. **Not confirmed run yet**: check `.env` before assuming it is live.
+
+**Why code had to change: the copy knew two states and this is a third.**
+Every page branched on `_rel_auto()`: off meant "TikTok alone", on meant the
+"everything" wording, which names Instagram. Adding `youtube` to the switch
+would have promised Instagram Reels on the landing page, the FAQ, both briefs
+and the compare page that minute. Now:
+- `src/publish/release.py`: `auto_live()` (what is posted to by itself and
+  open), `all_live()`, `youtube_private()` / `youtube_note()`, and
+  `YOUTUBE_PRIVATE_NOTE`, the ONE sentence every surface uses ("Until Google
+  finishes reviewing Highlightz, YouTube keeps what it uploads private on your
+  channel."). It deliberately does not say the video can be made public by
+  hand: whether YouTube allows that for an unaudited app is not known.
+- `api.py`: `_rel_mixed()`, `_rel_auto_names()`, `_rel_youtube_sentence()`.
+  The mixed branch is new in: the Scheduler block's sub-heading and "Connect
+  once" card, the FAQ answer, structured data ("auto-posting to YouTube built
+  in."), the link-preview swap (only the sentence that NAMES platforms),
+  `llms.txt`, `llms-full.txt`. The "everything" branches are untouched except
+  that they also carry the private sentence while it is true.
+- `compare_content.py`: the "Auto-posts to Shorts and Reels" cell reads
+  **Shorts** (a string, like "VOD only"), not a tick, with Reels "built and
+  coming soon"; the "choose them if" card becomes "You want Reels or TikTok
+  posted for you automatically."
+
+**Made known (all follow the same switch, none appear while YouTube is held):**
+- Landing: a second line above the headline, "NEW Autopilot: now posts to
+  YouTube Shorts", leading to `#post` (`<!--PROOF_YOUTUBE-->`, filled per
+  request like the campaigns one, which it sits above as a pair); a plan row
+  "Posts to YouTube Shorts for you" No / Yes / Yes; the Scheduler block and
+  FAQ reworded to lead with it.
+- `llms-full.txt` plan table gets the same row.
+- Dashboard: a bar under the header on every screen, "New: Highlightz posts
+  your clips to YouTube Shorts for you." Pro: **Connect YouTube**
+  (`/publish/connect/youtube`), shown only once the connections have answered
+  and the channel is not connected. Everyone else: **See Pro**. Closed with ×
+  (`hz_yt_shorts_seen` in localStorage, listed in the Cookie Policy). Not
+  shown to a past-due account (it already has a bar).
+- Dashboard wording that typed "YouTube and Instagram" now reads the account's
+  own connections through `autoPosting(connections)` (Scheduler chips' hint,
+  the drawer, Post now's tooltip, Autopilot's "Where should it post?", the
+  first-run steps). With neither open it still reads "YouTube and Instagram",
+  so the TikTok-only dashboard is word for word what it was.
+
+**Realtime:** no new event. The bar and the hints are derived from `/me`
+(`features.posting`, new `features.youtube_note`) and `/publish/connections`
+(new `private_note` on the YouTube row, so an admin testing before release
+reads it too); both are already in `refetchAll`, so a restart on the go-live
+brings the bar to every open tab on reconnect, and connecting the channel
+removes it without a reload.
+
+**What a customer gets today, and what the owner was told:**
+1. Uploads land PRIVATE until YouTube's API audit passes; every promise on the
+   site carries the sentence, and the post result repeats it.
+2. Google's consent screen must be "In production" (Audience, Publish app) or
+   only listed test users can connect; unverified, it shows Google's warning
+   screen and stops at 100 users.
+3. No real upload has ever been made by this code. The first one is the proof.
+4. The daily upload limit for the whole app is unknown from here (6 by the old
+   notes, about 100 by 2026 write-ups).
+
+**The day YouTube's audit passes:** `YOUTUBE_AUDITED=true` in prod `.env` and
+restart. Uploads go out public and the private sentence leaves every page by
+itself. **When Meta approves Instagram:** add `instagram` to
+`PUBLIC_PLATFORMS`; the "everything" wording returns and the mixed branches
+stop being reached.
+
+Tests: `tests/test_youtube_rollout.py` (12: the arithmetic, every public page
+rendered under the switch before and after the audit, the announcements only
+while true, the TikTok-only pages unchanged, the dashboard strings); five
+mutations each failed a test. `test_dashboard_contract` updated for the
+derived sentence. Full suite 4555 passed; dashboard JSX parsed with Babel.
+**Seen in a browser** (the real pages, headless, 1440 and 390 px, YouTube
+open, Instagram held): the two lines above the headline, the Scheduler block,
+three plan rows, the bar for a Pro and a Free account with the right button,
+the Scheduler chips (Connect YouTube, Connect TikTok, Instagram · soon) and
+hint, Autopilot's hint, the bar closing and staying closed after a reload; no
+page errors, no sideways scroll.
