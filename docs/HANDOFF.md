@@ -10001,25 +10001,39 @@ as now. Until that stage the switch must not be turned on in production.
      file), opt-outs (file), the append-only ledgers.
    - Tests: `tests/test_ingest_profiles.py` (11), `tests/test_ingest_kick.py`
      (6), both with real worker processes.
-4. **NEXT. The gate, and seeing what each process is doing.** Until this is
-   done the switch must stay off in production, because the live limit
-   would be measuring the wrong loop:
-   - `headroom` measures the WEB loop. With the split on, a channel's cost
-     lands on its worker's loop. Each worker already reports `loop_pct`,
-     `lag_ms`, `rss_mb` every 2 s (`Pool.status()`); `acquire_live_slot`
-     must judge the loop of the worker the channel hashes to
-     (`Ingest.h_acquire` knows the index), with the box's CPU and memory as
-     now. The carried-count note becomes per worker or is dropped.
-   - Admin: a line per process (pid, up, restarts, loop %, channels).
-     `/admin/overview` -> `ingest: ingest.status()`.
-   - `scripts/stream_cost.py` finds ONE app process and its main thread;
-     with the split it has to list the web process and each worker.
-     `scripts/loop_profile.py` only reaches the web process: add a worker
-     handler that runs `loop_profile.Timing` there and returns the report.
-   - Twitch chat and anything else that keeps per-process connections: read
-     `stream_worker._run_chat` once more for shared state.
-   - Before stage 5, on a machine with real credentials: one Twitch and one
-     Kick channel live in a worker; approve, reject, undo, pause, resume,
-     remove; kill a worker by hand.
+4. **The gate per worker: done (2026-11-18). The reports per process: NOT
+   done.**
+   - `headroom.allow(..., loop=reading)`: with a reading, the LOOP judged is
+     that worker's (its own lines per plan, its own "is it being held up",
+     and one more channel costed from that worker's own channels); the box's
+     processors and memory are judged as before; a reading older than 12 s
+     (a worker down, or silent) is a refusal that names the worker. Without
+     a reading nothing in `allow` changed.
+   - `Pool` keeps a 15 s average of each worker's reported loop and lag
+     (`Worker.loop_avg`, `lag_avg`); `Ingest.loop_for(stream_key)` builds the
+     reading for the worker the channel hashes to; `main.py` hands it to the
+     dashboard with `set_ingest_readers`, and `acquire_live_slot` passes it
+     only when one exists.
+   - Admin: `/admin/overview.streams.headroom.workers` (index, up, loop_pct,
+     streams, restarts, rss_mb) and the Live now tile adds
+     "workers 31% / 28% / down".
+   - **Known simplifications, careful rather than exact:** channels not yet
+     measured are all counted against the worker being asked, wherever they
+     went (slows the climb, never speeds it); the "what the box was carrying"
+     note is still one number for the box and is scaled by the WEB loop,
+     which with the split is nearly idle, so after a restart it lets back
+     what was running even if one worker had been over its line.
+   - **Still to do before production:**
+     - `scripts/stream_cost.py` reads ONE app process and its main thread.
+       With the split it must list the web process and each worker
+       (`python -m src.ingestion.worker_main` shows as "other python" today).
+     - `scripts/loop_profile.py` only reaches the web process. Add a worker
+       handler that runs `loop_profile.Timing` there and returns the report.
+     - No alert yet when ONE WORKER's loop stays overloaded (the existing
+       `app_loop_overloaded` watches the web loop only).
+     - On a machine with real credentials: one Twitch and one Kick channel
+       live in a worker; approve, reject, undo, pause, resume, remove, force
+       a clip; kill a worker by hand. Nothing here has seen a real stream in
+       a worker process.
 5. Production: `INGEST_WORKERS=4`, watched, with the single-process mode one
    env line away.

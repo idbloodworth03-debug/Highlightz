@@ -85,6 +85,18 @@ class Ingest:
     def status(self) -> list[dict]:
         return self.pool.status()
 
+    def loop_for(self, stream_key: str) -> dict:
+        """The reading the live limit judges for this channel: the loop of
+        the worker it hashes to (headroom.allow, `loop`). A worker that is
+        down or has not reported reads as too old, which the gate refuses."""
+        import time
+        index = self.pool.owner(_channel_of(stream_key))
+        w = self.pool.workers[index]
+        fresh = w.ready and w.beat_at > 0
+        return {"name": f"worker {index}", "pct": w.loop_avg, "lag_s": w.lag_avg,
+                "age_s": (time.monotonic() - w.beat_at) if fresh else 1e9,
+                "live": sum(1 for k in api._live_slots if self._owns(index, _channel_of(k)))}
+
     def _owns(self, index: int, channel: str) -> bool:
         return bool(channel) and self.pool.owner(channel) == index
 

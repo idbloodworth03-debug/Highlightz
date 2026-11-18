@@ -373,3 +373,125 @@ def test_the_switch_is_off_unless_asked_for():
     # Off: exactly the old publisher and the old restore.
     assert "dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)" in src
     assert "await restore_streams()" in src
+
+
+# ── stage 4: the live limit judges the loop the channel will land on ─────────
+
+from src.ingestion import headroom as hr     # noqa: E402
+
+
+@pytest.fixture
+def measured(monkeypatch):
+    """The web process's own meter: its loop nearly idle (with the split it
+    carries no channels), the box and memory comfortable."""
+    hr.forget()
+    monkeypatch.setattr(hr, "_cores", lambda: 8)
+    for i in (2, 1, 0):
+        hr.record(6.0, 20.0, 12000.0, 0.0, 2.0, 1000.0 - 2.0 * i, 16000.0)
+    yield
+    hr.forget()
+
+
+def _reading(pct, live=40, age=1.0, lag=0.0):
+    return {"name": "worker 2", "pct": pct, "live": live, "age_s": age, "lag_s": lag}
+
+
+def test_the_workers_loop_decides_not_the_web_processes(measured):
+    """The web loop reads 6%. A channel bound for a worker at 64% is refused
+    all the same, and one bound for a worker at 30% gets in."""
+    assert hr.allow(160, now=1000.0)[0] is True                    # one process: by the web loop
+    ok, why = hr.allow(160, now=1000.0, loop=_reading(64.0))
+    assert not ok and why == "worker 2 is at 64% of the one core it can use"
+    assert hr.allow(160, now=1000.0, loop=_reading(30.0))[0] is True
+
+
+def test_the_plans_lines_apply_to_the_workers_loop(measured):
+    assert [hr.allow(160, priority=p, now=1000.0, loop=_reading(66.0))[0] for p in (0, 1, 2)] == [False, True, True]
+    assert [hr.allow(160, priority=p, now=1000.0, loop=_reading(71.0))[0] for p in (0, 1, 2)] == [False, False, True]
+    assert [hr.allow(160, priority=p, now=1000.0, loop=_reading(76.0))[0] for p in (0, 1, 2)] == [False, False, False]
+
+
+def test_one_more_channel_is_costed_from_that_workers_own_channels(measured):
+    """10 channels at 60% is 6% each: no room for another under 65. The same
+    60% spread over 80 channels is under 1% each, and there is."""
+    assert hr.allow(100, now=1000.0, loop=_reading(60.0, live=10))[0] is False
+    assert hr.allow(100, now=1000.0, loop=_reading(60.0, live=80))[0] is True
+
+
+def test_a_worker_that_has_not_reported_gets_no_new_channels(measured):
+    ok, why = hr.allow(100, now=1000.0, loop=_reading(5.0, age=hr.STALE_S + 1))
+    assert not ok and "worker 2 has not reported its load" in why
+    assert hr.allow(100, now=1000.0, loop=_reading(5.0, age=hr.STALE_S - 1))[0] is True
+    ok, why = hr.allow(100, now=1000.0, loop=_reading(5.0, lag=hr.LAG_LINE_S + 0.1))
+    assert not ok and "worker 2 is being held up" in why
+    assert hr.allow(100, priority=2, now=1000.0, loop=_reading(5.0, lag=hr.LAG_LINE_S + 0.1))[0] is True
+
+
+def test_the_box_is_still_judged_whichever_loop_it_is(monkeypatch):
+    hr.forget()
+    monkeypatch.setattr(hr, "_cores", lambda: 8)
+    for i in (2, 1, 0):
+        hr.record(6.0, 74.9, 12000.0, 0.0, 2.0, 1000.0 - 2.0 * i, 16000.0)
+    assert "processors" in hr.allow(100, now=1000.0, loop=_reading(10.0, live=50))[1]
+    hr.forget()
+    for i in (2, 1, 0):
+        hr.record(6.0, 20.0, 1650.0, 0.0, 2.0, 1000.0 - 2.0 * i, 16000.0)
+    assert "memory" in hr.allow(100, now=1000.0, loop=_reading(10.0, live=50))[1]
+    hr.forget()
+
+
+def test_the_slot_gate_passes_the_reading_only_when_there_is_one(web, monkeypatch):
+    seen = []
+
+    def fake_allow(live, priority=0, now=None, loop="NOT PASSED"):
+        seen.append(loop)
+        return True, ""
+    monkeypatch.setattr(hr, "allow", fake_allow)
+    monkeypatch.setattr(api.settings, "live_auto_base", 1)
+    api._live_slots.add("x:held")                                   # at the base: the gate is asked
+    monkeypatch.setattr(api, "_loop_reader", None)
+    assert api.acquire_live_slot("u1:one") is True
+    monkeypatch.setattr(api, "_loop_reader", lambda key: {"name": "worker 0", "pct": 12.0, "key": key})
+    assert api.acquire_live_slot("u1:two") is True
+    assert seen == ["NOT PASSED", {"name": "worker 0", "pct": 12.0, "key": "u1:two"}]
+
+
+def test_the_reading_is_the_owning_workers_and_counts_its_channels(web, ing):
+    mine, theirs = _names("x", 0, 3), _names("y", 1, 2)
+    api._live_slots.update(f"u1:{c}" for c in mine + theirs)
+    w0, w1 = ing.pool.workers
+    w0.ready, w0.beat_at, w0.loop_avg, w0.lag_avg = True, time.monotonic() - 1.5, 41.0, 0.01
+    got = ing.loop_for(f"u9:{mine[0]}")
+    assert got["name"] == "worker 0" and got["pct"] == 41.0 and got["live"] == 3
+    assert 1.0 < got["age_s"] < 5.0 and got["lag_s"] == 0.01
+    # The other worker is down: its reading is too old for the gate to accept.
+    assert ing.loop_for(f"u9:{theirs[0]}")["age_s"] > hr.STALE_S
+    assert ing.loop_for(f"u9:{theirs[0]}")["live"] == 2
+
+
+def test_the_admin_page_is_given_a_line_per_worker(web, monkeypatch):
+    import pathlib
+    monkeypatch.setattr(api, "_ingest_status", lambda: [
+        {"index": 0, "up": True, "loop_avg": 33.4, "streams": 21, "restarts": 0, "rss_mb": 180.0, "pid": 5},
+        {"index": 1, "up": False, "restarts": 2}])
+    snap = api._headroom_snapshot()
+    assert snap["workers"] == [
+        {"index": 0, "up": True, "loop_pct": 33.4, "streams": 21, "restarts": 0, "rss_mb": 180.0},
+        {"index": 1, "up": False, "loop_pct": 0.0, "streams": 0, "restarts": 2, "rss_mb": 0}]
+    monkeypatch.setattr(api, "_ingest_status", None)
+    assert "workers" not in api._headroom_snapshot()                # one process: as it was
+    src = pathlib.Path("src/dashboard/api.py").read_text()
+    assert "if((hr.workers || []).length){" in src and "w.up ? Math.round(w.loop_pct) + '%' : 'down'" in src
+    assert "dashboard_api.set_ingest_readers(ingest.loop_for, ingest.status)" in pathlib.Path("src/main.py").read_text()
+
+
+def test_a_real_worker_reports_and_its_average_reaches_the_gate(web):
+    ch = _names("beat", 0, 1, count=1)[0]
+    web.add(ch)
+
+    async def body(ing):
+        assert await _until(lambda: ing.pool.workers[0].beat_at > 0, timeout=12)
+        return ing.loop_for(f"u1:{ch}"), ing.status()[0]
+    reading, status = _run(web, body, count=1)
+    assert reading["age_s"] < hr.STALE_S and 0.0 <= reading["pct"] < 60.0
+    assert status["loop_avg"] == round(reading["pct"], 1) and status["up"] is True

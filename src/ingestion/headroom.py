@@ -289,15 +289,26 @@ def _pending_new(now: float) -> int:
     return sum(1 for _, new in _admitted if new)
 
 
-def allow(live: int, priority=0, now: float | None = None) -> tuple[bool, str]:
+def allow(live: int, priority=0, now: float | None = None,
+          loop: dict | None = None) -> tuple[bool, str]:
     """May one more channel go live? (yes/no, and why not, in plain words.)
 
     `live` is how many hold a slot now; `priority` is the account's place in
     the line (2 Studio, 1 Pro, 0 the rest). Only asked above the floor.
+
+    `loop` is for THE SPLIT (docs/HANDOFF.md). With stream workers in
+    processes of their own, a channel's cost lands on the loop of the worker
+    it hashes to, not on this process's. The caller then passes that
+    worker's reading: {"pct": averaged % of its core, "lag_s", "live": how
+    many of ITS channels hold a slot, "age_s": how old the reading is,
+    "name"}. The box's processors and memory are judged as always. Without
+    it (one process) nothing here is different.
     """
     now = time.monotonic() if now is None else now
     if not _fresh(now):
         return _no("the server's load has not been measured in the last few seconds", now)
+    if loop is not None and float(loop.get("age_s", STALE_S + 1)) > STALE_S:
+        return _no(f"{loop.get('name', 'that worker')} has not reported its load in the last few seconds", now)
     pending = _pending(now)
     if _pending_new(now) >= STEP:
         return _no("channels that just went live are still being measured", now)
@@ -305,6 +316,21 @@ def allow(live: int, priority=0, now: float | None = None) -> tuple[bool, str]:
     more = pending + 1
     level = _level(priority)
     loop_line, cpu_line = _LINES[level]
+    if loop is not None:
+        # That worker's loop, shared among ITS settled channels. Channels
+        # still unmeasured are all counted against it, wherever they went:
+        # careful rather than exact, and it only slows the climb.
+        pct = max(0.0, float(loop.get("pct") or 0.0))
+        per_theirs = max(PER_LOOP_FLOOR, pct / max(1, int(loop.get("live") or 0) - pending))
+        if pct + more * per_theirs > loop_line:
+            return _no(f"{loop.get('name', 'that worker')} is at {pct:.0f}% of the one core it can use", now)
+        if _state["cpu"] + more * per_cpu > cpu_line:
+            return _no(f"the server's processors are {_state['cpu']:.0f}% busy", now)
+        if _state["mem_mb"] - more * PER_MEM_MB < _reserve_mb():
+            return _no(f"only {_state['mem_mb'] / 1024:.1f} GB of memory is free", now)
+        if float(loop.get("lag_s") or 0.0) > LAG_LINE_S and level < 2:
+            return _no(f"{loop.get('name', 'that worker')} is being held up", now)
+        return True, ""
     if _state["loop"] + more * per_loop > loop_line:
         return _no(f"the app's main thread is at {_state['loop']:.0f}% of the one core it can use", now)
     if _state["cpu"] + more * per_cpu > cpu_line:

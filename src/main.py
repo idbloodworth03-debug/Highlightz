@@ -796,6 +796,7 @@ async def main() -> None:
         ingest = Ingest(settings.ingest_workers)
         dashboard_api.set_stream_publisher(ingest.publish_new, ingest.publish_remove)
         dashboard_api.set_profile_gateway(ingest)
+        dashboard_api.set_ingest_readers(ingest.loop_for, ingest.status)
         log.warning("ingest_split_on", workers=settings.ingest_workers,
                     note="unfinished: see THE SPLIT in docs/HANDOFF.md before using this in production")
     else:

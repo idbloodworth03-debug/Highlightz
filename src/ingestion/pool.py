@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import math
 import os
 import signal
 import socket
@@ -47,6 +48,7 @@ HELLO_TIMEOUT_S = 20.0
 BACKOFF_S = (0.5, 1.0, 2.0, 5.0, 10.0)
 STEADY_S = 60.0                 # up this long = the next failure starts the backoff over
 STOP_GRACE_S = 5.0
+LOOP_SMOOTH_S = 15.0            # the same averaging as src/ingestion/headroom.py
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -62,6 +64,10 @@ class Worker:
         self.beat: dict = {}
         self.beat_at = 0.0
         self.ready = False
+        # The worker's loop, averaged over about 15 seconds: what the live
+        # limit reads for a channel that hashes here (headroom.allow).
+        self.loop_avg = 0.0
+        self.lag_avg = 0.0
 
 
 class Pool:
@@ -95,7 +101,8 @@ class Pool:
         now = time.monotonic()
         return [{"index": w.index, "pid": w.proc.pid if w.proc else None, "up": w.ready,
                  "up_s": round(now - w.started_at) if w.ready else 0, "restarts": w.restarts,
-                 "beat_age_s": round(now - w.beat_at, 1) if w.beat_at else None, **w.beat}
+                 "beat_age_s": round(now - w.beat_at, 1) if w.beat_at else None, **w.beat,
+                 "loop_avg": round(w.loop_avg, 1)}
                 for w in self.workers]
 
     # ── running them ─────────────────────────────────────────────────────────
@@ -170,6 +177,7 @@ class Pool:
         ours, theirs = socket.socketpair()
         hello: asyncio.Future = asyncio.get_running_loop().create_future()
         w.beat, w.beat_at = {}, 0.0
+        w.loop_avg = w.lag_avg = 0.0
         try:
             w.proc = await asyncio.create_subprocess_exec(
                 self._python, "-m", self._module, "--fd", str(theirs.fileno()),
@@ -187,7 +195,19 @@ class Pool:
                 hello.set_result(info or {})
 
         def beat(_index, data=None):
-            w.beat, w.beat_at = dict(data or {}), time.monotonic()
+            data = dict(data or {})
+            now = time.monotonic()
+            try:
+                loop, lag = float(data.get("loop_pct") or 0.0), float(data.get("lag_ms") or 0.0) / 1000.0
+                if w.beat_at:
+                    a = 1.0 - math.exp(-max(0.0, now - w.beat_at) / LOOP_SMOOTH_S)
+                    w.loop_avg += a * (loop - w.loop_avg)
+                    w.lag_avg += a * (lag - w.lag_avg)
+                else:
+                    w.loop_avg, w.lag_avg = loop, lag
+            except (TypeError, ValueError):
+                pass
+            w.beat, w.beat_at = data, now
 
         handlers = {name: functools.partial(fn, w.index) for name, fn in self._handlers.items()}
         handlers.update(hello=functools.partial(said_hello, w.index),

@@ -5318,7 +5318,11 @@ def acquire_live_slot(stream_key: str) -> bool:
     # count. A channel that was running a moment ago gets its place back
     # (floor(key)); a new one is always measured.
     if headroom.enabled() and held >= headroom.floor(stream_key):
-        ok, why = headroom.allow(held, priority=priority)
+        # THE SPLIT: the loop that will carry this channel is its worker's.
+        # None in one process, and then this is the call it always was.
+        reading = _loop_reader(stream_key) if _loop_reader is not None else None
+        ok, why = (headroom.allow(held, priority=priority, loop=reading) if reading is not None
+                   else headroom.allow(held, priority=priority))
         if not ok:
             log.warning("live_slots_full", held=held, cap=cap, room=held,
                         waiting=stream_key, measured=why)
@@ -5330,6 +5334,18 @@ def acquire_live_slot(stream_key: str) -> bool:
     return True
 
 
+# THE SPLIT, stage 4. Set by the Ingest when INGEST_WORKERS is on: the loop
+# reading of the worker a stream key hashes to (for the gate above), and one
+# line per worker process (for the admin page). None in one process.
+_loop_reader = None
+_ingest_status = None
+
+
+def set_ingest_readers(loop_reader, status) -> None:
+    global _loop_reader, _ingest_status
+    _loop_reader, _ingest_status = loop_reader, status
+
+
 def _headroom_snapshot() -> dict:
     """The server's own readings for the admin page, with "room for N more"
     held to the hard maximum so the page never promises past it."""
@@ -5337,6 +5353,16 @@ def _headroom_snapshot() -> dict:
     held = len(_live_slots)
     snap = headroom.snapshot(held)
     snap["room"] = max(0, min(snap["room"], max(1, settings.max_concurrent_streams) - held))
+    if _ingest_status is not None:
+        # One entry per worker process: the admin page shows each loop, since
+        # with the split "the main thread" is no longer the one that fills.
+        try:
+            snap["workers"] = [{"index": w.get("index"), "up": bool(w.get("up")),
+                                "loop_pct": w.get("loop_avg", 0.0), "streams": w.get("streams", 0),
+                                "restarts": w.get("restarts", 0), "rss_mb": w.get("rss_mb", 0)}
+                               for w in _ingest_status()]
+        except Exception:
+            snap["workers"] = []
     return snap
 
 
@@ -18622,6 +18648,13 @@ async function loadOverview(){
       : 'no room for more live' + (hr.full_because ? ': ' + hr.full_because : ''));
     st.push('main thread ' + Math.round(hr.loop_pct) + '% · processors ' + Math.round(hr.cpu_pct)
       + '% · ' + hr.mem_free_gb + ' GB free');
+    // With stream workers in processes of their own (INGEST_WORKERS), each
+    // one's loop is what fills: show them, and say if one is down.
+    if((hr.workers || []).length){
+      st.push('workers ' + hr.workers.map(function(w){
+        return w.up ? Math.round(w.loop_pct) + '%' : 'down';
+      }).join(' / '));
+    }
   } else if(hr.on){
     st.push('up to ' + n0(hr.base) + ' live until the server has measured itself (most ' + n0(s.live_max) + ')');
   } else {
