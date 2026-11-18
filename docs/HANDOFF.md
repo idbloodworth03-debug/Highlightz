@@ -9883,6 +9883,67 @@ returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
 
+## What each account costs, free against paying: `scripts/unit_costs.py` (2026-11-18)
+
+**Owner:** "figure out my per person cost currently and do it free vs paying
+users so i can see my margins". The numbers live on production, so this is a
+read-only script the owner runs there:
+`cd /opt/highlightz && venv/bin/python scripts/unit_costs.py`
+(`--server=` the monthly server bill, `--other=` anything else monthly,
+`--stripe-pct=`, `--stripe-fixed=`, `--days=`). **The owner had not pasted its
+output when this was written: no real margin is known yet.**
+
+**The model, and why.** The costs are one server and the card processor. The
+server exists to watch live channels (memory, processors and the loop all
+grow with channels live at once; an account with nothing live costs next to
+nothing), so **the bill is shared out by channels live right now**: an
+account's cost is its share of them times the bill, plus, if it pays, the
+processor's cut of its charge.
+- **Who is live** comes from `headroom.json`, the note the meter writes every
+  30 seconds of the keys holding a live slot (it exists whenever
+  `LIVE_AUTO_BASE` is set, as on production). NOT from `streams.json`, whose
+  statuses are only as fresh as the last save. Nothing live: it falls back to
+  channels listed and says so. A note older than 10 minutes is said loudly.
+- **Who is paying** is `/admin/overview`'s own partition, copied line for
+  line (`segment_of`): staff, trialing, grace, free, comped (active with no
+  Stripe customer, or `plan_source == "granted"`), paying. Priced with
+  `plans.billed_monthly`, so a $15-era subscriber counts at $15. The revenue
+  it prints is the admin page's MRR.
+- Beside the split it shows clips caught in the last 30 days and video held
+  per group, as a second opinion on whether this moment is typical.
+
+**What it prints:** the assumptions; accounts and use per group; FREE against
+PAYING (share of the bill, card cut, cost per account and per account live
+now, paid per account, margin, and what each paying account carries of the
+free ones); the paying accounts by plan; the whole site's month; one live
+channel's cost at today's load; what each plan would cost if an account used
+every channel it allows all month; and the eight accounts costing the most,
+by NAME only (never an address, an id or a Stripe id).
+
+**ASSUMED, and printed as assumed:**
+- The server bill, $112 a month by default: the list price found for
+  DigitalOcean's 8 vCPU / 16 GB / 320 GB Premium droplet (an official 2023
+  table gives the Intel plan at $112; a third-party listing gives the AMD one
+  the same). Not confirmed against the owner's invoice, and it does not
+  include backups (DigitalOcean charges extra for those) or anything else:
+  `--other=` is 0 until the owner says.
+- The processor: 2.9% + 30 cents (Stripe's domestic card rate) plus 0.7%
+  (Stripe Billing), so 3.6% + $0.30. International cards cost 1.5% more.
+
+**What it is not.** One moment's split, not a month's. The server is sized
+for the busy hour, so a busy hour is the right one to read, but a second run
+at another hour is the check. An exact figure would need live time per
+account kept over the month, which nothing records today (the ledger has
+clips, not hours). If the margins become something the owner steers by, the
+meter's 30-second note is where that tally would be kept, per GROUP rather
+than per account so that no new personal record is created.
+
+Tests: `tests/test_unit_costs.py` (17): the partition matches the admin
+page's; a legacy subscriber at its real price; the bill adds back up to the
+bill; the fallbacks; every margin is the subtraction it says; an assumed bill
+is called assumed; nothing private in the output; it never writes. Run for
+real through its own entry point against a local store.
+
 ## Clips Twitch will not make: our own recording as the backup (2026-11-18)
 
 **Owner, 2026-11-18:** "can we have some sort of clipping being done for
