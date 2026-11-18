@@ -225,3 +225,161 @@ def test_a_stream_url_can_never_reach_the_output():
     printing = src[src.index("def main("):src.index('if __name__ == "__main__":')]
     assert "print(" in printing
     assert "argv" not in printing and "cmdline" not in printing
+
+
+# ── THE SPLIT: several loops, each found and measured (2026-11-18) ───────────
+# With INGEST_WORKERS the app is a web process and N ingest workers, each with
+# a loop on a core of its own. Before this the script filed the workers under
+# "other python" and measured one loop, the idle one.
+
+WORKER = [PY, "-m", "src.ingestion.worker_main", "--fd", "7", "--index", "2", "--count", "4", ""]
+
+
+def test_an_ingest_worker_is_the_app_not_some_other_python():
+    assert C.classify("python", WORKER) == "worker"
+    assert C.worker_index(WORKER) == 2
+    assert C.worker_index([PY, "-m", "src.ingestion.worker_main", ""]) == -1
+    assert C.worker_index([PY, "-m", "src.ingestion.worker_main", "--index"]) == -1
+
+
+def _snap(shift=0):
+    """A web process (pid 1), workers 0 and 1 (pids 10, 11). Worker 0 runs
+    three channels, worker 1 one (started through a shell, pid 50), the web
+    process one. Every channel also has a recorder."""
+    t = C.TICKS
+    rows = {1: ("app", 400 * MB, 1000 + 2 * t * shift, 900 + 1 * t * shift, 0, -1),
+            10: ("worker", 90 * MB, 500 + 5 * t * shift, 400 + 4 * t * shift, 1, 0),
+            11: ("worker", 70 * MB, 300 + 2 * t * shift, 200 + 1 * t * shift, 1, 1),
+            50: ("other", MB, 0, 0, 11, -1)}
+    pid = 100
+    for parent, n in ((10, 3), (50, 1), (1, 1)):
+        for _ in range(n):
+            rows[pid] = ("meter_streamlink", 30 * MB, 10, 0, parent, -1)
+            rows[pid + 1] = ("recorder_streamlink", 30 * MB, 10, 0, parent, -1)
+            rows[pid + 2] = ("meter_ffmpeg", 12 * MB, 10, 0, parent, -1)
+            pid += 3
+    return rows
+
+
+def test_each_loop_is_measured_with_the_channels_it_is_running():
+    found = C.loops(_snap(0), _snap(1), 10.0)
+    assert [(v["kind"], v["index"]) for v in found] == [("app", -1), ("worker", 0), ("worker", 1)]
+    web, w0, w1 = found
+    assert (web["loop"], w0["loop"], w1["loop"]) == pytest.approx((10.0, 40.0, 10.0))
+    assert (web["cpu"], w0["cpu"]) == pytest.approx((20.0, 50.0))      # every thread, not the loop
+    # A channel is its meter's streamlink: never the meter and the recorder
+    # added together, and the one started through a shell is still worker 1's.
+    assert (web["live"], w0["live"], w1["live"]) == (1, 3, 1)
+    assert w0["rss"] == 90 * MB
+
+
+def test_a_box_without_the_meter_counts_recorders_and_a_stray_is_nobodys():
+    a, b = _snap(0), _snap(1)
+    for snap in (a, b):
+        for pid in [p for p, r in snap.items() if r[0] == "meter_streamlink"]:
+            del snap[pid]
+        snap[900] = ("recorder_streamlink", MB, 1, 0, 4242, -1)        # parent not in the list
+    assert [v["live"] for v in C.loops(a, b, 10.0)] == [1, 3, 1]
+
+
+def test_old_four_field_rows_still_total():
+    """`totals` reads the first four fields, whichever length the row is."""
+    tot, loop = C.totals(_snap(0), _snap(1), 10.0)
+    assert tot["app"][2] == pytest.approx(20.0) and loop == pytest.approx(10.0)
+    assert tot["worker"] == (2, 160 * MB, pytest.approx(70.0))
+
+
+def _loops(web, *workers):
+    return ([{"kind": "app", "index": -1, "live": web[0], "loop": web[1]}]
+            + [{"kind": "worker", "index": i, "live": n, "loop": pct}
+               for i, (n, pct) in enumerate(workers)])
+
+
+def test_one_process_is_the_figure_it_always_was():
+    assert C.loop_room(_loops((10, 15.0)), 10) == (46, "the app's one loop")
+    assert C.loop_room(_loops((10, 1.0)), 10) == (None, "")
+
+
+def test_with_every_channel_in_a_worker_the_busiest_worker_is_the_limit():
+    """Four workers, channels dealt about evenly: the site is full when the
+    busiest is. 20 channels at 40% carries 35; four of those is 140."""
+    found = _loops((0, 3.0), (20, 40.0), (18, 30.0), (22, 33.0), (19, 31.0))
+    assert C.loop_room(found, 79) == (140, "the busiest worker's loop")
+    # One more worker is one more loop: the same channels over five.
+    assert C.loop_room(found + [{"kind": "worker", "index": 4, "live": 0, "loop": 0.5}], 79)[0] == 175
+
+
+def test_the_web_loop_still_has_a_limit_of_its_own_when_it_relays_for_everybody():
+    """It does a little for every live channel. If that is what fills first,
+    more workers do not help, and the script has to say which it is."""
+    found = _loops((0, 35.0), (20, 20.0), (20, 20.0))
+    assert C.loop_room(found, 40) == (80, "the web process's loop")     # 40 x 70 / 35, under 2 x 70
+
+
+def test_a_trial_on_a_few_channels_is_still_limited_by_the_web_loop():
+    """INGEST_ONLY: new channels land in the web process, so its loop is the
+    one that fills; the trial's own channels are added as they are."""
+    assert C.loop_room(_loops((50, 40.0), (2, 3.0)), 52) == (87 + 2, "the web process's loop")
+    assert C.loop_room(_loops((50, 1.0), (2, 3.0)), 52) == (None, "")
+
+
+def test_idle_workers_are_not_scaled_into_a_limit():
+    assert C.loop_room(_loops((0, 0.5), (1, 1.0), (0, 0.2)), 1) == (None, "")
+    assert C.loop_room([{"kind": "worker", "index": 0, "live": 5, "loop": 50.0}], 5) == (None, "")
+
+
+def test_the_answer_names_the_loop_that_fills_first():
+    found = _loops((0, 3.0), (5, 60.0), (5, 20.0))
+    r = _room(live=10, cores=32, mem_available=60 * 1024 * MB, mem_total=64 * 1024 * MB,
+              loop_cpu=3.0, found=found)
+    assert r["by_loop"] == 11                       # 2 workers x (5 x 70 / 60), rounded down
+    assert r["binding"] == "the busiest worker's loop" and r["safe"] == r["by_loop"]
+    # Without a worker in the list nothing about the old answer moves.
+    plain = _room(loop_cpu=15.0, found=_loops((10, 15.0)))
+    assert plain["by_loop"] == 46 and plain["loop_name"] == "the app's one loop"
+
+
+def test_a_real_worker_and_its_channel_are_found_in_proc(tmp_path):
+    """/proc for real: a process started as an ingest worker, with a child
+    that looks like a meter's streamlink. Its index and its channel are read
+    from what the kernel says, nothing else."""
+    import os
+    import subprocess
+    import sys
+    import time as _time
+    fake_sl = tmp_path / "streamlink"
+    os.symlink(sys.executable, fake_sl)
+    child = ("import subprocess, sys, time\n"
+             f"p = subprocess.Popen([{str(fake_sl)!r}, '-c', 'import time; time.sleep(30)',\n"
+             "                      '--stdout', '--loglevel', 'warning', 'URL', 'audio_only,worst'])\n"
+             "print('up', flush=True)\n"
+             "time.sleep(30)\n")
+    worker = subprocess.Popen([sys.executable, "-c", child, "src.ingestion.worker_main",
+                               "--index", "3", "--count", "4"], stdout=subprocess.PIPE)
+    try:
+        assert worker.stdout.readline().strip() == b"up"
+        end = _time.monotonic() + 10
+        while _time.monotonic() < end:
+            a = C.procs()
+            mine = [r for p, r in a.items() if r[0] == "meter_streamlink" and r[4] == worker.pid]
+            if mine:
+                break
+            _time.sleep(0.05)
+        assert a[worker.pid][0] == "worker" and a[worker.pid][5] == 3
+        assert a[worker.pid][4] == os.getpid()                          # its parent is this test
+        found = [v for v in C.loops(a, C.procs(), 1.0) if v["index"] == 3]
+        assert len(found) == 1 and found[0]["live"] == 1 and found[0]["rss"] > 0
+    finally:
+        subprocess.run(["pkill", "-P", str(worker.pid)], check=False)
+        worker.kill()
+        worker.wait()
+
+
+def test_the_output_has_a_line_per_loop_and_still_no_command_line():
+    src = _PATH.read_text()
+    printing = src[src.index("def main("):src.index('if __name__ == "__main__":')]
+    assert '("worker", "the app: workers")' in printing
+    assert "THE APP'S LOOPS" in printing and 'f"worker {v[\'index\']}"' in printing
+    assert "the fullest loop" in printing
+    assert "MORE WORKERS RAISE THIS" in printing and "more workers do not raise this" in printing
+    assert "argv" not in printing and "cmdline" not in printing

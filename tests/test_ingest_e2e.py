@@ -58,6 +58,16 @@ class Scripted:
                                      user_id=c.user_id)
                 await self._stop.wait()
                 return
+            if c.channel.startswith("burn"):
+                # A channel far too heavy for one loop: this worker's loop is
+                # busy nearly all the time, from its first heartbeat on.
+                import time
+                while not self._stop.is_set():
+                    t0 = time.perf_counter()
+                    while time.perf_counter() - t0 < 0.04:
+                        pass
+                    await asyncio.sleep(0.002)
+                return
             await self.on_score(c.channel, 42.0, {"CHAT_VELOCITY": 0.5})
             who = await host.watchers_of(c.channel)
             used, room = await host.suggestion_room(c.user_id)
@@ -567,3 +577,198 @@ def test_main_routes_by_channel_and_the_setting_is_empty_by_default():
     assert route.count("if ingest.handles(channel):") == 2
     assert "await _publish_new_stream(channel, platform, preset, user_id)" in route
     assert "await _publish_remove_stream(channel, user_id)" in route
+
+
+# ── measuring the workers: the report and the alarm (2026-11-18) ─────────────
+# The last things missing before every channel can run in a worker: the
+# owner's two tools have to see the workers' loops, and somebody has to be
+# told when one stays overloaded.
+
+def test_every_real_worker_times_its_own_loop_for_the_report(web):
+    a, b = _names("prof", 0, 2), _names("prof", 1, 1)
+    for ch in a + b:
+        web.add(ch)
+
+    async def body(ing):
+        assert await _until(lambda: len(api._live_slots) == 3)
+        t0 = time.monotonic()
+        parts = await ing.loop_profiles(1.0)
+        return parts, time.monotonic() - t0
+    parts, took = _run(web, body)
+    # One second each: together is a little over one, in turn is over two.
+    assert took < 1.7, "the workers were timed one after another, not together"
+    assert len(parts) == 2
+    for i, live in ((0, 2), (1, 1)):
+        assert f"INGEST WORKER {i}: WHERE ITS LOOP SPENDS ITS TIME" in parts[i]
+        assert "every step timed" in parts[i] and f"channels live          : {live}" in parts[i]
+        assert "nothing was timed" not in parts[i]
+        # Names of tasks and callbacks only: no channel, no account.
+        assert not any(ch in parts[i] for ch in a + b) and "u1" not in parts[i]
+
+
+def test_a_worker_that_is_down_or_silent_costs_only_its_own_table(web, ing, monkeypatch):
+    class Link:
+        closed = False
+
+        def __init__(self, answer):
+            self.answer = answer
+
+        async def call(self, method, seconds, timeout=None):
+            assert method == "loop_profile" and timeout == seconds + 8.0
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+    good = {"seconds": 5.0, "cpu": 1.0, "rows": {"task: worker": [1.0, 50, 0.01, 0.9, 0.01]}, "gc": []}
+    w0, w1 = ing.pool.workers
+    w0.ready, w0.link = True, Link(good)
+    w1.ready, w1.link = False, None
+
+    parts = asyncio.run(ing.loop_profiles(5.0))
+    assert "task: worker" in parts[0] and "INGEST WORKER 0" in parts[0]
+    assert "INGEST WORKER 1" in parts[1] and "not running right now" in parts[1]
+
+    w1.ready, w1.link = True, Link(TimeoutError("no answer"))
+    parts = asyncio.run(ing.loop_profiles(5.0))
+    assert "task: worker" in parts[0]
+    assert "did not answer (TimeoutError)" in parts[1]
+
+
+def test_the_alarm_is_given_a_reading_per_worker(web, ing):
+    a = _names("alarm", 1, 2)
+    for ch in a:
+        web.add(ch)
+        api._live_slots.add(f"u1:{ch}")
+    w1 = ing.pool.workers[1]
+    w1.ready, w1.beat_at, w1.loop_avg = True, time.monotonic(), 91.5
+    got = ing.loop_readings()
+    assert [r["name"] for r in got] == ["worker 0", "worker 1"]
+    assert got[1]["pct"] == 91.5 and got[1]["live"] == 2 and got[1]["age_s"] < 1.0
+    assert got[0]["age_s"] > hr.STALE_S and got[0]["live"] == 0        # never reported: too old
+    assert got[1] == ing.loop_for(f"u1:{a[0]}") | {"age_s": got[1]["age_s"]}
+
+
+def _alarm(monkeypatch):
+    said = []
+    monkeypatch.setattr(hr.log, "error", lambda ev, **kw: said.append((ev, kw)))
+    hr.forget()
+    return said
+
+
+def _w(name, pct, age=1.0, live=30):
+    return {"name": name, "pct": pct, "age_s": age, "live": live}
+
+
+def test_one_worker_staying_overloaded_emails_the_owner_once_and_names_it(monkeypatch):
+    said = _alarm(monkeypatch)
+    t = 5000.0
+    busy = [_w("worker 0", 40.0), _w("worker 1", 93.0, live=31)]
+    hr.watch_worker_loops(busy, t)
+    hr.watch_worker_loops(busy, t + hr.OVERLOAD_AFTER_S - 1)
+    assert said == []                                       # a spike is not an overload
+    hr.watch_worker_loops(busy, t + hr.OVERLOAD_AFTER_S + 1)
+    hr.watch_worker_loops(busy, t + hr.OVERLOAD_AFTER_S + 60)
+    assert [ev for ev, _ in said] == ["ingest_loop_overloaded"]
+    kw = said[0][1]
+    assert kw["worker"] == "worker 1" and kw["live"] == 31 and kw["loop_pct"] == 93.0
+    assert "INGEST_WORKERS" in kw["fix"] and "loop_profile.py" in kw["fix"]
+    # Still over half an hour later: said again, once.
+    hr.watch_worker_loops(busy, t + hr.OVERLOAD_AFTER_S + hr.OVERLOAD_EVERY_S + 2)
+    assert len(said) == 2
+    hr.forget()
+
+
+def test_each_worker_has_its_own_clock_and_recovering_starts_it_again(monkeypatch):
+    said = _alarm(monkeypatch)
+    t = 5000.0
+    hr.watch_worker_loops([_w("worker 0", 90.0), _w("worker 1", 20.0)], t)
+    # Worker 1 goes over a minute later; worker 0 comes back down just before
+    # its two minutes are up.
+    hr.watch_worker_loops([_w("worker 0", 90.0), _w("worker 1", 95.0)], t + 60)
+    hr.watch_worker_loops([_w("worker 0", 50.0), _w("worker 1", 95.0)], t + 110)
+    hr.watch_worker_loops([_w("worker 0", 90.0), _w("worker 1", 95.0)], t + 125)
+    assert said == []                                       # 0 started over; 1 is at 65 s
+    hr.watch_worker_loops([_w("worker 0", 90.0), _w("worker 1", 95.0)], t + 60 + hr.OVERLOAD_AFTER_S)
+    assert [kw["worker"] for _ev, kw in said] == ["worker 1"]
+    hr.forget()
+
+
+def test_a_worker_that_is_down_is_not_called_overloaded(monkeypatch):
+    """Its last average may read 95%. That it is gone has been said already
+    (`ingest_worker_lost`); this alarm is about a loop that is running."""
+    said = _alarm(monkeypatch)
+    t = 5000.0
+    hr.watch_worker_loops([_w("worker 0", 95.0)], t)
+    hr.watch_worker_loops([_w("worker 0", 95.0, age=1e9)], t + 100)
+    hr.watch_worker_loops([_w("worker 0", 95.0)], t + hr.OVERLOAD_AFTER_S + 5)
+    assert said == [] and hr._over_workers["worker 0"]["since"] == t + hr.OVERLOAD_AFTER_S + 5
+    # And a worker that is no longer in the list at all is forgotten.
+    hr.watch_worker_loops([_w("worker 1", 10.0)], t + 500)
+    assert list(hr._over_workers) == ["worker 1"]
+    hr.watch_worker_loops([{"pct": 99.0}, {"name": "worker 1", "pct": "x"}, None, "junk"], t + 501)
+    assert said == []
+    hr.forget()
+
+
+def test_the_web_loops_own_alarm_is_the_rule_it_always_was(monkeypatch):
+    said = _alarm(monkeypatch)
+    for i in (2, 1, 0):
+        hr.record(92.0, 20.0, 12000.0, 0.0, 2.0, 1000.0 - 2.0 * i, 16000.0)
+    hr._watch_overload(1000.0)
+    hr._watch_overload(1000.0 + hr.OVERLOAD_AFTER_S + 1)
+    hr.watch_worker_loops([_w("worker 0", 10.0)], 1000.0 + hr.OVERLOAD_AFTER_S + 1)
+    assert [ev for ev, _ in said] == ["app_loop_overloaded"]
+    hr.forget()
+
+
+def test_the_meter_watches_the_workers_and_survives_them_being_unreadable(monkeypatch, tmp_path):
+    monkeypatch.setattr(hr.settings, "local_storage_path", str(tmp_path))
+    said, failed, given = _alarm(monkeypatch), [], []
+    monkeypatch.setattr(hr.log, "exception", lambda ev, **kw: failed.append(ev))
+    monkeypatch.setattr(hr, "watch_worker_loops", lambda readings, now=None: given.append(readings))
+    state = {"n": 0}
+
+    def loops():
+        state["n"] += 1
+        if state["n"] > 2:
+            raise RuntimeError("the pool is being torn down")
+        return [_w("worker 0", 12.0)]
+
+    async def go():
+        t = asyncio.create_task(hr.run(every=0.02, loops=loops))
+        await asyncio.sleep(0.25)
+        t.cancel()
+    asyncio.run(go())
+    assert given[:2] == [[_w("worker 0", 12.0)]] * 2
+    assert state["n"] >= 6, "the meter stopped when the workers could not be read"
+    assert hr._state["samples"] >= 6                        # and went on taking its own readings
+    assert failed == ["headroom_worker_loops_unreadable"]   # said once, not every two seconds
+    assert said == []
+    hr.forget()
+
+
+def test_a_real_worker_whose_loop_is_swamped_is_the_one_the_owner_is_told_about(web, monkeypatch, tmp_path):
+    """The whole chain on real processes: a worker's loop busy nearly all the
+    time -> its heartbeat -> the average the web process keeps -> the reading
+    -> the alarm, naming that worker and not the idle one beside it."""
+    monkeypatch.setattr(hr.settings, "local_storage_path", str(tmp_path))
+    monkeypatch.setattr(hr, "OVERLOAD_AFTER_S", 1.0)
+    said = _alarm(monkeypatch)
+    heavy, light = _names("burn", 1, 1)[0], _names("calm", 0, 1)[0]
+    web.add(heavy)
+    web.add(light)
+
+    async def body(ing):
+        meter = asyncio.create_task(hr.run(every=0.1, loops=ing.loop_readings))
+        try:
+            assert await _until(lambda: any(ev == "ingest_loop_overloaded" for ev, _ in said), timeout=25)
+            return ing.loop_readings()
+        finally:
+            meter.cancel()
+    readings = _run(web, body)
+    named = [kw for ev, kw in said if ev == "ingest_loop_overloaded"]
+    assert {kw["worker"] for kw in named} == {"worker 1"}
+    assert named[0]["loop_pct"] >= hr.OVERLOAD_LINE and named[0]["live"] == 1
+    assert readings[0]["pct"] < 50.0 and readings[1]["pct"] >= hr.OVERLOAD_LINE
+    assert not any(ev == "app_loop_overloaded" for ev, _ in said)
+    hr.forget()

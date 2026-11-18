@@ -10075,8 +10075,8 @@ as now. Until that stage the switch must not be turned on in production.
      file), opt-outs (file), the append-only ledgers.
    - Tests: `tests/test_ingest_profiles.py` (11), `tests/test_ingest_kick.py`
      (6), both with real worker processes.
-4. **The gate per worker: done (2026-11-18). The reports per process: NOT
-   done.**
+4. **The gate per worker, the reports per process and the alarm per worker:
+   all done (2026-11-18).**
    - `headroom.allow(..., loop=reading)`: with a reading, the LOOP judged is
      that worker's (its own lines per plan, its own "is it being held up",
      and one more channel costed from that worker's own channels); the box's
@@ -10097,18 +10097,83 @@ as now. Until that stage the switch must not be turned on in production.
      note is still one number for the box and is scaled by the WEB loop,
      which with the split is nearly idle, so after a restart it lets back
      what was running even if one worker had been over its line.
-   - **Still to do before production:**
-     - `scripts/stream_cost.py` reads ONE app process and its main thread.
-       With the split it must list the web process and each worker
-       (`python -m src.ingestion.worker_main` shows as "other python" today).
-     - `scripts/loop_profile.py` only reaches the web process. Add a worker
-       handler that runs `loop_profile.Timing` there and returns the report.
-     - No alert yet when ONE WORKER's loop stays overloaded (the existing
-       `app_loop_overloaded` watches the web loop only).
-     - On a machine with real credentials: one Twitch and one Kick channel
-       live in a worker; approve, reject, undo, pause, resume, remove, force
-       a clip; kill a worker by hand. Nothing here has seen a real stream in
-       a worker process.
+   - **The owner's tools see the workers (owner, 2026-11-18: "continue with
+     the split processes now").**
+     - `scripts/stream_cost.py`: `python -m src.ingestion.worker_main` is
+       kind `worker` (it was "other python", so the loops the split adds were
+       in no figure). `procs()` rows gained the parent pid and the worker's
+       `--index`; `loops(a, b, s)` gives one entry per process that has a
+       loop (web first, then workers) with its loop %, CPU, memory and **the
+       live channels it is running, read from /proc**: a channel's streamlink
+       is a child of the process that watches it, so nothing is asked of the
+       site. Printed as "THE APP'S LOOPS", even with nothing live. The loop
+       limit is `loop_room`: no workers, the figure it always printed; the
+       web process still running channels (a trial), the web loop's room plus
+       the workers' channels as they are; every channel in a worker, **the
+       busiest worker's room times the number of workers** (channels are
+       dealt by name, about evenly, so the site is full when its busiest
+       worker is), or the web loop's own room if that is smaller (it relays
+       every channel's scores; more workers do not raise that one, and the
+       output says which it is).
+     - `scripts/loop_profile.py`: the request file is still picked up by the
+       web process, which now opens a window in every worker at the same
+       moment (`Ingest.loop_profiles` calls the worker's `loop_profile`
+       handler, which runs `loop_profile.measure`) and writes ONE report: its
+       own table ("THE WEB PROCESS: ...", counting only the channels that run
+       there) and then one per worker. `loop_profile.start(..., others=)`
+       holds the report until the others are in, at most `OTHERS_WAIT_S` (12
+       s), and a worker that is down or silent gets a sentence instead of a
+       table. Without the split `others` is None and nothing differs.
+     - **The alarm:** `headroom.watch_worker_loops(readings)`, fed by
+       `Ingest.loop_readings()` from the meter task
+       (`headroom.run(..., loops=)`). Same rule as the web loop's
+       (`_overdue`: over 85% for 120 s, said once, then every 30 minutes
+       while it lasts), one clock per worker; logs **`ingest_loop_overloaded`**
+       (worker, loop_pct, live, for_s, fix) as an error in the web process,
+       so the owner is emailed. A worker that is down reads as too old and is
+       NOT called overloaded (`ingest_worker_lost` has said so). Needed
+       because with the split the web loop, the only one the old alarm
+       reads, is idle whatever the channels are doing.
+     - **`scripts/split_check.py` (new): is the split healthy, in one paste.**
+       Is it on and is every worker there (/proc); the trial's channels and
+       their statuses (streams.json; names only for a trial's channels,
+       counts otherwise); what the workers logged in the last 30 minutes of
+       the journal, as EVENT NAMES AND COUNTS only (worker lines are the ones
+       carrying `"ingest": i`); workers that died; workers that tried to load
+       what they must not; and whether a channel in a worker has been found
+       live, received audio, recorded video and had a clip cut
+       (`stream_found`, `audio_meter_receiving_audio`,
+       `clip_recorder_pipeline_up`, `clip_cut_ok`). One verdict, worst thing
+       first. `--minutes=N`, `--log=<file>` for a machine without systemd.
+     - Tests: `tests/test_stream_cost.py` (+12, one against real processes
+       in /proc), `tests/test_loop_profile.py` (+10),
+       `tests/test_ingest_e2e.py` (+9: real workers timing their own loops
+       together; a real swamped worker being the one named by the alarm),
+       `tests/test_split_check.py` (20). Fourteen mutations each failed a
+       test. Full suite 4924.
+     - **Seen on a real boot here** (`INGEST_WORKERS=2`, six saved channels,
+       no Twitch credentials so nothing live): `loop_profile.py` printed
+       three tables; with one worker killed two seconds into the window its
+       table said "did not answer (LinkClosed)", the other two were whole,
+       and the pool had it back with its channels in under a second;
+       `stream_cost.py` listed "the app: web", "the app: workers 2" and a
+       line per loop; as a trial (`INGEST_WORKERS=1 INGEST_ONLY=<one>`)
+       `split_check.py --log=` said one worker, the channel on worker 0,
+       "CLEAN SO FAR".
+   - **Checked again before the trial, as this section asked** (2026-11-18):
+     `grep -rn "from src.dashboard" src | grep -v "^src/dashboard"` is the
+     same list as before (`src/clips/files.py` behind the trim, the autopilot
+     runner and a maintenance script, none run by a worker). The capture
+     cleanup (`orphans.reap_orphan_capture`) compares objects held in ITS OWN
+     process and cannot touch another process's capture. A recorder prunes
+     only its own folder; the total cap is read from the folder, so it is one
+     cap whoever is recording. `deploy/highlightz.service` restricts nothing
+     a worker needs (it starts streamlink and ffmpeg the same way today), and
+     stopping the unit stops the workers with it (one control group).
+   - **Still not done, and only the trial can do it:** a real Twitch and a
+     real Kick channel live in a worker; approve, reject, undo, pause,
+     resume, remove, force a clip; kill a worker by hand. Nothing here has
+     seen a real stream in a worker process.
 5. **Production, in two steps. The first is ready to be tried.**
    - **A TRIAL ON ONE CHANNEL (`INGEST_ONLY`, built 2026-11-18).** With
      `INGEST_WORKERS=1` and `INGEST_ONLY=<channel>[,<channel>]`, only the
@@ -10126,8 +10191,24 @@ as now. Until that stage the switch must not be turned on in production.
      its threshold, pausing and coming back work, the journal has no
      `ImportError` or `must not be imported` from `"ingest": 0`.
      **To end the trial:** remove both lines from `.env` and restart.
+     **The commands given to the owner (2026-11-18), CHANNEL being a channel
+     somebody has added, ideally one of the owner's own that is live:**
+     start `cd /opt/highlightz && sed -i '/^INGEST_WORKERS=/d;/^INGEST_ONLY=/d' .env && printf '\nINGEST_WORKERS=1\nINGEST_ONLY=CHANNEL\n' >> .env && systemctl restart highlightz`
+     (the leading newline matters: a `.env` whose last line has no line ending would
+     otherwise have the setting glued onto it; `sed -i` as root keeps the file's
+     `640 root:highlightz`, tried here on GNU sed 4.9);
+     check `cd /opt/highlightz && venv/bin/python scripts/split_check.py`;
+     end `cd /opt/highlightz && sed -i '/^INGEST_WORKERS=/d;/^INGEST_ONLY=/d' .env && systemctl restart highlightz`.
+     Several names may be given with commas (one Twitch and one Kick is the
+     best trial). **Nothing has been turned on in production yet.**
    - **Everything** (`INGEST_WORKERS=4`, no `INGEST_ONLY`): only after the
-     trial is clean AND `stream_cost.py` / `loop_profile.py` can see worker
-     processes (stage 4's "still to do"), because the first hour of it has
-     to be measured, not guessed.
+     trial's `split_check.py` reads "CLEAN, AND A CHANNEL HAS DONE
+     EVERYTHING THE TRIAL IS FOR". The tools to measure its first hour now
+     exist (`stream_cost.py`, `loop_profile.py`, `split_check.py`, and the
+     `ingest_loop_overloaded` email). Why 4 on the 8-core box: at about 0.7%
+     of a loop per channel, 120 live is about 21% of each of four loops,
+     and the four cores left carry streamlink, ffmpeg and the clip
+     processor. **Changing the number re-deals every channel** (`crc32 % N`),
+     which is only a restart's worth of reconnecting, but do not change it
+     for no reason.
 

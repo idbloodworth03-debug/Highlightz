@@ -407,3 +407,152 @@ def test_a_report_from_rows_without_the_cpu_clock_still_prints():
 def test_grouped_rows_add_their_cpu():
     got = lp.grouped({"task: z-a": (1.0, 2, 0.5, 0.25, 0.1), "task: z-b": (2.0, 3, 0.9, 0.5, 0.4)})
     assert got["task: z-*  (2 of them)"] == (3.0, 5, 0.9, 0.75, 0.4)
+
+
+# ── THE SPLIT: more than one loop in the report (2026-11-18) ─────────────────
+# With INGEST_WORKERS each ingest worker has a loop of its own. A window is
+# opened in each at the same moment; the report is the web process's table and
+# then one per worker.
+
+def test_a_result_survives_the_trip_between_processes():
+    import json
+    result = {"seconds": 20.0, "cpu": 9.5,
+              "rows": {"task: worker": (4.0, 900, 0.2, 3.5, 0.01), "callback: old": (1.0, 5, 0.3)},
+              "gc": {(2, True): (3, 0.4, 0.2), (0, False): (50, 0.01, 0.001)}}
+    back = lp.from_wire(json.loads(json.dumps(lp.to_wire(result))))
+    assert back == result
+    assert lp.render(back, 4) == lp.render(result, 4)
+
+
+def test_something_malformed_from_another_process_is_left_out_not_raised():
+    back = lp.from_wire({"seconds": "x", "rows": {"ok": [1, 2, 3, 4, 5], "bad": ["a"], "worse": 7},
+                         "gc": [[2, True, 1, 0.1, 0.1], ["x"], None]})
+    assert back["rows"] == {"ok": (1.0, 2, 3.0, 4.0, 5.0)}
+    assert back["gc"] == {(2, True): (1, 0.1, 0.1)} and back["seconds"] > 0
+    assert "nothing was timed" in lp.render(lp.from_wire(None))
+
+
+def test_a_worker_times_its_own_loop_and_leaves_it_as_it_found_it():
+    async def go():
+        async def busy():
+            end = time.monotonic() + 0.25
+            while time.monotonic() < end:
+                t0 = time.perf_counter()
+                while time.perf_counter() - t0 < 0.004:
+                    pass
+                await asyncio.sleep(0.004)
+        t = asyncio.create_task(busy(), name="worker-u1:somebody")
+        first = asyncio.create_task(lp.measure(0.3))
+        await asyncio.sleep(0.05)
+        with pytest.raises(RuntimeError):
+            await lp.measure(0.1)                          # one window at a time, here too
+        out = await first
+        await t
+        return out
+    data = asyncio.run(go())
+    assert isinstance(data["gc"], list) and isinstance(data["rows"]["task: worker"], list)
+    res = lp.from_wire(data)
+    assert 25.0 < 100.0 * res["rows"]["task: worker"][0] / res["seconds"] < 75.0
+    assert not any("somebody" in k for k in res["rows"])
+
+
+def test_the_title_says_whose_loop_it_is():
+    res = {"seconds": 10.0, "cpu": 0.0, "rows": {"task: worker": (1.0, 10, 0.1, 0.9, 0.1)}, "gc": {}}
+    assert lp.TITLE in lp.render(res)
+    text = lp.render(res, 3, title="INGEST WORKER 1: WHERE ITS LOOP SPENDS ITS TIME")
+    assert "INGEST WORKER 1" in text and lp.TITLE not in text
+
+
+def _split_window(store, others, seconds=0.1, wait=0.6):
+    """One window with other loops to wait for. Returns (was the report there
+    just after THIS process's window closed, could another window be opened
+    then, the report in the end)."""
+    async def go():
+        loop = asyncio.get_running_loop()
+        assert lp.start(loop, seconds, lambda: 2, others) is True
+        await asyncio.sleep(seconds + 0.03)
+        early = (store / lp.REPORT).exists()
+        free = lp._running.acquire(blocking=False)
+        if free:
+            lp._running.release()
+        await asyncio.sleep(wait)
+        return early, free
+    early, free = asyncio.run(go())
+    return early, free, (store / lp.REPORT).read_text() if (store / lp.REPORT).exists() else ""
+
+
+def test_the_report_waits_for_the_other_loops_and_has_a_table_each(store):
+    asked = []
+
+    async def others(seconds):
+        asked.append(seconds)
+        await asyncio.sleep(0.25)                           # in after this process's own window
+        return ["WORKER ZERO TABLE\n", "WORKER ONE TABLE\n"]
+
+    early, free, text = _split_window(store, others)
+    assert asked == [0.1]
+    assert early is False, "written before the workers' tables were in"
+    assert free is False, "a second window could open while the first was unwritten"
+    assert text.index(lp.WEB_TITLE) < text.index("WORKER ZERO TABLE") < text.index("WORKER ONE TABLE")
+    assert lp.TITLE not in text and "channels live          : 2" in text
+    assert lp._running.acquire(blocking=False)             # and the lock came back
+    lp._running.release()
+
+
+def test_other_loops_that_cannot_be_read_do_not_cost_this_ones_table(store):
+    async def broken(seconds):
+        raise ConnectionError("link closed")
+    _early, _free, text = _split_window(store, broken)
+    assert lp.WEB_TITLE in text and "COULD NOT BE READ (ConnectionError)" in text
+    assert lp._running.acquire(blocking=False)
+    lp._running.release()
+
+
+def test_other_loops_that_never_answer_are_not_waited_for_for_ever(store, monkeypatch):
+    monkeypatch.setattr(lp, "OTHERS_WAIT_S", 0.1)
+
+    async def silent(seconds):
+        await asyncio.sleep(30)
+    _early, _free, text = _split_window(store, silent)
+    assert lp.WEB_TITLE in text and "COULD NOT BE READ (TimeoutError)" in text
+    assert lp._running.acquire(blocking=False)
+    lp._running.release()
+
+
+def test_a_report_that_cannot_be_written_gives_the_lock_back_with_others_too(store, monkeypatch):
+    def nope(_text):
+        raise OSError("disk full")
+    monkeypatch.setattr(lp, "_write", nope)
+
+    async def others(seconds):
+        return ["X\n"]
+    _split_window(store, others)
+    assert lp._running.acquire(blocking=False)
+    lp._running.release()
+
+
+def test_the_watcher_hands_the_other_loops_on_only_when_there_are_some(store, monkeypatch):
+    calls = []
+
+    def fake(loop, seconds, live=None, *rest):
+        calls.append(rest)
+        return True
+    monkeypatch.setattr(lp, "start", fake)
+
+    async def others(seconds):
+        return []
+
+    async def go(o):
+        t = asyncio.create_task(lp.watch_task(every=0.01, others=o))
+        (store / lp.REQUEST).write_text("12")
+        await asyncio.sleep(0.1)
+        t.cancel()
+    asyncio.run(go(None))
+    asyncio.run(go(others))
+    assert calls == [(), (others,)]
+
+
+def test_main_gives_the_watcher_the_workers_and_counts_only_its_own_channels():
+    main = pathlib.Path("src/main.py").read_text()
+    assert "others=ingest.loop_profiles if ingest is not None else None)," in main
+    assert 'and not (ingest is not None and ingest.handles(s.get("channel") or ""))),' in main

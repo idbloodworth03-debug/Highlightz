@@ -556,7 +556,10 @@ def test_the_overview_carries_them():
 
 def test_main_runs_the_meter():
     src = pathlib.Path("src/main.py").read_text()
-    assert "asyncio.create_task(_headroom.run(lambda: list(dashboard_api._live_slots))," in src
+    assert "asyncio.create_task(_headroom.run(" in src
+    assert "lambda: list(dashboard_api._live_slots)," in src
+    # With the split, the same task watches each worker's loop for the alarm.
+    assert "loops=ingest.loop_readings if ingest is not None else None)," in src
 
 
 # ── the listed ceiling and Twitch's budget ──────────────────────────────────

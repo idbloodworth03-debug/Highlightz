@@ -23,6 +23,13 @@ THREE THINGS CAN RUN OUT, and only two of them grow with a resize:
      move this limit at all, so on a big box it is the one that binds first,
      and it is measured here separately for that reason.
 
+WITH THE SPLIT (INGEST_WORKERS, docs/HANDOFF.md "THE SPLIT") item 3 is no
+longer one loop. The web process keeps one, and each ingest worker
+(`python -m src.ingestion.worker_main`) has its own, on its own core. Each is
+found, measured and listed here, with the live channels it is running (a
+channel's streamlink is a child of the process that watches it, so /proc says
+which is whose without asking the site anything).
+
 REWRITTEN 2026-11-13 for the resize. The first version counted LIVE channels as
 "how many streamlink processes are running". That was right when a live channel
 ran one (the audio meter). Since video capture, each live channel runs TWO (the
@@ -59,6 +66,12 @@ def meminfo() -> dict:
         k, _, v = line.partition(":")
         out[k] = int(v.split()[0]) * 1024        # kB -> bytes
     return out
+
+
+def _ppid(path) -> int:
+    """The parent's process id, from the same kind of file."""
+    stat = pathlib.Path(path).read_text()
+    return int(stat[stat.rindex(")") + 2:].split()[1])
 
 
 def _stat(path) -> tuple[str, int, int]:
@@ -104,13 +117,34 @@ def classify(name: str, argv: list[str]) -> str:
             return "meter_ffmpeg"
         return "other_ffmpeg"                    # a cut, a render, a thumbnail
     if "python" in n or (heads and "python" in heads[0]):
-        return "app" if "src.main" in argv else "other_python"
+        if "src.main" in argv:
+            return "app"
+        # THE SPLIT: a process the app started to run stream workers in. It
+        # was "other python" before this knew about it, which left its loop,
+        # the thing the split exists to add, out of every figure below.
+        if "src.ingestion.worker_main" in argv:
+            return "worker"
+        return "other_python"
     return "other"
 
 
+def worker_index(argv: list[str]) -> int:
+    """Which ingest worker (its --index). -1 if it cannot be read."""
+    try:
+        return int(argv[argv.index("--index") + 1])
+    except (ValueError, IndexError):
+        return -1
+
+
+# The processes that have an event loop of their own: the web process, and
+# with the split each ingest worker.
+LOOPS = ("app", "worker")
+
+
 def procs() -> dict:
-    """{pid: (kind, rss_bytes, cpu_ticks, main_thread_ticks)} for every process
-    this user can read."""
+    """{pid: (kind, rss_bytes, cpu_ticks, main_thread_ticks, parent_pid,
+    worker_index)} for every process this user can read. The last two are for
+    `loops`; `totals` reads the first four."""
     out = {}
     for p in pathlib.Path("/proc").iterdir():
         if not p.name.isdigit():
@@ -123,12 +157,13 @@ def procs() -> dict:
                 argv = []
             kind = classify(name, argv)
             main = 0
-            if kind == "app":
+            if kind in LOOPS:
                 # The thread whose id is the process id is the one the event
                 # loop runs on. Worker threads (a transcription, a file hash)
                 # are in the process total and not in this.
                 main = _stat(p / "task" / p.name / "stat")[2]
-            out[int(p.name)] = (kind, rss, ticks, main)
+            out[int(p.name)] = (kind, rss, ticks, main, _ppid(p / "stat"),
+                                worker_index(argv) if kind == "worker" else -1)
         except (OSError, ValueError, IndexError):
             continue      # process exited mid-read, or not ours to see
     return out
@@ -141,7 +176,8 @@ def totals(a: dict, b: dict, seconds: float) -> tuple[dict, float]:
     main thread alone. A process that started or ended between the readings is
     left out: half a sample of it is not a rate."""
     tot, loop = {}, 0.0
-    for pid, (kind, rss, ticks, main) in b.items():
+    for pid, row in b.items():
+        kind, rss, ticks, main = row[:4]
         if pid not in a or a[pid][0] != kind:
             continue
         cpu = (ticks - a[pid][2]) / TICKS / seconds * 100
@@ -150,6 +186,94 @@ def totals(a: dict, b: dict, seconds: float) -> tuple[dict, float]:
         if kind == "app":
             loop += (main - a[pid][3]) / TICKS / seconds * 100
     return tot, loop
+
+
+def _watcher(pid: int, snap: dict) -> int | None:
+    """The process with a loop that `pid` was started by, however many shells
+    are in between. None if it is nobody's (or the chain cannot be read)."""
+    for _ in range(8):
+        row = snap.get(pid)
+        if row is None or len(row) < 5:
+            return None
+        pid = row[4]
+        if pid in snap and snap[pid][0] in LOOPS:
+            return pid
+    return None
+
+
+def loops(a: dict, b: dict, seconds: float) -> list[dict]:
+    """One entry per process that has a loop: the web process first, then the
+    ingest workers in order.
+
+        kind   "app" or "worker"          index  the worker's number (-1: web)
+        rss    bytes                      cpu    % of one core, every thread
+        loop   % of the one core its loop can use (its main thread)
+        live   live channels it is running
+
+    `live` counts the audio meter's streamlink per process that started it
+    (the recorder's where the meter is off), the same rule as live_channels,
+    and never the two together."""
+    out = {}
+    for pid, row in b.items():
+        if row[0] not in LOOPS or pid not in a or a[pid][0] != row[0]:
+            continue
+        out[pid] = {"kind": row[0], "index": row[5] if len(row) > 5 else -1, "rss": row[1],
+                    "cpu": (row[2] - a[pid][2]) / TICKS / seconds * 100,
+                    "loop": (row[3] - a[pid][3]) / TICKS / seconds * 100,
+                    "live": 0, "_rec": 0}
+    for pid, row in b.items():
+        if row[0] not in ("meter_streamlink", "recorder_streamlink"):
+            continue
+        owner = _watcher(pid, b)
+        if owner in out:
+            out[owner]["live" if row[0] == "meter_streamlink" else "_rec"] += 1
+    for v in out.values():
+        v["live"] = v["live"] or v.pop("_rec")
+        v.pop("_rec", None)
+    return sorted(out.values(), key=lambda v: (v["kind"] != "app", v["index"]))
+
+
+def loop_room(found: list[dict], live: int) -> tuple[int | None, str]:
+    """(how many live channels the LOOPS support, which loop that is).
+
+    One process (no split): the channels live now, scaled to LOOP_BUDGET of
+    its one loop. That is the figure this always printed.
+
+    With ingest workers there are several loops, and which one fills first
+    depends on where a NEW channel would go:
+
+      * the web process is still running channels itself (a trial on a few
+        named channels, INGEST_ONLY): new ones land there, so it is the web
+        loop that fills, and the channels in workers are added as they are;
+      * every channel is in a worker: channels are dealt out by name, about
+        evenly, so the site is full when its BUSIEST worker is. That worker's
+        room times the number of workers is the careful figure (the others
+        would still take some after it). And the web loop still does a little
+        for every live channel (it relays each one's scores to the tabs), so
+        it has a room of its own, which more workers do not raise.
+
+    A loop under 2% is idle and is not scaled into a limit (one sample of it
+    is noise), exactly as before."""
+    web = next((v for v in found if v["kind"] == "app"), None)
+    workers = [v for v in found if v["kind"] == "worker"]
+    if web is None:
+        return None, ""
+    if not workers:
+        return (int(live * LOOP_BUDGET / web["loop"]), "the app's one loop") \
+            if web["loop"] >= 2.0 else (None, "")
+    if web["live"] > 0:
+        if web["loop"] < 2.0:
+            return None, ""
+        elsewhere = sum(v["live"] for v in workers)
+        return int(web["live"] * LOOP_BUDGET / web["loop"]) + elsewhere, "the web process's loop"
+    limits = []
+    each = [v["live"] * LOOP_BUDGET / v["loop"] for v in workers
+            if v["live"] > 0 and v["loop"] >= 2.0]
+    if each:
+        limits.append((int(len(workers) * min(each)), "the busiest worker's loop"))
+    if web["loop"] >= 2.0 and live > 0:
+        limits.append((int(live * LOOP_BUDGET / web["loop"]), "the web process's loop"))
+    return min(limits) if limits else (None, "")
 
 
 def live_channels(tot: dict) -> int:
@@ -171,8 +295,12 @@ def per_live(tot: dict, live: int) -> tuple[float, float]:
 
 
 def room(*, live: int, cores: int, mem_available: float, mem_total: float,
-         mem_each: float, cpu_each: float, app_cpu: float, loop_cpu: float) -> dict:
+         mem_each: float, cpu_each: float, app_cpu: float, loop_cpu: float,
+         found: list | None = None) -> dict:
     """How many live channels each limit supports, and which binds.
+
+    `found` is `loops()`: given, and with an ingest worker in it, the loop
+    limit is `loop_room`'s (several loops) rather than `loop_cpu` scaled.
 
     Every figure scales one sample linearly, and each is rounded the careful
     way: the app's whole CPU is charged to the live channels (some of it is the
@@ -187,10 +315,15 @@ def room(*, live: int, cores: int, mem_available: float, mem_total: float,
     out["by_mem"] = int(live + max(0.0, mem_available - reserve) / mem_each)
     out["by_cpu"] = int(cores * 100 * CPU_BUDGET / (cpu_each + app_cpu / live))
     # Under 2% the loop is idle and one sample of it is noise, not a rate.
-    if loop_cpu >= 2.0:
+    loop_name = "the app's one loop"
+    if found and any(v["kind"] == "worker" for v in found):
+        out["by_loop"], name = loop_room(found, live)
+        loop_name = name or loop_name
+    elif loop_cpu >= 2.0:
         out["by_loop"] = int(live * LOOP_BUDGET / loop_cpu)
+    out["loop_name"] = loop_name
     limits = {k: v for k, v in (("memory", out["by_mem"]), ("CPU", out["by_cpu"]),
-                                ("the app's one loop", out["by_loop"])) if v is not None}
+                                (loop_name, out["by_loop"])) if v is not None}
     out["binding"] = min(limits, key=limits.get)
     out["safe"] = max(1, limits[out["binding"]])
     return out
@@ -324,9 +457,14 @@ def main(args: list[str]) -> int:
     print("=" * 70)
     a = procs()
     time.sleep(sample)
-    tot, loop_cpu = totals(a, procs(), sample)
+    b = procs()
+    tot, loop_cpu = totals(a, b, sample)
+    found = loops(a, b, sample)
+    split = [v for v in found if v["kind"] == "worker"]
 
-    labels = (("app", "the app"), ("meter_streamlink", "audio: streamlink"),
+    labels = (("app", "the app" if not split else "the app: web"),
+              ("worker", "the app: workers"),
+              ("meter_streamlink", "audio: streamlink"),
               ("meter_ffmpeg", "audio: ffmpeg"), ("recorder_streamlink", "video: streamlink"),
               ("recorder_ffmpeg", "video: ffmpeg"), ("other_streamlink", "other streamlink"),
               ("other_ffmpeg", "other ffmpeg"),
@@ -339,10 +477,24 @@ def main(args: list[str]) -> int:
     ours = [v for k, v in tot.items() if k != "other"]
     print(f"  {'-> highlightz':<20}{'':>7}{fmt(sum(v[1] for v in ours)):>12}"
           f"{sum(v[2] for v in ours):>9.1f}%   of {cores * 100}% on this box")
+    if split:
+        # THE SPLIT. One line per loop, shown even when nothing is live so it
+        # can be seen that every worker is up and found. Each loop has a core
+        # of its own, so what matters is the fullest one, not their sum.
+        print()
+        print(f"  THE APP'S LOOPS  (the web process and {len(split)} ingest "
+              f"worker{'' if len(split) == 1 else 's'}; each can use one core)")
+        for v in found:
+            who = "the web process" if v["kind"] == "app" else f"worker {v['index']}"
+            each = f", ~{v['loop'] / v['live']:.1f}% each" if v["live"] else ""
+            print(f"    {who:<18}: {v['loop']:5.1f}% of its core"
+                  f"   ({v['live']} live here{each}; {fmt(v['rss'])})")
 
     live = live_channels(tot)
     mem_each, cpu_each = per_live(tot, live)
-    app_rss, app_cpu = tot.get("app", (0, 0.0, 0.0))[1:]
+    # The app is the web process and, with the split, its ingest workers.
+    app_rss = sum(tot.get(k, (0, 0.0, 0.0))[1] for k in LOOPS)
+    app_cpu = sum(tot.get(k, (0, 0.0, 0.0))[2] for k in LOOPS)
 
     print()
     print("=" * 70)
@@ -361,9 +513,23 @@ def main(args: list[str]) -> int:
         return 0
     print(f"  its own processes      : ~{fmt(mem_each)}, ~{cpu_each:.1f}% of one core"
           "   (audio + video, streamlink + ffmpeg)")
-    print(f"  the app, all threads   : {fmt(app_rss)}, {app_cpu:.1f}% of one core")
-    print(f"  the app's ONE loop     : {loop_cpu:.1f}% of the one core it can use"
-          f"   (~{loop_cpu / live:.1f}% per live channel)")
+    if not split:
+        print(f"  the app, all threads   : {fmt(app_rss)}, {app_cpu:.1f}% of one core")
+        print(f"  the app's ONE loop     : {loop_cpu:.1f}% of the one core it can use"
+              f"   (~{loop_cpu / live:.1f}% per live channel)")
+    else:
+        # THE SPLIT. One line per loop: each has a core of its own, so what
+        # matters is the fullest one, not their sum.
+        print(f"  the app, all processes : {fmt(app_rss)}, {app_cpu:.1f}% of one core"
+              f"   (web + {len(split)} ingest worker{'' if len(split) == 1 else 's'})")
+        fullest = max(found, key=lambda v: v["loop"])
+        print(f"  the fullest loop       : {fullest['loop']:.1f}% of its one core   ("
+              + ("the web process" if fullest["kind"] == "app" else f"worker {fullest['index']}")
+              + "; every loop is listed above)")
+        seen = sum(v["live"] for v in found)
+        if seen != live:
+            print(f"  ({live - seen} live channel(s) could not be matched to a process; "
+                  "they are counted in the totals and in no loop's line)")
     if settings.clip_capture_enabled and tot.get("recorder_streamlink"):
         rings = tot["recorder_streamlink"][0]
         print(f"  rolling buffer each    : ~{fmt(buf_now / rings)}"
@@ -375,7 +541,7 @@ def main(args: list[str]) -> int:
     print("=" * 70)
     r = room(live=live, cores=cores, mem_available=mem["MemAvailable"],
              mem_total=mem["MemTotal"], mem_each=mem_each, cpu_each=cpu_each,
-             app_cpu=app_cpu, loop_cpu=loop_cpu)
+             app_cpu=app_cpu, loop_cpu=loop_cpu, found=found)
     safe = r["safe"]
     if safe is None:
         print("  CANNOT SAY. The live channels' own processes showed no cost in this")
@@ -385,7 +551,18 @@ def main(args: list[str]) -> int:
           f"   (keeping {fmt(r['reserve'])} back for the OS, captions and VOD scans)")
     print(f"  by CPU, all {cores} cores   : ~{r['by_cpu']}"
           f"   (staying under {CPU_BUDGET * 100:.0f}%)")
-    if r["by_loop"] is None:
+    if split:
+        if r["by_loop"] is None:
+            print("  by the loops           : not the limit today (they are nearly idle)")
+        elif r["loop_name"] == "the busiest worker's loop":
+            print(f"  by the loops           : ~{r['by_loop']}"
+                  f"   ({len(split)} workers, the busiest kept under {LOOP_BUDGET:.0f}% of its"
+                  " core; MORE WORKERS RAISE THIS)")
+        else:
+            print(f"  by the loops           : ~{r['by_loop']}"
+                  f"   (the web process's loop kept under {LOOP_BUDGET:.0f}% of its core;"
+                  " more workers do not raise this)")
+    elif r["by_loop"] is None:
         print("  by the app's one loop  : not the limit today (it is nearly idle)")
     else:
         print(f"  by the app's one loop  : ~{r['by_loop']}"

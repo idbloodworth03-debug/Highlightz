@@ -93,21 +93,60 @@ class Ingest:
     def status(self) -> list[dict]:
         return self.pool.status()
 
+    def _live_on(self, index: int) -> int:
+        return sum(1 for k in api._live_slots if self._owns(index, _channel_of(k)))
+
+    def _reading(self, index: int) -> dict:
+        import time
+        w = self.pool.workers[index]
+        fresh = w.ready and w.beat_at > 0
+        return {"name": f"worker {index}", "pct": w.loop_avg, "lag_s": w.lag_avg,
+                "age_s": (time.monotonic() - w.beat_at) if fresh else 1e9,
+                "live": self._live_on(index)}
+
     def loop_for(self, stream_key: str) -> dict | None:
         """The reading the live limit judges for this channel: the loop of
         the worker it hashes to (headroom.allow, `loop`). A worker that is
         down or has not reported reads as too old, which the gate refuses.
         None for a channel that runs in the web process (a trial on a few
         channels): the web loop is judged for it, as it always was."""
-        import time
         if not self.handles(_channel_of(stream_key)):
             return None
-        index = self.pool.owner(_channel_of(stream_key))
-        w = self.pool.workers[index]
-        fresh = w.ready and w.beat_at > 0
-        return {"name": f"worker {index}", "pct": w.loop_avg, "lag_s": w.lag_avg,
-                "age_s": (time.monotonic() - w.beat_at) if fresh else 1e9,
-                "live": sum(1 for k in api._live_slots if self._owns(index, _channel_of(k)))}
+        return self._reading(self.pool.owner(_channel_of(stream_key)))
+
+    def loop_readings(self) -> list[dict]:
+        """Every worker's loop, as `loop_for` reads it. What the overload
+        alarm watches (headroom.watch_worker_loops): the web process's own
+        alarm sees only the web loop, which with the split is the idle one."""
+        return [self._reading(i) for i in range(self.pool.count)]
+
+    async def loop_profiles(self, seconds: float) -> list[str]:
+        """Where each worker's loop spends its time, timed in that worker for
+        `seconds`: one report section per worker, in order
+        (src/maintenance/loop_profile.py, `others`). NEVER RAISES, and one
+        worker failing costs only its own section: a worker that is down or
+        does not answer gets a sentence instead of a table."""
+        import asyncio
+        from src.maintenance import loop_profile as lp
+
+        def sentence(head: str, what: str) -> str:
+            return "\n".join(["=" * 78, head, "=" * 78, "  " + what, ""])
+
+        async def one(w) -> str:
+            head = f"INGEST WORKER {w.index}: WHERE ITS LOOP SPENDS ITS TIME"
+            try:
+                link = w.link
+                if not w.ready or link is None or link.closed:
+                    return sentence(head, "It is not running right now (the site restarts it by itself).")
+                data = await link.call("loop_profile", seconds, timeout=float(seconds) + 8.0)
+                return lp.render(lp.from_wire(data), live=self._live_on(w.index), title=head)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:                # noqa: BLE001
+                return sentence(head, f"It did not answer ({type(exc).__name__}), so there is nothing "
+                                      "to show for it. The other tables are unaffected.")
+
+        return list(await asyncio.gather(*(one(w) for w in self.pool.workers)))
 
     def handles(self, channel: str) -> bool:
         """Does this channel run in a worker process at all?"""

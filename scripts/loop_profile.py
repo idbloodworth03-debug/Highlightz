@@ -1,4 +1,4 @@
-"""Ask the running site where its ONE loop spends its time, and print it.
+"""Ask the running site where its loop spends its time, and print it.
 
     cd /opt/highlightz && venv/bin/python scripts/loop_profile.py
     cd /opt/highlightz && venv/bin/python scripts/loop_profile.py --seconds=30
@@ -10,6 +10,10 @@ channels live on 2026-11-18, the thing that caps the site at about 52 live on
 any size of server). This says WHAT it is busy with, which is what decides
 whether that cap can be lifted cheaply or needs the work split across
 processes. See src/maintenance/loop_profile.py for how it is measured.
+
+With the split on (INGEST_WORKERS) the site has several loops: the web
+process's and one per ingest worker. All of them are timed over the same
+window and the report is one table each, the web process first.
 
 It leaves a request file in the data folder; the running site picks it up
 within a second, times every step its loop takes for that long, and writes the

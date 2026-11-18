@@ -144,6 +144,9 @@ def build_handlers(state: dict, remote=None) -> dict:
     them: "stop, then start again" for one channel cannot swap.
     ping / probe             is it alive, and is it the kind of process it
                              should be.
+    loop_profile(seconds)    where THIS worker's loop spends its time, timed
+                             for that long (scripts/loop_profile.py asks the
+                             web process, which asks every worker).
     Profile changes and Kick chat arrive with stage 3."""
     def count() -> None:
         from src.ingestion import workers
@@ -204,7 +207,16 @@ def build_handlers(state: dict, remote=None) -> dict:
                 "remote": host._remote is not None,
                 "watching": sorted(remote.streams()) if remote is not None else []}
 
-    out = {"ping": lambda: "pong", "probe": probe}
+    async def loop_profile(seconds: float = 20.0) -> dict:
+        """Names of tasks and callbacks and how long they ran: nothing else
+        (src/maintenance/loop_profile.py). A call, so it runs in a task of
+        its own and holds up none of the casts behind it."""
+        from src.maintenance import loop_profile as lp
+        # The web process has already kept the owner's request within bounds;
+        # here only "never longer than the longest window" is held.
+        return await lp.measure(max(0.2, min(lp.MAX_S, float(seconds))))
+
+    out = {"ping": lambda: "pong", "probe": probe, "loop_profile": loop_profile}
     if remote is not None:
         out.update(spawn=spawn, stop=stop, profile_apply=profile_apply, kick_chat=kick_chat)
     return out

@@ -914,16 +914,23 @@ async def main() -> None:
         asyncio.create_task(dashboard_api.indexnow_task(), name="indexnow"),
         # Answers scripts/loop_profile.py: "what is the one loop busy with?"
         # (src/maintenance/loop_profile.py). One look a second. Never raises.
+        # With the split the report is this process's table (and the channels
+        # that still run HERE) followed by one table per ingest worker.
         asyncio.create_task(_loop_profile.watch_task(
             lambda: sum(1 for s in list(dashboard_api._streams.values())
-                        if s.get("status") == "live")),
+                        if s.get("status") == "live"
+                        and not (ingest is not None and ingest.handles(s.get("channel") or ""))),
+            others=ingest.loop_profiles if ingest is not None else None),
             name="loop-profile-watch"),
         # What the server measures of itself every two seconds: the loop, the
         # processors, memory. With LIVE_AUTO_BASE set the live limit follows
         # it (src/ingestion/headroom.py); either way the admin page shows it
         # and the owner is emailed if the loop stays overloaded. Never raises.
-        asyncio.create_task(_headroom.run(lambda: list(dashboard_api._live_slots)),
-                            name="headroom"),
+        # With the split, each worker's loop is watched for the same alarm.
+        asyncio.create_task(_headroom.run(
+            lambda: list(dashboard_api._live_slots),
+            loops=ingest.loop_readings if ingest is not None else None),
+            name="headroom"),
     ]
 
     # Restore streams that were running before the last shutdown. With the

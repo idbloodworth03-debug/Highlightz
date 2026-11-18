@@ -143,6 +143,9 @@ _released: dict[str, float] = {}                               # channel -> when
 _before = {"keys": frozenset(), "any": False, "until": 0.0}
 _last_no = {"why": "", "at": 0.0}
 _over = {"since": None, "told": None}       # None, not 0: the clock is seconds since boot
+# The same, per ingest worker (THE SPLIT): "worker 2" -> its own since / told.
+_over_workers: dict[str, dict] = {}
+_loops_failed = {"at": None}
 
 
 def forget() -> None:
@@ -154,6 +157,8 @@ def forget() -> None:
     _before.update(keys=frozenset(), any=False, until=0.0)
     _last_no.update(why="", at=0.0)
     _over.update(since=None, told=None)
+    _over_workers.clear()
+    _loops_failed.update(at=None)
 
 
 def enabled() -> bool:
@@ -390,20 +395,73 @@ def snapshot(live: int) -> dict:
     }
 
 
+def _overdue(state: dict, pct: float, now: float) -> float | None:
+    """The one rule for "a loop has stayed overloaded": over OVERLOAD_LINE for
+    OVERLOAD_AFTER_S, said once and then at most every OVERLOAD_EVERY_S while
+    it lasts. Returns how long it has been over when it is time to say so."""
+    if pct < OVERLOAD_LINE:
+        state["since"] = None
+        return None
+    if state["since"] is None:
+        state["since"] = now
+    told = state["told"]
+    if now - state["since"] >= OVERLOAD_AFTER_S and (told is None or now - told >= OVERLOAD_EVERY_S):
+        state["told"] = now
+        return now - state["since"]
+    return None
+
+
 def _watch_overload(now: float) -> None:
-    if _state["loop"] < OVERLOAD_LINE:
-        _over["since"] = None
-        return
-    if _over["since"] is None:
-        _over["since"] = now
-    told = _over["told"]
-    if now - _over["since"] >= OVERLOAD_AFTER_S and (told is None or now - told >= OVERLOAD_EVERY_S):
-        _over["told"] = now
+    for_s = _overdue(_over, _state["loop"], now)
+    if for_s is not None:
         log.error("app_loop_overloaded", loop_pct=round(_state["loop"], 1),
-                  for_s=round(now - _over["since"]),
+                  for_s=round(for_s),
                   fix="lower MAX_CONCURRENT_STREAMS in .env (the most that are ever "
                       "live) and restart, or run scripts/loop_profile.py to see what "
                       "is using the loop")
+
+
+def watch_worker_loops(readings, now: float | None = None) -> None:
+    """The same alarm for each ingest worker's loop (THE SPLIT).
+
+    WHY IT IS NEEDED. With the split the web process's loop, the one
+    `_watch_overload` reads, is nearly idle whatever the channels are doing:
+    the scoring runs in the workers. A worker whose channels got heavier after
+    they were let in would sit at 100% of its core, every one of its channels
+    scoring late, and nothing would say so. The gate keeps NEW channels off a
+    worker over its line; like the web loop's alarm, this is for the ones
+    already there, which are never put out.
+
+    `readings` are dashboard/ingest.py's `loop_readings()`: name, the 15 s
+    average, how old it is, how many live channels. A reading that is too old
+    is a worker that is down or silent; `ingest_worker_lost` has already said
+    that, and it is not "overloaded", so its clock starts again."""
+    now = time.monotonic() if now is None else now
+    seen = set()
+    for r in readings or ():
+        name = str(r.get("name") or "") if isinstance(r, dict) else ""
+        if not name:
+            continue
+        seen.add(name)
+        state = _over_workers.setdefault(name, {"since": None, "told": None})
+        try:
+            age, pct = float(r.get("age_s", 1e9)), float(r.get("pct") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if age > STALE_S:
+            state["since"] = None
+            continue
+        for_s = _overdue(state, pct, now)
+        if for_s is not None:
+            log.error("ingest_loop_overloaded", worker=name, loop_pct=round(pct, 1),
+                      live=r.get("live"), for_s=round(for_s),
+                      fix="this worker's channels are more than one loop can score on "
+                          "time. Raise INGEST_WORKERS in .env and restart (the channels "
+                          "are dealt out again over more workers), or lower "
+                          "MAX_CONCURRENT_STREAMS. scripts/loop_profile.py shows what "
+                          "each worker is busy with")
+    for name in [n for n in _over_workers if n not in seen]:
+        _over_workers.pop(name, None)
 
 
 def _carry_path() -> str:
@@ -466,14 +524,16 @@ def load_carry(now: float | None = None) -> int:
     return n
 
 
-async def run(live_keys=lambda: (), every: float = EVERY_S) -> None:
+async def run(live_keys=lambda: (), every: float = EVERY_S, loops=None) -> None:
     """Keep the readings current. NEVER RAISES: it is one of the tasks main()
     gathers, and an exception out of any of those stops the whole product.
     A reading that fails is simply not recorded, and after STALE_S of that
     `allow` says no past the base.
 
     `live_keys` returns the channels holding a live slot, for the note a
-    restart reads back."""
+    restart reads back. `loops`, with the split on, returns every ingest
+    worker's loop reading for the overload alarm (`watch_worker_loops`); a
+    failure there is its own and never costs this process a reading."""
     try:
         carried = load_carry()
         if enabled():
@@ -503,6 +563,15 @@ async def run(live_keys=lambda: (), every: float = EVERY_S) -> None:
             record(loop_pct, box_pct, mem, max(0.0, dt - every), dt, wall, mem_total)
             prev_wall, prev_cpu, prev_busy, prev_total = wall, cpu, busy, total
             _watch_overload(wall)
+            if loops is not None:
+                try:
+                    watch_worker_loops(loops(), wall)
+                except Exception:
+                    # Once per half hour, not once per two seconds.
+                    at = _loops_failed["at"]
+                    if at is None or wall - at >= OVERLOAD_EVERY_S:
+                        _loops_failed["at"] = wall
+                        log.exception("headroom_worker_loops_unreadable")
             if enabled() and wall - last_carry >= CARRY_EVERY_S:
                 last_carry = wall
                 keys = list(live_keys())

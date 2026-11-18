@@ -51,6 +51,14 @@ WHAT IT CANNOT SEE. Inside a step. It says "the workers take 20%", not which
 line of the worker. That is the next question, asked of the one activity this
 names, and a deterministic profiler would double the loop's load to answer it
 for all of them at once.
+
+WITH THE SPLIT (INGEST_WORKERS, docs/HANDOFF.md "THE SPLIT") there is more
+than one loop: the web process's, and one in each ingest worker. A window is
+then opened in every one of them at the same moment (`measure` runs in the
+worker, asked over the link; `others` below is how the web process is given
+that), and the report is the web process's table followed by one per worker.
+A worker that is down, or does not answer, gets a line saying so and the rest
+of the report is still written.
 """
 
 from __future__ import annotations
@@ -71,6 +79,12 @@ log = structlog.get_logger(__name__)
 
 REQUEST = "loop_profile.request"
 REPORT = "loop_profile.txt"
+TITLE = "WHERE THE APP'S ONE LOOP SPENDS ITS TIME"
+WEB_TITLE = "THE WEB PROCESS: WHERE ITS LOOP SPENDS ITS TIME"
+# How long the report waits, after this process's own window has closed, for
+# the other processes' tables. Their windows opened with this one, so they are
+# normally in already; scripts/loop_profile.py gives up 20 s after the window.
+OTHERS_WAIT_S = 12.0
 MIN_S, MAX_S, DEFAULT_S = 5.0, 60.0, 20.0
 # A single step holding the loop this long is felt by everybody: nothing else
 # (no request, no socket, no other channel) runs until it returns.
@@ -266,7 +280,45 @@ def _dur(s: float) -> str:
     return f"{s * 1e6:.0f}us"
 
 
-def render(result: dict, live: int | None = None, top: int = 22) -> str:
+def to_wire(result: dict) -> dict:
+    """A window's result as plain JSON, for an ingest worker to send back over
+    the link: rows become lists, and the memory-tidying table loses its tuple
+    keys (JSON has none)."""
+    return {"seconds": result["seconds"], "cpu": result.get("cpu") or 0.0,
+            "rows": {k: list(v) for k, v in result["rows"].items()},
+            "gc": [[gen, bool(on_loop), *v] for (gen, on_loop), v in (result.get("gc") or {}).items()]}
+
+
+def from_wire(data: dict) -> dict:
+    """The other direction. Anything malformed is left out rather than raised:
+    this is read in the web process, from another process."""
+    data = data if isinstance(data, dict) else {}
+    rows = {}
+    for k, v in (data.get("rows") or {}).items():
+        try:
+            # (seconds, steps, longest, cpu, cpu of the longest): steps is a
+            # count, the rest are seconds, and the last two may be missing.
+            row = [None if x is None else float(x) for x in v]
+            if len(row) < 3 or row[0] is None or row[1] is None or row[2] is None:
+                continue
+            row[1] = int(row[1])
+            rows[str(k)] = tuple(row)
+        except (TypeError, ValueError):
+            continue
+    tidy = {}
+    for g in data.get("gc") or []:
+        try:
+            tidy[(int(g[0]), bool(g[1]))] = (int(g[2]), float(g[3]), float(g[4]))
+        except (TypeError, ValueError, IndexError):
+            continue
+    try:
+        seconds, cpu = float(data.get("seconds") or 0.0), float(data.get("cpu") or 0.0)
+    except (TypeError, ValueError):
+        seconds, cpu = 0.0, 0.0
+    return {"seconds": max(1e-9, seconds), "cpu": cpu, "rows": rows, "gc": tidy}
+
+
+def render(result: dict, live: int | None = None, top: int = 22, title: str | None = None) -> str:
     wall = result["seconds"]
     rows = sorted(((k, _five(v)) for k, v in grouped(result["rows"]).items()),
                   key=lambda kv: -kv[1][0])
@@ -274,7 +326,7 @@ def render(result: dict, live: int | None = None, top: int = 22) -> str:
     steps = sum(v[1] for _k, v in rows)
     pct = lambda s: 100.0 * s / wall                              # noqa: E731
     out = ["=" * 78,
-           "WHERE THE APP'S ONE LOOP SPENDS ITS TIME",
+           title or TITLE,
            "=" * 78,
            f"  watched for            : {wall:.0f}s, every step timed ({steps:,} of them, {steps / wall:,.0f} a second)",
            f"  busy                   : {pct(busy):.1f}% of the one core it can use",
@@ -370,14 +422,73 @@ def _write(text: str) -> None:
     os.replace(tmp, _store() / REPORT)
 
 
-def start(loop, seconds: float = DEFAULT_S, live=None) -> bool:
+async def measure(seconds: float = DEFAULT_S) -> dict:
+    """Time THIS process's loop for `seconds` and return the result in the
+    form that crosses the link (`to_wire`). What an ingest worker runs when
+    the web process asks it (worker_main, `loop_profile`). Raises if a window
+    is already open here."""
+    if not _running.acquire(blocking=False):
+        raise RuntimeError("a timing window is already open in this process")
+    timing = Timing()
+    try:
+        timing.install()
+        await asyncio.sleep(seconds)
+        return to_wire(timing.finish())
+    finally:
+        timing.finish()                              # idempotent: never left on
+        _running.release()
+
+
+# Tasks this module started and must keep alive itself: the loop only holds a
+# weak reference to a task, and one nobody else holds can be collected mid-way.
+_tasks: set = set()
+
+
+def _keep(task) -> None:
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _sections(others, seconds: float) -> list[str]:
+    out = await others(seconds)
+    return [str(s) for s in (out or [])]
+
+
+async def _write_with(text: str, extra, seconds: float) -> None:
+    """Write the report once the other processes' tables are in, or without
+    them if they are not: what THIS process measured is never thrown away
+    because another one was slow. Gives the lock back."""
+    try:
+        try:
+            parts = await asyncio.wait_for(extra, OTHERS_WAIT_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                     # noqa: BLE001
+            parts = ["=" * 78 + "\nTHE INGEST WORKERS' LOOPS COULD NOT BE READ "
+                     f"({type(exc).__name__}). The table above is the web process alone.\n"]
+        _write(text + "".join("\n" + p for p in parts))
+        log.info("loop_profile_written", seconds=round(seconds, 1), others=len(parts))
+    except Exception:
+        log.exception("loop_profile_failed")
+    finally:
+        _running.release()
+
+
+def start(loop, seconds: float = DEFAULT_S, live=None, others=None) -> bool:
     """Time the loop for `seconds`, then write the report. Call on the loop's
-    own thread. False if a window is already open."""
+    own thread. False if a window is already open.
+
+    `others`, with the split on: `await others(seconds)` returns the report
+    sections of the other processes' loops (dashboard/ingest.py,
+    `loop_profiles`), timed over the same window. It is started here, beside
+    this process's own window, and the report is written when both are in."""
     if not _running.acquire(blocking=False):
         return False
     timing = Timing()
+    extra = None
 
     def done() -> None:
+        handed_on = False
         try:
             result = timing.finish()                 # the wrapper comes off FIRST
             n = None
@@ -385,29 +496,46 @@ def start(loop, seconds: float = DEFAULT_S, live=None) -> bool:
                 n = int(live()) if live is not None else None
             except Exception:
                 n = None
-            _write(render(result, n))
-            log.info("loop_profile_written", seconds=round(result["seconds"], 1))
+            if extra is None:
+                _write(render(result, n))
+                log.info("loop_profile_written", seconds=round(result["seconds"], 1))
+            else:
+                _keep(loop.create_task(
+                    _write_with(render(result, n, title=WEB_TITLE), extra, result["seconds"]),
+                    name="loop-profile-write"))
+                handed_on = True                     # that task gives the lock back
         except Exception:
             log.exception("loop_profile_failed")
         finally:
             timing.finish()                          # idempotent: never left on
-            _running.release()
+            if not handed_on:
+                if extra is not None:
+                    extra.cancel()
+                _running.release()
 
     try:
         timing.install()
+        if others is not None:
+            extra = loop.create_task(_sections(others, seconds), name="loop-profile-others")
+            _keep(extra)
         loop.call_later(seconds, done)
     except Exception:
         timing.finish()
+        if extra is not None:
+            extra.cancel()
         _running.release()
         raise
     return True
 
 
-async def watch_task(live=None, every: float = 1.0) -> None:
+async def watch_task(live=None, every: float = 1.0, others=None) -> None:
     """Start a window when scripts/loop_profile.py asks for one.
 
     NEVER RAISES: it is one of the tasks main() gathers, and an exception out
     of any of those stops the whole product. One `exists()` a second.
+
+    `others`: see `start`. None without the split, and then nothing here is
+    different from before it existed.
     """
     loop = asyncio.get_running_loop()
     while True:
@@ -428,7 +556,9 @@ async def watch_task(live=None, every: float = 1.0) -> None:
                 log.warning("loop_profile_request_not_removable", path=str(req))
                 await asyncio.sleep(60)
                 continue
-            if start(loop, seconds, live):
+            began = start(loop, seconds, live) if others is None \
+                else start(loop, seconds, live, others)
+            if began:
                 log.info("loop_profile_started", seconds=seconds)
         except asyncio.CancelledError:
             raise
