@@ -9890,8 +9890,37 @@ users so i can see my margins". The numbers live on production, so this is a
 read-only script the owner runs there:
 `cd /opt/highlightz && venv/bin/python scripts/unit_costs.py`
 (`--server=` the monthly server bill, `--other=` anything else monthly,
-`--stripe-pct=`, `--stripe-fixed=`, `--days=`). **The owner had not pasted its
-output when this was written: no real margin is known yet.**
+`--stripe-pct=`, `--stripe-fixed=`, `--days=`).
+
+**THE FIRST REAL READING (owner's paste, 2026-11-18, a busy hour, 59 live;
+server bill still the ASSUMED $112, other costs 0):**
+- 345 accounts: **18 paying, all Pro at $25** (MRR $450; nobody on Starter,
+  Studio or the old price), 312 free, 7 on trial, 2 gifted, 1 card failing,
+  5 staff.
+- Live: paying 44 channels from 14 accounts (75% of the load), free 15 from
+  15 accounts (25%). Trials, gifted and staff: nothing live, nothing listed.
+- **Paying: costs $5.84 an account** ($4.64 of server at 2.4 channels live
+  each, $1.20 of card fee), pays $25, **margin $19.16 (77%)**. The heaviest
+  (7 live) costs $14.49 and still leaves $10.51.
+- **Free: the whole tier costs $28.47 a month**, $0.09 an account, $1.90 per
+  free account that is live; each paying account carries $1.58 of it.
+- The site: $450 in, $21.60 card fees, $112 server, **$316.40 left (70%)**.
+- **One live channel is about $1.90 a month at this load.** A Pro account
+  with all 10 live would cost $20.18 and leave $4.82. The figure falls as the
+  same server carries more (about $1 at 110 live), which is the split's
+  effect on margins.
+- Among customers the 30-day clip split (paying 70%, free 30%) is close to
+  the load split, so the moment was typical FOR CUSTOMERS.
+- **Not typical: the five staff accounts caught 27,879 clips in 30 days, more
+  than all paying accounts (20,444), and had nothing live or listed at that
+  moment**, so this reading charges them nothing. Clip counts overstate their
+  load (an admin's queue has no cap, so nothing of theirs is skipped), but if
+  they usually run channels part of the bill is the owner's own and the
+  customers' cost is lower than shown. A second run while they are live is
+  the check. It also means `theburntpeanut`, added to an admin account
+  earlier that day for the split's trial, was no longer listed (or paused).
+- All 7 trials had no channel listed.
+- Still unknown: the real server invoice and any other monthly cost.
 
 **The model, and why.** The costs are one server and the card processor. The
 server exists to watch live channels (memory, processors and the loop all
