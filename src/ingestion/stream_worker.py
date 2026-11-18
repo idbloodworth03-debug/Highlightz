@@ -770,7 +770,7 @@ class StreamWorker:
             # not an archive — and only give up if that could not free any.
             # In a thread because it is a directory walk and a run of unlinks
             # on the same core the audio meters need.
-            freed = await asyncio.to_thread(clip_files.trim_to_cap)
+            freed = await host.trim_clip_store()
             if not freed and not clip_files.headroom_ok():
                 log.warning("clip_file_skipped", clip_id=clip_id,
                             channel=self._config.channel, why="no_headroom")

@@ -788,7 +788,17 @@ async def main() -> None:
             json.dumps({"channel": channel, "user_id": user_id}),
         )
 
-    dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)
+    # THE SPLIT: with INGEST_WORKERS set, "start/stop watching" goes to the
+    # worker process that owns the channel instead of to Redis for this one.
+    ingest = None
+    if settings.ingest_workers > 0:
+        from src.dashboard.ingest import Ingest
+        ingest = Ingest(settings.ingest_workers)
+        dashboard_api.set_stream_publisher(ingest.publish_new, ingest.publish_remove)
+        log.warning("ingest_split_on", workers=settings.ingest_workers,
+                    note="unfinished: see THE SPLIT in docs/HANDOFF.md before using this in production")
+    else:
+        dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)
 
     async def _force_clip(channel: str, user_id: str = "") -> None:
         from src.queue.job_queue import ClipJob
@@ -896,8 +906,13 @@ async def main() -> None:
                             name="headroom"),
     ]
 
-    # Restore streams that were running before the last shutdown
-    await restore_streams()
+    # Restore streams that were running before the last shutdown. With the
+    # split, starting the pool does it: each worker is sent its channels as
+    # it comes up (Ingest.on_ready), now and after any restart of it.
+    if ingest is not None:
+        await ingest.start()
+    else:
+        await restore_streams()
 
     log.info("superclipbot_started", version="1.0.0")
     try:
@@ -914,6 +929,8 @@ async def main() -> None:
         await asyncio.gather(*tasks, *worker_tasks, return_exceptions=True)
         _workers.clear()
         _worker_instances.clear()
+        if ingest is not None:
+            await ingest.stop()
         await _queue.close()
         await redis.aclose()
         log.info("superclipbot_stopped")

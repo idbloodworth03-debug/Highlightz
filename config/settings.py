@@ -497,6 +497,12 @@ class Settings(BaseSettings):
     # the box is known to carry and MAX_CONCURRENT_STREAMS to the most it
     # should ever be asked for.
     live_auto_base: int = 0
+    # THE SPLIT (docs/HANDOFF.md, "THE SPLIT"). 0 is today's single process.
+    # Above 0, stream workers run in this many processes of their own, each
+    # with its own loop. NOT FOR PRODUCTION until the handoff says the stages
+    # are done: with it on, profile changes made in the dashboard (approve,
+    # reject, sensitivity) and Kick chat do not reach a worker yet.
+    ingest_workers: int = 0
     # REGISTERED channels at once, across the whole process. Derived from the
     # live ceiling; override with MAX_REGISTERED_STREAMS in .env.
     max_registered_streams: int = 0

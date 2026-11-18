@@ -102,6 +102,23 @@ async def suggestion_room(uid: str) -> tuple[int, int]:
     return _api().suggestion_room(uid)
 
 
+async def trim_clip_store() -> int:
+    """Make room in the clip store; bytes freed. ONLY THE WEB PROCESS TRIMS.
+
+    The trim decides what to delete from what the dashboard knows: approved
+    clips go last, a Studio account's are kept, free accounts' go first
+    (clips.files.protected_ids / kept_ids / eviction_ranks, all read from the
+    dashboard's clip records). A worker process cannot see those records, and
+    files.py falls back to "evict by age alone" when it cannot, which in a
+    worker would delete approved videos. So a worker asks; it never trims.
+    In one process this is the same call in the same thread as before."""
+    if _remote is not None:
+        return int(await _remote.trim_clip_store() or 0)
+    import asyncio
+    from src.clips import files as clip_files
+    return await asyncio.to_thread(clip_files.trim_to_cap)
+
+
 async def notify_clip_ready(meta: dict):
     if _remote is not None:
         return await _remote.notify_clip_ready(meta)

@@ -93,11 +93,77 @@ async def _heartbeat(link, state: dict, every: float = HEARTBEAT_S) -> None:
         link.cast("heartbeat", beat, droppable=True)
 
 
-def build_handlers(state: dict) -> dict:
-    """What the web process may ask of a worker. Stage 0: enough to prove the
-    process is alive and is the kind of process it should be. The stream
-    handlers (spawn, stop, profile changes, Kick chat) are added by the
-    stages that move that work here."""
+def configure_logging(index: int, link=None) -> None:
+    """The same lines the web process writes (src/main.py), each marked with
+    which worker wrote it, to the same journal (stdout is inherited).
+
+    AN ERROR HERE WOULD OTHERWISE REACH NOBODY. The owner is emailed by a tap
+    on the WEB process's log (src/alerts); a worker's log.error never passes
+    it. So every error and critical line is also sent across, where it is
+    counted like one of the web process's own."""
+    import structlog
+
+    def mark(_logger, _method, event_dict):
+        event_dict.setdefault("ingest", index)
+        return event_dict
+
+    def forward(_logger, method, event_dict):
+        if link is not None and method in ("error", "critical", "exception"):
+            try:
+                fields = {}
+                for k, v in event_dict.items():
+                    if k in ("event", "timestamp", "level", "exception"):
+                        continue
+                    if isinstance(v, str):
+                        fields[k] = v[:500]
+                    elif v is None or isinstance(v, (int, float, bool)):
+                        fields[k] = v
+                link.cast("log_error", str(event_dict.get("event", "")), method, fields, droppable=True)
+            except Exception:
+                pass
+        return event_dict
+
+    structlog.configure(processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.format_exc_info,
+        mark,
+        forward,
+        structlog.processors.JSONRenderer(),
+    ])
+
+
+def build_handlers(state: dict, remote=None) -> dict:
+    """What the web process may ask of a worker.
+
+    spawn(record)            start watching one channel. `record` is the web
+                             process's stream record; it becomes this
+                             worker's mirror of it (remote.streams()).
+    stop(channel, user_id)   stop watching it and forget the record.
+    Both are casts, so they are handled in the order the web process sent
+    them: "stop, then start again" for one channel cannot swap.
+    ping / probe             is it alive, and is it the kind of process it
+                             should be.
+    Profile changes and Kick chat arrive with stage 3."""
+    def count() -> None:
+        from src.ingestion import workers
+        state["streams"] = sum(1 for t in workers._workers.values() if not t.done())
+
+    async def spawn(record: dict) -> None:
+        from src.ingestion import workers
+        remote.remember(record)
+        await workers.spawn_worker(record["channel"], record.get("platform") or "twitch",
+                                   record.get("user_id") or "", record.get("preset") or "default")
+        count()
+
+    async def stop(channel: str, user_id: str = "") -> None:
+        from src.ingestion import workers
+        try:
+            await workers.stop_worker(channel, user_id)
+        finally:
+            remote.forget(channel, user_id)
+            count()
+
     def probe() -> dict:
         import importlib
         blocked = []
@@ -106,24 +172,57 @@ def build_handlers(state: dict) -> dict:
                 importlib.import_module(name)
             except ImportError:
                 blocked.append(name)
+        from src.ingestion import host
         return {"pid": os.getpid(), "index": state["index"], "count": state["count"],
                 "blocked": blocked,
-                "dashboard_loaded": any(n in sys.modules for n in BLOCKED)}
+                "dashboard_loaded": any(n in sys.modules for n in BLOCKED),
+                "remote": host._remote is not None,
+                "watching": sorted(remote.streams()) if remote is not None else []}
 
-    return {"ping": lambda: "pong", "probe": probe}
+    out = {"ping": lambda: "pong", "probe": probe}
+    if remote is not None:
+        out.update(spawn=spawn, stop=stop)
+    return out
+
+
+async def _prepare(link, state: dict):
+    """Everything a stream worker needs to run HERE instead of in the web
+    process: the seam pointed at the wire, and somewhere to push moments.
+    Returns the remote and the tasks to cancel on the way out."""
+    from src.ingestion import host, workers
+    from src.ingestion.remote import Remote
+    remote = Remote(link)
+    host._remote = remote                       # noqa: SLF001  (the one place it is set)
+    tasks = []
+    try:
+        from src.billing.plans import uid_priority_level
+        from src.queue.job_queue import JobQueue
+        queue = JobQueue(priority_of=uid_priority_level)
+        await queue.connect()
+        workers.set_queue(queue)
+    except Exception as exc:
+        # Without the queue a worker can watch and score but not hand a
+        # moment on. Say so loudly; the web process hears it as an error.
+        import structlog
+        structlog.get_logger(__name__).error("ingest_queue_unavailable", error=repr(exc)[:200])
+    tasks.append(asyncio.create_task(workers.reap_orphan_capture_task(), name="capture-orphan-reaper"))
+    return remote, tasks
 
 
 async def run(fd: int, index: int, count: int) -> int:
     from src.ingestion.bridge import open_link
     state = {"index": index, "count": count, "started": time.monotonic(), "streams": 0}
-    link = await open_link(socket.socket(fileno=fd), name=f"ingest-{index}",
-                           handlers=build_handlers(state))
-    beat = asyncio.create_task(_heartbeat(link, state), name="heartbeat")
+    link = await open_link(socket.socket(fileno=fd), name=f"ingest-{index}")
+    configure_logging(index, link)
+    remote, tasks = await _prepare(link, state)
+    link.handlers.update(build_handlers(state, remote))
+    tasks.append(asyncio.create_task(_heartbeat(link, state), name="heartbeat"))
     link.cast("hello", {"index": index, "count": count, "pid": os.getpid()})
     try:
         await link.run()                    # returns when the web process is gone
     finally:
-        beat.cancel()
+        for t in tasks:
+            t.cancel()
     return 0
 
 

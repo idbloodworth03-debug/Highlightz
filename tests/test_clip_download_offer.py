@@ -300,8 +300,12 @@ def test_the_cut_path_makes_room_before_giving_up():
     src = inspect.getsource(stream_worker.StreamWorker._cut_local_file)
     i = src.index("headroom_ok()")
     window = src[i:i + 600]
-    assert "trim_to_cap" in window, "the cut still gives up at the cap"
-    assert "to_thread" in window, \
+    # Through the seam since the split (2026-11-18): a worker process asks the
+    # web process to trim; in one process it is the same call in a thread.
+    assert "host.trim_clip_store()" in window, "the cut still gives up at the cap"
+    from src.ingestion import host
+    trim = inspect.getsource(host.trim_clip_store)
+    assert "asyncio.to_thread(clip_files.trim_to_cap)" in trim, \
         "a directory walk and a run of unlinks would run on the meters' core"
 
 

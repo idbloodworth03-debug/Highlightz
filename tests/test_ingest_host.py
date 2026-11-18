@@ -19,8 +19,10 @@ dashboard; and no worker-side module imports the dashboard at all.
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import re
+import time
 
 import pytest
 
@@ -368,3 +370,92 @@ def test_pausing_a_running_channel_leaves_it_paused_and_coming_back_restarts_it(
     assert while_paused == [("stream_updated", "paused"), ("stream_updated", "paused")], while_paused
     assert after_resume["status"] == "starting" and "hold" not in after_resume
     assert started == ["nova", "nova"], "coming back did not start the channel again"
+
+
+# ── only the web process trims the clip store ────────────────────────────────
+
+def test_in_one_process_the_trim_is_the_same_call_in_a_thread(monkeypatch):
+    import threading
+    from src.clips import files
+    seen = []
+
+    def trim():
+        seen.append(threading.current_thread() is threading.main_thread())
+        return 4096
+    monkeypatch.setattr(files, "trim_to_cap", trim)
+    assert asyncio.run(host.trim_clip_store()) == 4096
+    assert seen == [False], "the trim ran on the loop's thread"
+    src = pathlib.Path("src/ingestion/stream_worker.py").read_text()
+    assert "freed = await host.trim_clip_store()" in src and "clip_files.trim_to_cap" not in src
+
+
+def test_a_worker_asks_for_a_trim_and_never_does_one(monkeypatch, tmp_path):
+    """What may be deleted is decided from the dashboard's clip records. A
+    worker cannot see them, and files.py's fallback for "cannot see them" is
+    to evict by age alone, approved videos included."""
+    from src.clips import files
+    asked = []
+
+    class Remote:
+        async def trim_clip_store(self):
+            asked.append(True)
+            return 123
+    monkeypatch.setattr(host, "_remote", Remote())
+    assert asyncio.run(host.trim_clip_store()) == 123 and asked == [True]
+    # The second lock: called directly in a worker, the trim refuses.
+    monkeypatch.setattr(files, "_ROOT", tmp_path)
+    monkeypatch.setattr(files.settings, "clip_file_max_total_mb", 1)
+    victim = tmp_path / "approved-clip.mp4"
+    victim.write_bytes(b"x" * 3_000_000)
+    old = time.time() - 7200                      # old enough for the trim to consider
+    os.utime(victim, (old, old))
+    files._forget_scan()
+    assert files.trim_to_cap() == 0
+    assert victim.exists(), "a worker process deleted a clip video"
+    monkeypatch.setattr(host, "_remote", None)
+    files._forget_scan()
+    assert files.trim_to_cap() > 0 and not victim.exists()      # the web process still can
+
+
+def test_no_answer_from_the_web_process_is_the_careful_answer():
+    """A worker never goes live, hands out a Highlight or trims on the
+    strength of a question nobody answered."""
+    from src.ingestion.bridge import LinkClosed, RemoteError
+    from src.ingestion.remote import Remote
+
+    class DeadLink:
+        def __init__(self, exc):
+            self.exc, self.casts = exc, []
+
+        async def call(self, method, *args, timeout=None):
+            raise self.exc
+
+        def cast(self, method, *args, droppable=False):
+            self.casts.append((method, droppable))
+            return False
+
+    async def go(exc):
+        r = Remote(DeadLink(exc))
+        out = (await r.acquire_live_slot("u:c"), await r.watchers_of("c"),
+               await r.suggestion_room("u"), await r.trim_clip_store())
+        await r.broadcast({"event": "score_update"}, user_id="u")
+        await r.broadcast({"event": "stream_status"}, user_id="u")
+        r.release_live_slot("u:c")
+        with pytest.raises(type(exc)):
+            await r.notify_clip_ready({"id": "c1"})          # a clip not handed over is an error
+        return out, r._link.casts
+    for exc in (LinkClosed("gone"), TimeoutError("slow"), RemoteError("boom")):
+        out, casts = asyncio.run(go(exc))
+        assert out == (False, [], (0, 0), 0)
+        assert casts == [("broadcast", True), ("broadcast", False), ("release_live_slot", False)]
+
+
+def test_the_workers_mirror_is_its_own_records_only():
+    from src.ingestion.remote import Remote
+    r = Remote(link=None)
+    key = r.remember({"channel": "nova", "user_id": "u1", "preset": "fps", "status": "starting"})
+    assert key == "u1:nova" and r.streams()["u1:nova"]["preset"] == "fps"
+    assert r.remember({"channel": "solo", "user_id": ""}) == "solo"
+    r.forget("nova", "u1")
+    r.forget("nova", "u1")                                   # twice is harmless
+    assert list(r.streams()) == ["solo"]

@@ -426,9 +426,11 @@ def test_a_worker_that_never_answers_is_not_called_up(monkeypatch, tmp_path):
     assert ready == [] and up is False and link is None
 
 
-def test_nothing_in_production_starts_a_pool_yet():
-    """Stage 0. The switch arrives with the stage that makes it mean
-    something; until then main.py must not know these exist."""
+def test_the_pool_is_only_built_behind_the_switch():
+    """main.py reaches the pool through src/dashboard/ingest.py, and only
+    when INGEST_WORKERS is set (tests/test_ingest_e2e.py holds the rest)."""
     import pathlib
     main_src = pathlib.Path("src/main.py").read_text()
-    assert "ingestion.pool" not in main_src and "worker_main" not in main_src and "Pool(" not in main_src
+    assert "worker_main" not in main_src and "Pool(" not in main_src
+    assert main_src.count("Ingest(") == 1
+    assert main_src.index("if settings.ingest_workers > 0:") < main_src.index("Ingest(")

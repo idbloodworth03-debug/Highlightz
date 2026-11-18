@@ -9916,23 +9916,72 @@ as now. Until that stage the switch must not be turned on in production.
      (`score_update`, the final "offline" + `stream_updated`) go through
      `host`. Also live on deploy; the whole app was booted locally with one
      saved channel and its worker started.
-   - **2b, next:** the worker-side remote (an object with `host`'s eight
-     methods that casts/calls over the `Link`, plus a mirror of that worker's
-     stream records, filled by `spawn`), `worker_main` handlers `spawn` and
-     `stop` calling `workers.spawn_worker` / `stop_worker`, and structlog set
-     up in the worker with error forwarding.
-   - **2c:** the web-side handlers for those casts and calls. `broadcast`
-     must apply `stream_status` / `stream_updated` to the real `_streams`
-     record before relaying it, for a key that worker owns and nothing else.
-   - **2d:** `INGEST_WORKERS` in `config/settings.py`; `main()` builds the
-     `Pool`; `_publish_new_stream` / `_publish_remove_stream` /
-     `restore_streams` route to `pool.link_for(channel)`; `on_ready` sends a
-     worker its channels; `on_lost` releases that shard's live slots and
-     marks its channels reconnecting.
-   - **2e:** an end-to-end test with real worker processes and a platform
-     that needs no network (the real ones need Twitch or Kick), then the
-     same by hand against one real channel.
-3. Profiles and Kick chat.
+   - **2b-2e, done (2026-11-18). A channel now runs in a worker process end
+     to end, behind `INGEST_WORKERS` (default 0). DO NOT SET IT IN PRODUCTION
+     YET: stage 3 is missing, see below.**
+     - `src/ingestion/remote.py` (`Remote`): `host._remote` in a worker. The
+       crossings over the `Link`, and the worker's MIRROR of its own stream
+       records (`remember` on spawn, `forget` on stop). **No answer from the
+       web process is always the careful answer**: no slot, nobody watching,
+       no Highlight room, nothing trimmed; the two clip hand-overs raise.
+       `score_update` is the one droppable message.
+     - `worker_main`: structlog set up as in `main.py` with `"ingest": i` on
+       every line; **errors are also sent to the web process** (`log_error`
+       -> `alerts.note`), because the owner's alert email is a tap on the web
+       process's log; handlers `spawn(record)` / `stop(channel, user_id)`
+       call `workers.spawn_worker` / `stop_worker`; its own Redis `JobQueue`
+       and orphan reaper.
+     - `src/dashboard/ingest.py` (`Ingest`): the web side. `publish_new` /
+       `publish_remove` (given to `set_stream_publisher` instead of the Redis
+       pair), `on_ready` (sends a worker every unpaused record it owns: this
+       replaces `restore_streams`), `on_lost` (releases that worker's slots,
+       marks its channels `reconnecting`, tells the tabs), and one handler
+       per crossing. **Three rules it enforces, each tested:** a worker
+       speaks only for channels that hash to it; "paused" is never replaced
+       and a paused or removed channel is never given a slot; a tab is sent
+       the web process's own record, of which a worker can change only
+       `status` and `preset`.
+     - `main.py`: `if settings.ingest_workers > 0` builds `Ingest`, logs
+       `ingest_split_on` as a warning, starts the pool instead of
+       `restore_streams()`, stops it on the way out.
+     - **Found on the way, and the kind of thing to keep looking for:**
+       `_cut_local_file` called `clip_files.trim_to_cap`, which decides what
+       to delete from the dashboard's clip records and, when it cannot read
+       them, falls back to "evict by age alone". In a worker that would have
+       deleted approved videos. It is now `host.trim_clip_store()` (only the
+       web process trims) and `trim_to_cap` itself refuses to run in a
+       worker. **A module that imports the dashboard lazily, inside a
+       function, with an `except Exception` round it, fails SILENTLY in a
+       worker.** Today those are `src/clips/files.py` (three lookups, all
+       behind the trim) and nothing else worker-side code calls; check again
+       before stage 5 (`grep -rn "from src.dashboard" src | grep -v
+       "^src/dashboard"`).
+     - **Verified:** `tests/test_ingest_e2e.py` (11; six start real worker
+       processes against the real dashboard module with a scripted stream
+       worker: channels land on their own worker, statuses and scores reach
+       the record and the right user, slots come from the web gate and are
+       refused when full, clips are handed over, a worker's error reaches
+       the alert tally, add/remove, a paused channel staying paused, a killed
+       worker's slots released and its channels back on its replacement with
+       the other worker untouched). `tests/test_ingest_host.py` (21),
+       `tests/test_ingest_split.py` (22). **The whole app booted locally with
+       `INGEST_WORKERS=2`:** the saved channel's REAL `StreamWorker` ran
+       inside a worker process (profile created, Twitch refused the empty
+       credentials, "reconnecting"), every line marked `"ingest"`, no import
+       of the dashboard attempted, 65 MB per idle worker, and the workers
+       exited with the web process. NOT verified: a real channel going live
+       in a worker (needs Twitch or Kick credentials and the network).
+3. **Profiles and Kick chat. NEXT, and what blocks production:**
+   - approve / reject / sensitivity / preset / undo in the dashboard change a
+     `StreamerProfile` in the WEB process's `ProfileManager` cache and save
+     it; with the split on, the worker holds its own copy of that profile,
+     never sees the change, and its next save (every 30 s) overwrites the
+     dashboard's. Six places in api.py (`get_profile_manager`).
+   - Kick chat is delivered to the web process (`kick_events._dispatch`
+     feeds `asyncio.Queue`s that, with the split on, nobody in the web
+     process is listening to), so a Kick channel in a worker has no chat.
+     `kick_events.ensure_subscribed` would also be called from the worker
+     and write `kick_event_subscriptions.json` from two processes.
 4. The gate per worker; admin page and `stream_cost` / `loop_profile` per
    process.
 5. Production: `INGEST_WORKERS=4`, watched, with the single-process mode one

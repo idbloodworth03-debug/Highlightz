@@ -470,6 +470,20 @@ def trim_to_cap(keep_ids: set | None = None, exempt_ids: set | None = None,
 
     Returns the number of files removed.
     """
+    # NEVER IN AN INGEST WORKER (the split, 2026-11-18). What may be deleted
+    # is decided from the dashboard's clip records, which a worker process
+    # cannot see; the lookups below would come back empty and this would
+    # evict by age alone, approved videos included. A worker asks the web
+    # process instead (src/ingestion/host.trim_clip_store). This is the
+    # second lock on that door.
+    try:
+        from src.ingestion import host as _host
+        if _host._remote is not None:               # noqa: SLF001
+            log.error("clip_trim_refused_in_worker")
+            return 0
+    except ImportError:
+        pass
+
     cap = settings.clip_file_max_total_mb * MB
     if not cap:
         return 0
