@@ -987,6 +987,50 @@ def set_review_prompt_state(user_id: str, state: dict) -> None:
             return
 
 
+# WHEN AN ACCOUNT STARTED PAYING (`paying_since`). Owner, 2026-11-18: "Give me
+# a paying section that shows the different paying users from the different
+# time increments". Nothing recorded it: the record held a status, not the day
+# the status began, so "who started paying today" could not be answered.
+#
+# It is the moment a subscription becomes `active` from a state that was NOT
+# already a paid one: never subscribed, cancelled, expired, a first payment
+# confirming (`incomplete`), or a trial reaching its first charge (`trialing`).
+# A card that was failing and went through (`past_due` -> `active`) is the SAME
+# paying customer, not a new one, so the date they first paid is kept. Leaving
+# `active` keeps the date too: it is only ever read for an account that is
+# paying now. Accounts that were already paying when this was added get theirs
+# from Stripe's own record, by the hourly check (api.reconcile_one_user).
+_STILL_THE_SAME_CUSTOMER = ("active", "past_due")
+
+
+def _note_paying(u: dict, status: str, now: float | None = None) -> None:
+    """Call BEFORE writing `status` onto `u`."""
+    if status == "active" and u.get("subscription_status") not in _STILL_THE_SAME_CUSTOMER:
+        u["paying_since"] = time.time() if now is None else now
+
+
+def set_paying_since(user_id: str, when: float) -> bool:
+    """Record when this account started paying, ONLY IF nothing is recorded:
+    what Stripe says about a subscriber who was paying before the date was
+    kept. A date written at the moment it happened is never replaced by this.
+    True if it was written."""
+    try:
+        when = float(when)
+    except (TypeError, ValueError):
+        return False
+    if when <= 0:
+        return False
+    users = _load()
+    for u in users:
+        if u["id"] == user_id:
+            if u.get("paying_since"):
+                return False
+            u["paying_since"] = when
+            _save(users)
+            return True
+    return False
+
+
 def update_subscription(user_id: str, customer_id: str | None, status: str,
                         trial_ends_at: float | None = None) -> None:
     """Called by Stripe webhook to sync subscription state by user ID.
@@ -1005,6 +1049,7 @@ def update_subscription(user_id: str, customer_id: str | None, status: str,
         if u["id"] == user_id:
             if customer_id:
                 u["stripe_customer_id"] = customer_id
+            _note_paying(u, status)
             u["subscription_status"] = status
             if trial_ends_at is not None:
                 u["trial_ends_at"] = trial_ends_at
@@ -1285,6 +1330,7 @@ def update_subscription_by_customer(customer_id: str, status: str,
     found_id = None
     for u in users:
         if u.get("stripe_customer_id") == customer_id:
+            _note_paying(u, status)
             u["subscription_status"] = status
             if trial_ends_at is not None:
                 u["trial_ends_at"] = trial_ends_at

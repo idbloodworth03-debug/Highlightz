@@ -6410,6 +6410,13 @@ async def reconcile_one_user(user: dict) -> dict:
     # subscriber whose webhook never carried a price gets one: within the hour.
     if truth.get("monthly") is not None and truth["status"] in ("active", "trialing", "past_due"):
         _rc_store.set_billing(uid, truth.get("price_id"), truth["monthly"])
+    # When they started paying, for a subscriber whose record predates that
+    # being kept (the admin page's "Started paying" rows). Only ever fills an
+    # empty date, and like the price it is recorded quietly: nothing the user
+    # sees changes. A status this very check just turned `active` already got
+    # its date from update_subscription above, so Stripe's is not needed.
+    if truth["status"] == "active" and truth.get("paying_since"):
+        _rc_store.set_paying_since(uid, truth["paying_since"])
 
     result = {"ok": True, "drift": drift, "stripe_status": truth["raw"],
               "app_status": truth["status"], "plan": truth["plan"],
@@ -9690,27 +9697,71 @@ def _joined_windows(now: float, tz_name: str = "") -> dict:
     return {k: (label, *spans[k]) for k, label in _JOINED_LABELS}
 
 
+# The "Started paying" rows of the Users tile (owner, 2026-11-18: "Give me a
+# paying section that shows the different paying users from the different time
+# increments"). The SAME five windows as Joined, counted by when the account
+# started paying (`paying_since`, users._note_paying) instead of when it was
+# created, and only for accounts that are paying now by the Paying tile's own
+# rule (_counts_as_paying), so these rows can never add up to more than it.
+_PAYING_LABELS = {"hour": "Started paying in the last hour", "today": "Started paying today",
+                  "yesterday": "Started paying yesterday", "week": "Started paying this week",
+                  "last_week": "Started paying last week"}
+
+
+def _paying_since(u: dict) -> float:
+    try:
+        return float(u.get("paying_since") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _started_paying(customers: list, now: float, tz_name: str = "") -> tuple[dict, int]:
+    """({window: how many paying accounts started paying in it}, how many
+    paying accounts have no date yet). The second is not zero only until the
+    hourly Stripe check has filled in subscribers from before the date was
+    kept; the tile says so rather than showing a count that quietly leaves
+    them out."""
+    paying = [u for u in customers if _counts_as_paying(u)]
+    since = [_paying_since(u) for u in paying]
+    counts = {k: sum(1 for t in since if t and a <= t < b)
+              for k, (_, a, b) in _joined_windows(now, tz_name).items()}
+    return counts, sum(1 for t in since if not t)
+
+
 @app.get("/admin/new-users")
-async def admin_new_users(request: Request, window: str = "today", tz: str = ""):
+async def admin_new_users(request: Request, window: str = "today", tz: str = "",
+                          kind: str = "joined"):
     """WHO joined in one of the Users tile's sign-up windows (owner,
     2026-11-16: "view new users that sign up today"). Same accounts the tile
     counts: staff are not listed, and the day and the week are the viewer's.
-    Newest first. Capped, with `more` saying how many were left off."""
+    Newest first. Capped, with `more` saying how many were left off.
+
+    `kind=paying`: who STARTED PAYING in the window instead (the tile's
+    "Started paying" rows): paying accounts by `paying_since`, newest first."""
     _require_admin(request)
     import collections
     from src.auth import users as user_store
     from src.billing import plans
     now = time.time()
     windows = _joined_windows(now, tz)
-    if window not in windows:
+    if window not in windows or kind not in ("joined", "paying"):
         raise HTTPException(status_code=400, detail="Unknown window")
     label, start, until = windows[window]
+    by_paying = kind == "paying"
+    if by_paying:
+        label = _PAYING_LABELS[window]
     listed = collections.Counter(k.split(":", 1)[0] for k in _streams if ":" in k)
     rows = []
     for u in user_store.get_all():
         uid = u.get("id")
         joined = float(u.get("created_at") or 0)
-        if not uid or u.get("is_admin") or not (start <= joined < until):
+        if not uid or u.get("is_admin"):
+            continue
+        if by_paying:
+            started = _paying_since(u)
+            if not (_counts_as_paying(u) and started and start <= started < until):
+                continue
+        elif not (start <= joined < until):
             continue
         plan = plans.get_plan(u)
         rows.append({
@@ -9724,10 +9775,16 @@ async def admin_new_users(request: Request, window: str = "today", tz: str = "")
             "joined": joined, "found_via": str(u.get("found_via") or ""),
             "last_active": _last_seen(u), "tabs": len(_ws_clients.get(uid) or ()),
             "channels": listed.get(uid, 0),
+            # When they started paying (0 when not paying, or not yet known),
+            # and what Stripe charges them a month.
+            "paying_since": _paying_since(u) if _counts_as_paying(u) else 0,
+            "monthly": plans.billed_monthly(u) if _counts_as_paying(u) else 0,
         })
-    rows.sort(key=lambda r: (-r["joined"], r["name"].lower()))
-    return {"window": window, "label": label, "count": len(rows), "start": start,
+    order = "paying_since" if by_paying else "joined"
+    rows.sort(key=lambda r: (-r[order], r["name"].lower()))
+    return {"window": window, "kind": kind, "label": label, "count": len(rows), "start": start,
             "paying": sum(1 for r in rows if r["paying"]),
+            "monthly": round(sum(r["monthly"] for r in rows), 2),
             "rows": rows[:_ACTIVE_LIST_MAX], "more": max(0, len(rows) - _ACTIVE_LIST_MAX)}
 
 
@@ -9845,6 +9902,7 @@ async def admin_overview(request: Request, tz: str = ""):
     # viewer is. The same windows /admin/new-users lists.
     joined = {k: sum(1 for u in customers if a <= (u.get("created_at") or 0) < b)
               for k, (_, a, b) in _joined_windows(now, tz).items()}
+    paying_new, paying_undated = _started_paying(customers, now, tz)
     day_start = _day_bounds(now, tz)[0]
 
     # ACTIVE USERS (owner, 2026-11-11: "how many people have been online in
@@ -9902,6 +9960,9 @@ async def admin_overview(request: Request, tz: str = ""):
             # The last 60 minutes, rolling. The same window /admin/new-users
             # lists for `hour`, so the row and its list cannot disagree.
             "new_hour": joined["hour"],
+            # How many of the paying started paying in each of the same five
+            # windows, and how many have no start date yet (_started_paying).
+            "paying_new": paying_new, "paying_undated": paying_undated,
             "day_start": day_start,
         },
         "active": active,
@@ -16672,6 +16733,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   #rail{grid-template-columns:2fr repeat(5,minmax(0,1fr))}
   .ov-list{margin-top:var(--s-3);font-size:12px;color:var(--ink-2)}
   .ov-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 var(--s-5)}
+  .ov-wide{grid-column:1 / -1;margin-top:var(--s-3)}
   .ov-grp{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--ink-3);margin:0 0 var(--s-1);padding-bottom:var(--s-1);border-bottom:1px solid var(--hair)}
   .ov-row{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);width:100%;
@@ -18775,20 +18837,37 @@ async function loadOverview(){
   // is a button: it lists who (loadNewList), and pressing it again closes.
   const wk = u.week_start ? new Date(u.week_start * 1000).toLocaleDateString('en-US',
     {month:'short', day:'numeric', timeZone: u.week_tz || 'UTC'}) : '';
-  const prow = (key, label, n) => '<button type="button" class="ov-row ov-pick' + (NEW_WIN === key ? ' on' : '')
-    + '" data-new="' + key + '" title="Show who"><span>' + label + '</span><b>' + n0(n || 0) + '</b></button>';
+  const prow = (key, label, n, kind) => '<button type="button" class="ov-row ov-pick'
+    + (NEW_WIN === key && NEW_KIND === (kind || 'joined') ? ' on' : '')
+    + '" data-new="' + key + '" data-kind="' + (kind || 'joined') + '" title="Show who"><span>' + label
+    + '</span><b>' + n0(n || 0) + '</b></button>';
   // "Last hour" is the 60 minutes up to now, rolling; it moves by itself
   // because this whole tile is re-read every 30 seconds.
   oh += '</div><div><div class="ov-grp">Joined</div>' + prow('hour', 'Last hour', u.new_hour)
     + prow('today', 'Today', u.new_today)
     + prow('yesterday', 'Yesterday', u.new_yesterday) + prow('week', 'This week', u.new_this_week)
-    + prow('last_week', 'Last week', u.new_last_week) + '</div></div>';
+    + prow('last_week', 'Last week', u.new_last_week) + '</div>';
+  // Started paying (owner, 2026-11-18): the same five windows as Joined, by
+  // when the account STARTED PAYING rather than when it was created, and only
+  // accounts that are paying now, so these can never exceed the Paying row.
+  // Each row lists who, as the Joined rows do.
+  const pn = u.paying_new || {};
+  oh += '<div class="ov-wide"><div class="ov-grp">Started paying</div><div class="ov-cols">'
+    + '<div>' + prow('hour', 'Last hour', pn.hour, 'paying') + prow('today', 'Today', pn.today, 'paying')
+    + prow('yesterday', 'Yesterday', pn.yesterday, 'paying') + '</div>'
+    + '<div>' + prow('week', 'This week', pn.week, 'paying') + prow('last_week', 'Last week', pn.last_week, 'paying')
+    + '</div></div></div></div>';
   oh += '<div class="ov-note">' + (wk ? 'Week began Sun, ' + wk + '. ' : '')
-    + (u.admins ? n0(u.admins) + ' staff not counted.' : '') + '</div>';
+    + (u.admins ? n0(u.admins) + ' staff not counted.' : '')
+    // Subscribers from before the start date was kept: Stripe is asked for
+    // theirs by the hourly check, so this line goes away by itself.
+    + (u.paying_undated ? ' ' + n0(u.paying_undated) + ' of the paying have no start date yet;'
+        + ' it is read from Stripe within the hour.' : '') + '</div>';
   const us = document.getElementById('ov-users-s');
   if(us){
     us.innerHTML = oh;
-    us.title = 'Last hour is the 60 minutes up to now. Days run 12:00 AM to 12:00 AM and weeks Sunday 12:00 AM to the next Sunday 12:00 AM, '
+    us.title = 'Started paying counts accounts that are paying now, by when their subscription first became paid. '
+      + 'Last hour is the 60 minutes up to now. Days run 12:00 AM to 12:00 AM and weeks Sunday 12:00 AM to the next Sunday 12:00 AM, '
       + (u.week_tz === 'UTC' ? 'UTC' : (u.week_tz || 'UTC').split('_').join(' ') + ' time') + '. Staff are not counted.';
   }
   set('ov-paying', n0(u.paying));
@@ -18863,33 +18942,48 @@ async function loadOverview(){
 // to begin with, so the panel is hidden; it is re-read with the tiles (every
 // 30 s) while it is open, so somebody signing up appears in it by itself.
 let NEW_WIN = '';
+// Which group the picked row is in: 'joined' (accounts created in the window)
+// or 'paying' (accounts that started paying in it).
+let NEW_KIND = 'joined';
 async function loadNewList(){
   const box = document.getElementById('new-list');
   if(!box) return;
   if(!NEW_WIN){ box.hidden = true; box.innerHTML = ''; return; }
-  const want = NEW_WIN;
+  const want = NEW_WIN, kind = NEW_KIND;
   let d;
-  try { d = await api('/admin/new-users?window=' + encodeURIComponent(want) + '&tz=' + encodeURIComponent(viewerZone())); } catch(e){ return; }
-  if(want !== NEW_WIN) return;                    // a newer pick is already on its way
+  try { d = await api('/admin/new-users?window=' + encodeURIComponent(want) + '&kind=' + encodeURIComponent(kind)
+                      + '&tz=' + encodeURIComponent(viewerZone())); } catch(e){ return; }
+  if(want !== NEW_WIN || kind !== NEW_KIND) return;   // a newer pick is already on its way
+  const paid = kind === 'paying';
   const rows = d.rows || [];
   const byDay = want === 'hour' || want === 'today' || want === 'yesterday';
   const when = ts => new Date(ts * 1000).toLocaleString('en-US', byDay
     ? {hour:'numeric', minute:'2-digit'} : {weekday:'short', hour:'numeric', minute:'2-digit'});
+  // The day an account was created, for the "Joined" column of the paying
+  // list: it can be weeks before the day it started paying.
+  const day = ts => ts ? new Date(ts * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '\u2014';
   let html = '<h3>' + esc(d.label) + ' &middot; ' + n0(d.count) + (d.count === 1 ? ' account' : ' accounts')
-    + (d.paying ? ' <span>&middot; ' + n0(d.paying) + ' paying</span>' : '')
+    + (paid ? (d.monthly ? ' <span>&middot; $' + n0(d.monthly) + ' a month</span>' : '')
+            : (d.paying ? ' <span>&middot; ' + n0(d.paying) + ' paying</span>' : ''))
     + '<button type="button" class="btn" id="new-close">Close</button></h3>';
   if(!rows.length){
-    html += '<p class="sub">' + (want === 'hour' ? 'Nobody has signed up in the last hour.'
-      : want === 'today' ? 'Nobody has signed up yet today.' : 'Nobody signed up in this window.') + '</p>';
+    html += '<p class="sub">' + (paid
+      ? (want === 'hour' ? 'Nobody has started paying in the last hour.'
+         : want === 'today' ? 'Nobody has started paying yet today.' : 'Nobody started paying in this window.')
+      : (want === 'hour' ? 'Nobody has signed up in the last hour.'
+         : want === 'today' ? 'Nobody has signed up yet today.' : 'Nobody signed up in this window.')) + '</p>';
   } else {
-    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Plan</th><th>Joined</th><th>Found us via</th><th>Last active</th><th>Channels</th></tr></thead><tbody>';
+    html += '<div class="tw"><table><thead><tr><th>Account</th><th>Plan</th>'
+      + (paid ? '<th>Started paying</th><th>Joined</th>' : '<th>Joined</th>')
+      + '<th>Found us via</th><th>Last active</th><th>Channels</th></tr></thead><tbody>';
     rows.forEach(function(r){
       html += '<tr><td><span class="act-name"><span class="' + (r.tabs ? 'dot dot-live' : 'dot dot-offline') + '"></span>'
         + '<button class="btn act-open" data-uid="' + esc(r.id) + '" title="Open this account">' + esc(r.name) + '</button>'
         + (r.platform === 'kick' ? ' <span class="sub">Kick</span>' : '') + '</span></td>'
         + '<td><span class="' + planClass(r.plan) + '">' + esc(r.plan_label) + '</span>'
         + (r.trial ? ' <span class="sub">trial</span>' : r.paying ? ' <span class="sub">paying</span>' : '') + '</td>'
-        + '<td>' + esc(when(r.joined)) + '</td>'
+        + (paid ? '<td>' + esc(when(r.paying_since)) + '</td><td>' + esc(day(r.joined)) + '</td>'
+                : '<td>' + esc(when(r.joined)) + '</td>')
         + '<td>' + (r.found_via ? esc(FU_LABELS[r.found_via] || r.found_via) : '&mdash;') + '</td>'
         + '<td>' + (r.last_active ? esc(ago(r.last_active)) : '&mdash;') + '</td>'
         + '<td class="num">' + n0(r.channels) + '</td></tr>';
@@ -18900,16 +18994,20 @@ async function loadNewList(){
   box.hidden = false;
   box.innerHTML = html;
 }
-function pickNew(key){
-  NEW_WIN = NEW_WIN === key ? '' : key;           // the same row again closes it
+function pickNew(key, kind){
+  kind = kind || NEW_KIND;
+  const same = NEW_WIN === key && NEW_KIND === kind;
+  NEW_WIN = same ? '' : key;                      // the same row again closes it
+  NEW_KIND = kind;
   document.querySelectorAll('#ov-users-s .ov-pick').forEach(function(b){
-    b.classList.toggle('on', b.getAttribute('data-new') === NEW_WIN);
+    b.classList.toggle('on', !!NEW_WIN && b.getAttribute('data-new') === NEW_WIN
+      && (b.getAttribute('data-kind') || 'joined') === NEW_KIND);
   });
   loadNewList();
 }
 document.getElementById('ov-users-s').addEventListener('click', function(e){
   const b = e.target.closest ? e.target.closest('.ov-pick') : null;
-  if(b) pickNew(b.getAttribute('data-new'));
+  if(b) pickNew(b.getAttribute('data-new'), b.getAttribute('data-kind') || 'joined');
 });
 
 // WHO is in the selected Active users tile. Starts on "Tab open now". Read

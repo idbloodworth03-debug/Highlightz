@@ -9916,6 +9916,68 @@ sideways scroll. **And seen moving:** with the page left open, an account
 added to the store turned the row to 3 and joined the open list 30 seconds
 later with no reload.
 
+## Admin: who STARTED PAYING, by the same five windows (2026-11-18)
+
+**Owner** (with a screenshot of the Users tile): "Give me a paying section
+that shows the different paying users from the different time increments". A
+third group in the Users tile, **Started paying**, under Plans and Joined:
+Last hour / Today / Yesterday / This week / Last week. Each row is a button
+that lists who (name, plan, when they started paying, the day they joined,
+found us via, last active, channels) with what those accounts are charged a
+month in the heading.
+
+- **Nothing recorded when an account started paying**, only its status now.
+  The account record gains `paying_since`
+  (`users._note_paying`, called by both subscription writers BEFORE the status
+  is written): the moment a subscription becomes `active` from a state that
+  was not already a paid one (never subscribed, cancelled, expired, a first
+  payment confirming, a trial reaching its first charge).
+  - A card that was failing and went through (`past_due` to `active`) is the
+    SAME customer: the date is kept. Stopping keeps the date too (it is only
+    read for accounts paying now); coming back writes a new one.
+  - A comped plan (`grant_plan`) does not go through those writers and never
+    gets a date; it is not counted as paying anywhere on the page either.
+- **Subscribers from before this existed** have no date. The hourly Stripe
+  check (`reconcile_one_user`) fills it from Stripe's own record
+  (`stripe_billing.paying_since_of`: the subscription's start, or the end of
+  its trial if it had one), only for an `active` account, and only when the
+  date is empty (`users.set_paying_since`): a date written when it happened is
+  never replaced. First run is about two minutes after a restart. Until then
+  the tile says how many of the paying have no start date yet instead of
+  leaving them out silently (`users.paying_undated`); the line goes away by
+  itself.
+- **Who is counted:** accounts paying NOW by the Paying tile's own rule
+  (`_counts_as_paying`), by `paying_since`, in the windows Joined uses
+  (`_joined_windows`), so no row can exceed the Paying figure and the count
+  (`users.paying_new` in `/admin/overview`) and the list
+  (`/admin/new-users?kind=paying`) cannot disagree. Somebody who started
+  paying this week and has already cancelled is not in it: it answers "who of
+  my paying accounts are new", not "how many sign-ups to paid were there".
+- The page tells the two groups apart by `data-kind` on the row and
+  `NEW_KIND` beside `NEW_WIN`: "Today" under Joined and "Today" under Started
+  paying open different lists and light up separately.
+- **It moves by itself**, like the rest of that tile: re-read every 30
+  seconds. No new event, nothing in the user dashboard.
+
+Blast radius: one more field on the account record, written only where a
+subscription status is already being written; one more key in what the Stripe
+check returns; two more numbers in the overview payload; an optional `kind`
+on an admin-only list. Nothing a user sees. Tests: eight in
+`tests/test_admin_panel.py` (when the date is and is not written; leaving and
+coming back; Stripe's date only fills an empty one; how Stripe's record is
+read; the hourly check fills an old subscriber and not a trial; the counts;
+the list; the tile).
+**Seen in a browser** against the real app (1280 and 390 px, New York time):
+the third group under the other two with no sideways scroll, each of the five
+rows opening its own list, the same row again closing it, "This week" under
+Joined and under Started paying opening different lists, no page errors.
+**And seen moving:** with the "Last hour" list open, an account that became
+paying in the store turned the row from 2 to 3 and joined the open list 30
+seconds later with no reload.
+**Not seen:** the fill-in from Stripe against real Stripe (it is tested with
+Stripe's answer stubbed). If the line about missing start dates is still
+there an hour after a deploy, that is the thing to look at.
+
 ## What security is in place: an inventory, and `scripts/security_check.py` (2026-11-18)
 
 **Owner:** "what security measures do i have in place currently on my server,

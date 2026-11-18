@@ -20,6 +20,7 @@ Membership had the same shape of problem: the table showed the raw stored
 `plan`, which disagrees with what the user actually has in four separate cases.
 """
 
+import asyncio
 import base64
 import json as _j
 import time
@@ -1010,11 +1011,15 @@ def test_a_joined_row_is_a_button_that_lists_who():
     h, js = api.ADMIN_HTML, _admin_js()
     assert '<div id="new-list" class="act-list" hidden></div>' in h, "the list shows before a row is picked"
     assert '<button type="button" class="ov-row ov-pick' in js and 'data-new="' in js
-    assert "let NEW_WIN = '';" in h and "function pickNew(key){" in h
-    assert "api('/admin/new-users?window=' + encodeURIComponent(want) + '&tz=' + encodeURIComponent(viewerZone()))" in h
+    assert "let NEW_WIN = '';" in h and "function pickNew(key, kind){" in h
+    assert ("api('/admin/new-users?window=' + encodeURIComponent(want) + '&kind=' + encodeURIComponent(kind)" in h
+            and "+ '&tz=' + encodeURIComponent(viewerZone()))" in h)
     # Re-read with the tiles every 30 s, so a new sign-up appears by itself.
     assert "loadNewList();" in js
-    assert "NEW_WIN = NEW_WIN === key ? '' : key;" in h, "pressing the open row again no longer closes it"
+    # The same row of the same group again closes it (a row of the other
+    # group with the same window is a different row: it opens its own list).
+    assert "const same = NEW_WIN === key && NEW_KIND === kind;" in h
+    assert "NEW_WIN = same ? '' : key;" in h, "pressing the open row again no longer closes it"
     assert "esc(FU_LABELS[r.found_via] || r.found_via)" in h, "an answer is spliced into the page unescaped"
     assert "onclick=" not in h, "the admin page allows no inline handlers"
 
@@ -1107,3 +1112,197 @@ def test_last_hour_is_the_first_row_of_joined_and_opens_its_list():
     # It moves by itself: the tile and the open list are re-read every 30 s.
     assert "setInterval(function(){ if(!document.hidden) loadOverview(); }, 30000);" in h
     assert "loadNewList();" in js
+
+
+# ── Started paying, by the same five windows (owner, 2026-11-18) ─────────────
+# "Give me a paying section that shows the different paying users from the
+# different time increments". Nothing recorded WHEN an account started paying,
+# so the record gains `paying_since`; the tile gains a third group counted by
+# it, and each row lists who.
+
+@pytest.fixture
+def people_store(monkeypatch):
+    """The real writers, over a list in memory."""
+    from src.auth import users as user_store
+    rows = [{"id": "a", "username": "a", "subscription_status": "none"},
+            {"id": "b", "username": "b", "subscription_status": "trialing", "stripe_customer_id": "cus_b"},
+            {"id": "c", "username": "c", "subscription_status": "past_due", "stripe_customer_id": "cus_c",
+             "paying_since": 111.0},
+            {"id": "d", "username": "d", "subscription_status": "active", "stripe_customer_id": "cus_d"}]
+    monkeypatch.setattr(user_store, "_load", lambda: rows)
+    monkeypatch.setattr(user_store, "_save", lambda users: None)
+    return user_store, {r["id"]: r for r in rows}
+
+
+def test_the_day_an_account_starts_paying_is_written_when_it_happens(people_store):
+    store, who = people_store
+    t0 = time.time()
+    store.update_subscription("a", "cus_a", "active")                 # never subscribed -> paying
+    assert t0 <= who["a"]["paying_since"] <= time.time()
+    store.update_subscription_by_customer("cus_b", "active")          # a trial reaching its first charge
+    assert t0 <= who["b"]["paying_since"] <= time.time()
+    # A card that was failing and went through is the SAME customer: the day
+    # they first paid stays. And an account already paying is not restarted.
+    store.update_subscription("c", "cus_c", "active")
+    assert who["c"]["paying_since"] == 111.0
+    store.update_subscription("d", "cus_d", "active")
+    assert "paying_since" not in who["d"]
+
+
+def test_leaving_keeps_the_date_and_coming_back_starts_a_new_one(people_store):
+    store, who = people_store
+    store.update_subscription("a", "cus_a", "active")
+    first = who["a"]["paying_since"]
+    store.update_subscription("a", "cus_a", "past_due")               # the card starts failing
+    store.update_subscription("a", "cus_a", "inactive")               # Stripe gives up
+    assert who["a"]["paying_since"] == first, "the date was lost when they stopped paying"
+    who["a"]["paying_since"] = first - 5000                           # (a while ago)
+    store.update_subscription("a", "cus_a", "active")                 # they subscribe again
+    assert who["a"]["paying_since"] > first, "a returning subscriber kept their old start"
+    # A status that is not `active` never writes one.
+    for status in ("trialing", "past_due", "incomplete", "canceled"):
+        store.update_subscription("d", "cus_d", "inactive")
+        who["d"].pop("paying_since", None)
+        store.update_subscription("d", "cus_d", status)
+        assert "paying_since" not in who["d"], status
+
+
+def test_stripes_date_only_fills_an_empty_one(people_store):
+    store, who = people_store
+    assert store.set_paying_since("d", 5000.0) is True and who["d"]["paying_since"] == 5000.0
+    assert store.set_paying_since("d", 9000.0) is False and who["d"]["paying_since"] == 5000.0
+    assert store.set_paying_since("c", 9000.0) is False and who["c"]["paying_since"] == 111.0
+    for junk in (0, -4, None, "soon"):
+        assert store.set_paying_since("a", junk) is False
+    assert "paying_since" not in who["a"] and store.set_paying_since("nobody", 5.0) is False
+
+
+def test_when_stripe_says_a_subscription_began_to_be_paid_for():
+    from src.billing.stripe_billing import paying_since_of
+    now = 2_000_000.0
+    assert paying_since_of({"start_date": 1000, "created": 900}, now) == 1000.0
+    assert paying_since_of({"created": 900}, now) == 900.0
+    # A card-up-front trial: paid from the day the trial ended, not the day it began.
+    assert paying_since_of({"start_date": 1000, "trial_end": 608_000}, now) == 608_000.0
+    # A trial still running has not been paid for; the caller only stores an `active` one.
+    assert paying_since_of({"start_date": 1000, "trial_end": now + 50}, now) == 1000.0
+
+    class Sub:                                           # stripe-python's objects are not dicts
+        start_date, trial_end, created = 4000, None, 3900
+    assert paying_since_of(Sub(), now) == 4000.0
+    assert paying_since_of({}, now) is None and paying_since_of({"start_date": "x"}, now) is None
+
+
+def test_the_hourly_check_fills_in_subscribers_from_before_the_date_was_kept(monkeypatch):
+    from src.auth import users as user_store
+    from src.billing import stripe_billing
+    from src.dashboard import api
+    rows = [{"id": "old", "username": "old", "subscription_status": "active",
+             "stripe_customer_id": "cus_old", "plan": "pro"},
+            {"id": "trial", "username": "trial", "subscription_status": "trialing",
+             "stripe_customer_id": "cus_trial", "plan": "pro"}]
+    monkeypatch.setattr(user_store, "_load", lambda: rows)
+    monkeypatch.setattr(user_store, "_save", lambda users: None)
+    monkeypatch.setattr(user_store, "get_by_id", lambda uid: next((dict(r) for r in rows if r["id"] == uid), None))
+
+    async def truth(cust):
+        return {"status": "active" if cust == "cus_old" else "trialing", "plan": "pro", "raw": "x",
+                "trial_end": 0, "subscription": "sub", "price_id": None, "monthly": None,
+                "paying_since": 1_700_000_000.0}
+    monkeypatch.setattr(stripe_billing, "authoritative_subscription", truth)
+    for r in rows:
+        assert asyncio.run(api.reconcile_one_user(dict(r)))["drift"] == []     # quiet: nothing the user sees
+    assert rows[0]["paying_since"] == 1_700_000_000.0
+    assert "paying_since" not in rows[1], "an account on trial was given a paying date"
+    rows[0]["paying_since"] = 42.0
+    asyncio.run(api.reconcile_one_user(dict(rows[0])))
+    assert rows[0]["paying_since"] == 42.0, "Stripe's date replaced one written when it happened"
+
+
+@pytest.fixture
+def paying_people(client, monkeypatch):
+    from src.auth import users as user_store
+    now = time.time()
+
+    def paying(uid, started, **kw):
+        base = {"id": uid, "username": uid, "created_at": now - 60 * 86400, "subscription_status": "active",
+                "stripe_customer_id": "cus_" + uid, "plan": "pro", "monthly_price": 25.0}
+        if started is not None:
+            base["paying_since"] = started
+        base.update(kw)
+        return base
+    people = [
+        dict(PEOPLE["boss"], created_at=now - 30, paying_since=now - 30),       # staff: never counted
+        paying("p_now", now - 120, created_at=now - 3 * 86400),
+        paying("p_hour", now - 3500, monthly_price=15.0),
+        paying("p_old", now - 200 * 86400),
+        paying("p_undated", None),                                              # from before the date was kept
+        paying("gift", now - 60, plan_source="granted"),                        # comped: not paying
+        paying("nocard", now - 60, stripe_customer_id=""),                      # no Stripe customer: not paying
+        {"id": "trial", "username": "trial", "subscription_status": "trialing", "paying_since": now - 60,
+         "stripe_customer_id": "cus_t", "created_at": now - 86400},
+        {"id": "left", "username": "left", "subscription_status": "inactive", "paying_since": now - 60,
+         "stripe_customer_id": "cus_l", "created_at": now - 86400},
+        {"id": "free", "username": "free", "created_at": now - 100},
+    ]
+    monkeypatch.setattr(user_store, "get_all", lambda: [dict(p) for p in people])
+    # `nova` stays a real, signed-in, non-admin account for the admin-only check
+    # (a session whose account does not exist is sent to the sign-in page).
+    monkeypatch.setattr(user_store, "get_by_id",
+                        lambda uid: next((p for p in people if p["id"] == uid), None) or PEOPLE.get(uid))
+    return client
+
+
+def test_the_overview_counts_who_started_paying_in_each_window(paying_people):
+    u = paying_people.login("boss").get("/admin/overview?tz=America/New_York").json()["users"]
+    assert u["paying"] == 4, "four accounts are paying: p_now, p_hour, p_old, p_undated"
+    assert u["paying_new"]["hour"] == 2, "p_now and p_hour; not staff, a gift, a trial or someone who left"
+    assert set(u["paying_new"]) == {"hour", "today", "yesterday", "week", "last_week"}
+    assert u["paying_undated"] == 1
+    # However the day and the week fall, no window can hold more than are paying.
+    assert all(0 <= n <= u["paying"] for n in u["paying_new"].values())
+    assert u["paying_new"]["today"] + u["paying_new"]["yesterday"] >= 2
+    # Joined is still its own count: p_now paid two minutes ago and joined three days ago.
+    assert u["new_hour"] == 1, "only `free` was created in the last hour"
+
+
+def test_the_list_behind_a_paying_row_is_those_people_newest_first(paying_people):
+    r = paying_people.login("boss").get("/admin/new-users?window=hour&kind=paying&tz=America/New_York")
+    d = r.json()
+    assert r.status_code == 200 and d["kind"] == "paying" and d["label"] == "Started paying in the last hour"
+    assert [x["name"] for x in d["rows"]] == ["p_now", "p_hour"] and d["count"] == 2
+    assert d["monthly"] == 40.0, "what the two of them are charged a month"
+    first = d["rows"][0]
+    assert first["paying"] is True and first["plan_label"] == "Pro"
+    assert first["paying_since"] > first["joined"], "the day they joined and the day they paid are both there"
+    u = paying_people.login("boss").get("/admin/overview").json()["users"]
+    assert d["count"] == u["paying_new"]["hour"], "the row says one number and the list under it shows another"
+    # The Joined list is what it was, and says for each account whether it pays.
+    j = paying_people.login("boss").get("/admin/new-users?window=hour").json()
+    assert j["kind"] == "joined" and [x["name"] for x in j["rows"]] == ["free"] and j["rows"][0]["paying_since"] == 0
+    assert paying_people.login("boss").get("/admin/new-users?window=hour&kind=nonsense").status_code == 400
+    assert paying_people.login("nova").get("/admin/new-users?window=hour&kind=paying").status_code == 403
+
+
+def test_started_paying_is_a_third_group_of_the_users_tile_and_each_row_lists_who():
+    from src.dashboard import api
+    h, js, css = api.ADMIN_HTML, _admin_js(), _admin_css()
+    grp = js[js.index('<div class="ov-grp">Started paying</div>'):]
+    for key, label in (("hour", "Last hour"), ("today", "Today"), ("yesterday", "Yesterday"),
+                       ("week", "This week"), ("last_week", "Last week")):
+        assert f"prow('{key}', '{label}', pn.{key}, 'paying')" in grp, key
+    assert js.index('<div class="ov-grp">Joined</div>') < js.index('<div class="ov-grp">Started paying</div>')
+    assert ".ov-wide{grid-column:1 / -1" in css, "the third group no longer runs the width of the tile"
+    # A row knows which group it is in, so "Today" under Joined and "Today"
+    # under Started paying open different lists and light up separately.
+    assert "data-kind=\"' + (kind || 'joined') + '\"" in js and "let NEW_KIND = 'joined';" in h
+    assert "(b.getAttribute('data-kind') || 'joined') === NEW_KIND" in h
+    assert "pickNew(b.getAttribute('data-new'), b.getAttribute('data-kind') || 'joined')" in h
+    assert "if(want !== NEW_WIN || kind !== NEW_KIND) return;" in h
+    # The paying list shows when they started paying AND when they joined.
+    assert "'<th>Started paying</th><th>Joined</th>'" in h and "esc(when(r.paying_since))" in h
+    assert "Nobody has started paying in the last hour." in h and "Nobody has started paying yet today." in h
+    # Subscribers with no date yet are said, not silently left out.
+    assert "of the paying have no start date yet;" in js and "it is read from Stripe within the hour." in js
+    assert "Started paying counts accounts that are paying now" in js
+    assert "onclick=" not in h

@@ -379,6 +379,26 @@ async def live_subscriptions_by_user() -> list[dict] | None:
     return out
 
 
+def paying_since_of(sub, now: float | None = None) -> float | None:
+    """When this subscription began to be PAID for, from Stripe's own record.
+
+    `start_date` (or `created`) is when the subscription began; a card-up-front
+    trial begins there too but is not paid for until `trial_end`, so for a
+    trial that has ended the later of the two is the answer. None when Stripe
+    gave no usable date. Used only to fill in accounts that were already
+    paying before `paying_since` was kept (users.set_paying_since)."""
+    import time as _time
+    try:
+        start = float(_get(sub, "start_date") or _get(sub, "created") or 0)
+        trial_end = float(_get(sub, "trial_end") or 0)
+    except (TypeError, ValueError):
+        return None
+    now = _time.time() if now is None else now
+    if trial_end and trial_end <= now:
+        start = max(start, trial_end)
+    return start if start > 0 else None
+
+
 async def authoritative_subscription(customer_id: str) -> dict | None:
     """What Stripe currently believes about this customer, for reconciliation.
 
@@ -433,7 +453,7 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
     if best is None:
         return {"status": "inactive", "plan": None, "raw": "none",
                 "trial_end": 0, "subscription": "", "price_id": None,
-                "monthly": None}
+                "monthly": None, "paying_since": None}
 
     raw = _g(best, "status", "") or ""
     # Same mapping sync_subscription_event applies, and for the same reason:
@@ -472,7 +492,10 @@ async def authoritative_subscription(customer_id: str) -> dict | None:
             "trial_end": trial_end,
             "subscription": _g(best, "id", "") or "",
             # What they are actually charged, for MRR (monthly_amount).
-            "price_id": price_id, "monthly": monthly_amount(best)}
+            "price_id": price_id, "monthly": monthly_amount(best),
+            # When it began to be paid for, for accounts whose record predates
+            # `paying_since` (paying_since_of).
+            "paying_since": paying_since_of(best)}
 
 
 async def live_subscription_status(customer_id: str) -> str | None:
