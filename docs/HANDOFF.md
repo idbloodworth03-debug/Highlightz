@@ -9886,11 +9886,25 @@ as now. Until that stage the switch must not be turned on in production.
 0. **Done in this commit:** `bridge.Link`, `pool.Pool`, `worker_main` and
    their tests with real processes. Not wired into `main.py`: nothing in
    production changes and there is no switch to flip yet.
-1. A seam, `src/ingestion/host.py`: every crossing above goes through it. In
-   one process it calls `src.dashboard.api` exactly as now (this refactor
-   ships with the switch off, so it must be byte-for-byte the same
-   behaviour); in a worker it is the bridge. A test that no worker-side
-   module imports the dashboard.
+1. **Done (the commit after stage 0's):** the seam, `src/ingestion/host.py`.
+   `stream_worker.py` no longer mentions the dashboard: its 18 crossings
+   (`streams()`, `broadcast`, `acquire_live_slot`, `release_live_slot`,
+   `watchers_of`, `suggestion_room`, `notify_clip_ready`,
+   `on_clip_file_ready`) go through `host`, which in one process calls the
+   dashboard function of the same name, looked up at call time. THIS IS LIVE
+   IN PRODUCTION ON DEPLOY, switch or no switch, so
+   `tests/test_ingest_host.py` holds that nothing changed: same arguments,
+   same result, the same errors, `streams()` is the dashboard's own dict,
+   and the three that used to be plain calls still finish without giving the
+   loop a turn. It also holds the rule for later: nothing under
+   src/ingestion, src/trigger, src/chat, src/output, src/queue or
+   src/profiles imports the dashboard (host.py is the one door), and with
+   `host._remote` set nothing reaches the dashboard at all.
+   NOT yet through the seam: `main.spawn_worker` (the `score_update`
+   broadcast and the final "offline") and everything web-to-worker. That is
+   stage 2: move `spawn_worker` / `stop_worker` / `_workers` /
+   `_worker_instances` / `SHARED_BUFFERS` out of `main.py` (a worker cannot
+   import it) into a module both sides can use.
 2. Spawn/stop/restore through the pool; statuses; slots; clips; errors.
 3. Profiles and Kick chat.
 4. The gate per worker; admin page and `stream_cost` / `loop_profile` per

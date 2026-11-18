@@ -29,6 +29,7 @@ from src.chat.platform.youtube_chat import YouTubeChatMonitor
 from src.trigger.engine import TriggerEngine
 from src.trigger.signals import TriggerEvent
 from src.queue.job_queue import JobQueue, ClipJob
+from src.ingestion import host
 from src.profiles.manager import get_profile_manager
 from src.profiles.profile import StreamerProfile
 
@@ -217,8 +218,7 @@ class StreamWorker:
                         # why. Idempotent, so releasing one we never took is fine —
                         # which is the case for every ChannelOffline, since the
                         # slot is taken after the liveness check.
-                        from src.dashboard import api as _api
-                        _api.release_live_slot(self._stream_key)
+                        host.release_live_slot(self._stream_key)
                 except asyncio.CancelledError:
                     break
                 except ChannelOffline:
@@ -231,8 +231,7 @@ class StreamWorker:
                              channel=self._config.channel, retry_in=30)
                 except Exception as exc:
                     log.error("worker_session_error", channel=self._config.channel, error=str(exc), traceback=traceback.format_exc())
-                    from src.dashboard import api as dashboard_api
-                    await dashboard_api.broadcast({
+                    await host.broadcast({
                         "event": "stream_error",
                         "channel": self._config.channel,
                         "error": "Stream session ended unexpectedly. Reconnecting…",
@@ -245,11 +244,10 @@ class StreamWorker:
                               "offline" if offline else "reconnecting")
                     if not offline and not queued:
                         log.info("worker_reconnecting", channel=self._config.channel, delay=30)
-                    from src.dashboard import api as dashboard_api
                     _sk = self._stream_key
-                    if _sk in dashboard_api._streams:
-                        dashboard_api._streams[_sk]["status"] = status
-                    await dashboard_api.broadcast({
+                    if _sk in host.streams():
+                        host.streams()[_sk]["status"] = status
+                    await host.broadcast({
                         "event": "stream_status",
                         "channel": self._config.channel,
                         "status": status,
@@ -357,12 +355,11 @@ class StreamWorker:
         # already open has to see the change without a refresh.
         if chosen == self._config.preset:
             return
-        from src.dashboard import api as dashboard_api
-        record = dashboard_api._streams.get(stream_key)
+        record = host.streams().get(stream_key)
         if record is None:
             return
         record["preset"] = chosen
-        await dashboard_api.broadcast(
+        await host.broadcast(
             {"event": "stream_updated", "stream": record},
             user_id=self._config.user_id)
 
@@ -375,11 +372,10 @@ class StreamWorker:
 
         self._stream_info = await self._platform.get_stream_info(channel)
         log.info("stream_found", channel=channel, title=self._stream_info.title)
-        from src.dashboard import api as dashboard_api
         _sk = self._stream_key
-        if _sk in dashboard_api._streams:
-            dashboard_api._streams[_sk]["status"] = "live"
-        await dashboard_api.broadcast({
+        if _sk in host.streams():
+            host.streams()[_sk]["status"] = "live"
+        await host.broadcast({
             "event": "stream_status",
             "channel": channel,
             "status": "live",
@@ -390,7 +386,7 @@ class StreamWorker:
         # confirmed live and about to start costing two subprocesses. Asking
         # any earlier would ration channels that are not running; any later and
         # the meter is already spawned.
-        if not dashboard_api.acquire_live_slot(_sk):
+        if not await host.acquire_live_slot(_sk):
             raise CapacityQueued(f"{channel} is live but the box is full")
 
         await self._resolve_preset(_sk)
@@ -572,8 +568,7 @@ class StreamWorker:
                              seed=seed_threshold)
 
             await get_profile_manager(self._config.user_id).save(self._profile)
-            from src.dashboard import api as dashboard_api
-            await dashboard_api.broadcast({
+            await host.broadcast({
                 "event": "profile_updated",
                 "profile": self._profile.to_dict(),
             }, user_id=self._config.user_id)
@@ -653,7 +648,6 @@ class StreamWorker:
         pool at all, so it cannot take a slot a triggered clip wanted however
         busy the channel gets.
         """
-        from src.dashboard import api as dashboard_api
 
         ripe = buf.ready()
         if not ripe:
@@ -674,7 +668,7 @@ class StreamWorker:
         # smaller correct change: ripening a moment is genuinely shared work
         # and should happen once, while DELIVERY is per-user and already has
         # per-user rules — dismissals and budget — inside _land_for_user.
-        watchers = dashboard_api.watchers_of(self._config.channel)
+        watchers = await host.watchers_of(self._config.channel)
         if self._config.user_id and self._config.user_id not in watchers:
             # Our own user always counts, even if the registry has not caught
             # up. Losing this worker's suggestions to a bookkeeping lag would
@@ -822,12 +816,11 @@ class StreamWorker:
         # the file is addressed by clip id and the flag is derived from disk
         # when a clip is serialised, instead of written onto the record here.
         try:
-            from src.dashboard import api as dashboard_api
-            await dashboard_api.broadcast(
+            await host.broadcast(
                 {"event": "clip_file_ready", "clip_id": clip_id},
                 user_id=self._config.user_id)
             # Autopilot's cue when the approval came before the file did.
-            await dashboard_api.on_clip_file_ready(clip_id)
+            await host.on_clip_file_ready(clip_id)
         except Exception as exc:
             log.warning("clip_file_broadcast_failed", clip_id=clip_id, error=str(exc))
 
@@ -943,11 +936,10 @@ async def _land_for_user(ripe, uid: str, info, platform_name: str) -> None:
     sharing one across users would collide in the clip store and only one of
     them would ever see the moment.
     """
-    from src.dashboard import api as dashboard_api
     from src.processor.metadata import ClipMetadata
     from src.trigger import dismissed_suggestions
 
-    used, room = dashboard_api.suggestion_room(uid)
+    used, room = await host.suggestion_room(uid)
 
     for s in ripe:
         # Already said no to this moment. Checked HERE rather than in the
@@ -993,7 +985,7 @@ async def _land_for_user(ripe, uid: str, info, platform_name: str) -> None:
             clipper_count=s.clipper_count,
             suggested_views=s.view_count,
         )
-        await dashboard_api.notify_clip_ready(meta.to_dict())
+        await host.notify_clip_ready(meta.to_dict())
         used += 1
         log.info("suggested_clip_landed", channel=s.channel, user_id=uid,
                  slug=s.slug, clippers=s.clipper_count, views=s.view_count)

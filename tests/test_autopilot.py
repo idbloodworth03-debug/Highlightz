@@ -342,7 +342,7 @@ def test_an_approval_kicks_the_runner_and_the_file_hooks_call_it():
     from src.ingestion import stream_worker
     assert "_autopilot.kick(_autopilot.maybe_run(clip))" in inspect.getsource(api.approve_clip)
     assert "await on_clip_file_ready(clip_id)" in inspect.getsource(api._fetch_and_announce)
-    assert "await dashboard_api.on_clip_file_ready(clip_id)" in \
+    assert "await host.on_clip_file_ready(clip_id)" in \
         inspect.getsource(stream_worker.StreamWorker._cut_local_file)
     assert "maybe_run_by_id" in inspect.getsource(api.on_clip_file_ready)
 
