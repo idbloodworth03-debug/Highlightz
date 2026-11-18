@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from config.settings import settings
 from src.publish import connections, media_link, poster, providers, schedule as sched
 from src.publish.providers import _http, youtube, tiktok, instagram
 from src.uploads import library as lib
@@ -331,6 +332,48 @@ def test_youtube_posts_through_a_resumable_upload(tmp_path, monkeypatch):
     assert init["headers"]["X-Upload-Content-Length"] == str(len(MP4))
     put = canned.calls[1][2]
     assert put["headers"]["Authorization"] == "Bearer AT"
+
+
+def _youtube_post(tmp_path, monkeypatch, answer):
+    f = tmp_path / "up9.mp4"; f.write_bytes(MP4)
+    canned = Canned([
+        (("POST", "upload/youtube/v3/videos"), _resp(200, {}, {"location": "https://u/sess"})),
+        (("PUT", "https://u/sess"), _resp(200, answer)),
+    ])
+    monkeypatch.setattr(_http, "request", canned)
+    conn = connections.Connection(user_id="u1", platform="youtube", access_token="AT")
+    res = _run(youtube.PROVIDER.post(conn, f, len(MP4), "Big play!", "mp4", 30))
+    return res, canned.calls[0][2]["json"]["status"]["privacyStatus"]
+
+
+def test_before_the_youtube_audit_the_upload_is_private_and_the_card_says_why(tmp_path, monkeypatch):
+    """YouTube locks every upload from an unaudited API project to private and
+    does not say so in its answer: here it answers "public" and the note is
+    still there. The site reported "Posted" with a link only the owner could
+    open. Off is the default, because off is where production is."""
+    from config.settings import Settings
+    assert Settings.model_fields["youtube_audited"].default is False
+    monkeypatch.setattr(settings, "youtube_audited", False)
+    res, asked = _youtube_post(tmp_path, monkeypatch, {"id": "V1", "status": {"privacyStatus": "public"}})
+    assert asked == "private"
+    assert res.url == "https://www.youtube.com/watch?v=V1"
+    assert "private" in res.note and "Google" in res.note and "after the review" in res.note
+
+
+def test_after_the_youtube_audit_the_upload_is_public_and_says_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "youtube_audited", True)
+    for answer in ({"id": "V2", "status": {"privacyStatus": "public"}}, {"id": "V2"}):
+        res, asked = _youtube_post(tmp_path, monkeypatch, answer)
+        assert asked == "public"
+        assert res.note == ""
+
+
+def test_a_youtube_upload_that_did_not_go_out_public_says_so(tmp_path, monkeypatch):
+    """The switch flipped a day before the audit really passed: YouTube answers
+    private, and the card must not call that "Posted" and leave it there."""
+    monkeypatch.setattr(settings, "youtube_audited", True)
+    res, _ = _youtube_post(tmp_path, monkeypatch, {"id": "V3", "status": {"privacyStatus": "private"}})
+    assert "private, not public" in res.note and "YouTube Studio" in res.note
 
 
 def test_youtube_quota_is_a_retryable_failure_not_the_users_fault(tmp_path, monkeypatch):

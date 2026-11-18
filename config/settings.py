@@ -525,6 +525,17 @@ class Settings(BaseSettings):
     # day the audit passes and posts go out at the most public level the
     # creator allows; nothing else changes.
     tiktok_audited: bool = False
+    # HAS YOUTUBE AUDITED THE APP? Off until it has. YouTube locks every video
+    # uploaded by an API project that has not passed its API Services audit
+    # (projects made after 2020-07-28) to PRIVATE, whatever the upload asked
+    # for, and says nothing in the answer. So before the audit the uploader
+    # asks for private itself and the card says why, instead of reporting
+    # "Posted" with a link nobody else can open. This is NOT the consent-screen
+    # verification (that only removes the "unverified app" warning); it is the
+    # separate "YouTube API Services - Audit and Quota Extension Form". Turn it
+    # on (YOUTUBE_AUDITED=true) the day that audit passes, together with adding
+    # youtube to PUBLIC_PLATFORMS; uploads then go out public and the note goes.
+    youtube_audited: bool = False
     # Which posting platforms ordinary accounts may connect (src/publish/
     # release.py). Admins and early-access accounts get every configured one.
     # Released 2026-10-05 with TikTok only; add instagram / youtube as Meta

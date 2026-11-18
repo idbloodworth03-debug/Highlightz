@@ -8796,3 +8796,64 @@ descriptions).
 "Plans start at $10/month", two weeks after Starter came off the site. It says
 $25 now, and `tests/test_audit_fixes.py` holds the figure to the cheapest plan
 in `SELLABLE_PLANS` instead of a typed number. Static page, nothing realtime.
+
+## YouTube posting: where it stands, and uploads are private until YouTube's audit (2026-11-18)
+
+Owner, 2026-11-17: "I need to work on getting youtube shorts auto upload added
+to the site". **It is already built** (the 2026-09-15 section: uploader,
+connect flow, Scheduler, and Autopilot posts to YouTube by itself) and has been
+held back since 2026-10-05 by `PUBLIC_PLATFORMS`. What is missing is Google's
+side, which only the owner can do.
+
+**Prod, read by the owner on 2026-11-18:** `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` are NOT set, `UPLOADS_ENABLED` is set,
+`PUBLIC_PLATFORMS` is not set (so TikTok only). So no Google Cloud project is
+wired in yet: this starts at step 1 of "Posting: platform setup" above. The
+steps were given to the owner again in chat.
+
+**There are TWO Google reviews, and the earlier notes only named one:**
+1. *Consent-screen verification* (Google Auth Platform, Verification Center):
+   removes the "unverified app" warning and the 100-user cap. Wants the home
+   page, the privacy policy on the same domain, the domain verified in Search
+   Console, a recording of the connect-and-post flow, and a reason per scope.
+2. *YouTube API Services audit* ("YouTube API Services - Audit and Quota
+   Extension Form"). **Until this passes, YouTube locks every video the app
+   uploads to private**, whatever the upload asked for (API projects made
+   after 2020-07-28), and a video locked that way cannot be made public later:
+   it has to be posted again. This is also where more quota is asked for.
+
+**What changed in the code (the only change):** `YOUTUBE_AUDITED` (new, default
+off; `config/settings.py`), the YouTube twin of `TIKTOK_AUDITED`. While it is
+off the uploader asks for `private` itself and the result carries a note
+("Posted as private (visible only to you): YouTube keeps every upload from
+Highlightz private until Google finishes reviewing the app..."), shown beside
+"Posted · View" on the Scheduler card and in Post now, where TikTok's note
+already shows. Before this the site asked for public and reported "Posted"
+with a link nobody but the owner of the channel could open. With it on:
+public, no note, unless YouTube's own answer says the video is not public, in
+which case the card says that. No new event, no new screen: `note` already
+rides the post result to the UI.
+
+Blast radius: only `src/publish/providers/youtube.py`'s post step. Nobody but
+admins and early-access accounts can connect YouTube today, and prod has no
+Google keys, so nothing a customer does changes. Tests: three in
+`tests/test_publish_posting.py` (private + note before the audit, including
+when YouTube answers "public"; public and silent after; a non-public answer
+after says so); each fails under its own mutation. Full suite 4543.
+
+**The day YouTube's audit passes, both switches together:**
+`PUBLIC_PLATFORMS=tiktok,youtube` and `YOUTUBE_AUDITED=true` in prod `.env`,
+then restart. Opening the platform without the second leaves every customer's
+upload private with the note.
+
+**Not verified, say so when it matters:**
+- No real upload to YouTube has ever been made by this code; it is tested
+  against canned answers. The owner's first Post now as admin is the proof.
+- The quota. The notes say 10,000 units a day at 1,600 an upload (six a day
+  for the whole app). Third-party write-ups from 2026 say Google changed this
+  to about 100 uploads a day in a bucket of its own; Google's pages could not
+  be opened from the dev session (developers.google.com is outside its allowed
+  hosts). The real figure is on the project's Quotas page in Cloud Console.
+- Whether asking for `private` avoids the lock (so the owner of the channel
+  can flip it public in YouTube Studio) or the lock applies anyway. The note
+  is worded for either.

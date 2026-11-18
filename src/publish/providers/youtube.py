@@ -8,6 +8,14 @@ rather than as the user's mistake. Until the OAuth consent screen is verified
 Google also shows an "unverified app" interstitial and caps test users at
 100; the Connect flow still works through it.
 
+And until YouTube has AUDITED the project (a different review from the
+consent screen: the "YouTube API Services - Audit and Quota Extension Form"),
+it locks every upload from it to private whatever the request said. The
+answer to the upload does not mention it, so nothing here can find out by
+asking: `YOUTUBE_AUDITED` is the only thing that knows. While it is off the
+upload asks for private itself and the result carries a note saying why;
+`_private_note` is the whole of that.
+
 Two scopes: youtube.upload to post, youtube.readonly to learn which channel
 was connected so the card can say "Connected as <channel>". access_type=
 offline + prompt=consent is what makes Google return a refresh token; without
@@ -109,7 +117,7 @@ class YouTube:
         body = {"snippet": {"title": caption_title(caption, path.stem, TITLE_MAX),
                             "description": (caption or "")[:DESCRIPTION_MAX],
                             "categoryId": "20"},          # Gaming
-                "status": {"privacyStatus": "public",
+                "status": {"privacyStatus": "public" if settings.youtube_audited else "private",
                            "selfDeclaredMadeForKids": False}}
         ctype = content_type(fmt)
         r = await _http.request(
@@ -129,11 +137,13 @@ class YouTube:
             content=_http.file_chunks(path, 0, size - 1), timeout=_http.UPLOAD_TIMEOUT)
         if not r.ok:
             self._raise(r)
-        vid = (r.json() or {}).get("id")
+        done = r.json() or {}
+        vid = done.get("id")
         if not vid:
             raise ProviderError("YouTube accepted the upload but returned no video id.",
                                 retryable=True)
-        return PostResult(url=f"https://www.youtube.com/watch?v={vid}", remote_id=vid)
+        return PostResult(url=f"https://www.youtube.com/watch?v={vid}", remote_id=vid,
+                          note=_private_note((done.get("status") or {}).get("privacyStatus")))
 
     @staticmethod
     def _raise(r) -> None:
@@ -155,6 +165,26 @@ class YouTube:
             raise ProviderError(f"YouTube is having trouble ({r.status}). Will retry.",
                                 retryable=True)
         raise ProviderError("YouTube refused the upload: " + message)
+
+
+def _private_note(answered: str | None) -> str:
+    """What the card says under "Posted" when the video is not public.
+
+    Before the audit that is every upload, and it is said whatever YouTube
+    answered: the lock is applied without being reported. After it, a note
+    only when YouTube itself says the video did not go out public, so a
+    switch flipped a day early still tells the truth. Nothing on the ordinary
+    path: audited and public is just "Posted".
+    """
+    if not settings.youtube_audited:
+        return ("Posted as private (visible only to you): YouTube keeps every upload "
+                "from Highlightz private until Google finishes reviewing the app. "
+                "If YouTube Studio will not let you make it public, post it again "
+                "after the review.")
+    if answered and answered != "public":
+        return ("YouTube posted this as " + str(answered) + ", not public. "
+                "Open it in YouTube Studio to change who can see it.")
+    return ""
 
 
 PROVIDER = YouTube()
