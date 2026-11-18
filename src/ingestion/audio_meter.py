@@ -8,6 +8,7 @@ from the raw samples. No file writes, no regex parsing of filter output.
 
 import asyncio
 import math
+import operator
 import os
 import struct
 import structlog
@@ -21,13 +22,38 @@ _SILENCE_DB    = -100.0
 _CHUNK_BYTES   = 3200   # 0.2s at 8kHz mono s16le (8000 × 2 bytes × 0.2s)
 
 
+try:                                  # in requirements.lock; never required
+    import numpy as _np
+except Exception:                     # noqa: BLE001
+    _np = None
+
+
+def _sum_squares(data: bytes, n: int) -> int:
+    """The sum of the squares of the first `n` s16le samples, as an exact
+    Python integer.
+
+    THE SAME NUMBER, EVERY TIME, as the `sum(s * s for s in samples)` this
+    replaces: it is integer arithmetic with no rounding anywhere, so the dB
+    figure that comes out of _rms_db is bit for bit what it was and nothing
+    downstream (the baseline, AUDIO_SPIKE, the -100 a silent feed returns)
+    can tell the difference. What changed is where the loop over samples
+    runs. Prod, 2026-11-18, 57 channels live: this was 8.1% of the one core
+    the whole app shares (973 calls a second, 83 microseconds each), almost
+    all of it a Python generator squaring 456,000 samples a second.
+    """
+    if _np is not None:
+        a = _np.frombuffer(data, dtype="<i2", count=n).astype(_np.int64)
+        return int(_np.dot(a, a))      # int64: exact up to 8 billion samples
+    samples = struct.unpack_from(f"<{n}h", data)
+    return sum(map(operator.mul, samples, samples))
+
+
 def _rms_db(data: bytes) -> float:
     """Convert raw s16le PCM bytes to dBFS. Returns -100 for silence."""
     n = len(data) // 2
     if n == 0:
         return _SILENCE_DB
-    samples = struct.unpack_from(f"<{n}h", data[:n * 2])
-    mean_sq = sum(s * s for s in samples) / n
+    mean_sq = _sum_squares(data, n) / n
     if mean_sq < 1.0:
         return _SILENCE_DB
     return max(_SILENCE_DB, 20.0 * math.log10(math.sqrt(mean_sq) / 32768.0))

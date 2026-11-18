@@ -262,8 +262,75 @@ def test_a_per_channel_job_is_one_row_with_its_total():
     rows = {"task: newjob-xqc": (1.0, 10, 0.2), "task: newjob-lacy": (2.0, 30, 0.5),
             "task: clip-processor": (0.5, 5, 0.1), "task: lonely-thing": (0.1, 1, 0.1)}
     g = lp.grouped(rows)
-    assert g["task: newjob-*  (2 of them)"] == (3.0, 40, 0.5)
+    # Seconds, steps, longest; rows without a CPU clock carry none onward.
+    assert g["task: newjob-*  (2 of them)"] == (3.0, 40, 0.5, None, None)
     assert "task: newjob-xqc" not in g and g["task: lonely-thing"] == (0.1, 1, 0.1)
     out = lp.render({"seconds": 10.0, "cpu": 0.0, "rows": rows})
     assert "xqc" not in out and "lacy" not in out
     assert " 30.0%" in out and "task: newjob-*  (2 of them)" in out
+
+
+# ── the audio level: the same number, computed off a Python loop ─────────────
+# Prod, 2026-11-18, 57 live: `audiometer-reader` was 8.1% of the one core, and
+# most of what the reader does per chunk was squaring samples one at a time in
+# a generator. The replacement is exact integer arithmetic, so the dB figure
+# is bit for bit what it was. These hold that, on both paths.
+
+def _old_rms_db(data: bytes) -> float:
+    """The function as it was, kept here as the reference."""
+    import math
+    import struct
+    n = len(data) // 2
+    if n == 0:
+        return -100.0
+    samples = struct.unpack_from(f"<{n}h", data[:n * 2])
+    mean_sq = sum(s * s for s in samples) / n
+    if mean_sq < 1.0:
+        return -100.0
+    return max(-100.0, 20.0 * math.log10(math.sqrt(mean_sq) / 32768.0))
+
+
+def _pcm_cases():
+    import random
+    import struct
+    rnd = random.Random(20261118)
+    cases = [b"", b"\x01", b"\x00\x00", b"\x01\x00", b"\xff\xff", b"\xff\x7f" * 1600,
+             b"\x00\x80" * 1600, b"\x00" * 3200, b"\x01\x00" + b"\x00" * 3198]
+    for _ in range(1500):
+        n = rnd.choice([1, 2, 3, 7, 127, 341, 471, 940, 941, 1600, 3199, 3200, 6400])
+        amp = rnd.choice([0, 1, 2, 5, 50, 800, 12000, 32767])
+        lo = -32768 if amp == 32767 else -amp
+        cases.append(b"".join(struct.pack("<h", rnd.randint(lo, amp)) for _ in range(n // 2))
+                     + (b"\x05" if n % 2 else b""))
+    return cases
+
+
+@pytest.mark.parametrize("with_numpy", [True, False])
+def test_the_audio_level_is_bit_for_bit_what_it_was(monkeypatch, with_numpy):
+    from src.ingestion import audio_meter as am
+    if with_numpy:
+        if am._np is None:
+            pytest.skip("numpy is not installed here")
+    else:
+        monkeypatch.setattr(am, "_np", None)
+    for data in _pcm_cases():
+        assert am._rms_db(data) == _old_rms_db(data), (len(data), data[:8])
+
+
+def test_a_silent_feed_still_reads_exactly_minus_100():
+    """CLAUDE.md's trap: -100 is what a WORKING feed returns for genuine
+    silence, and things downstream compare against it. It must stay exactly
+    that, not -99.99 or -inf."""
+    from src.ingestion import audio_meter as am
+    assert am._rms_db(b"\x00" * 3200) == -100.0 == am._SILENCE_DB
+    assert am._rms_db(b"") == -100.0 and am._rms_db(b"\x7f") == -100.0
+    # One count of noise in 1,600 samples is a mean square under 1: silence.
+    assert am._rms_db(b"\x01\x00" + b"\x00" * 3198) == -100.0
+    # Full scale is 0 dB, give or take the asymmetry of 16 bits.
+    assert abs(am._rms_db(b"\xff\x7f" * 1600)) < 0.001
+
+
+def test_the_sum_of_squares_cannot_overflow_a_chunk():
+    from src.ingestion import audio_meter as am
+    loudest = b"\x00\x80" * 100_000                    # 12.5 s of full-scale negative
+    assert am._sum_squares(loudest, 100_000) == 100_000 * 32768 * 32768

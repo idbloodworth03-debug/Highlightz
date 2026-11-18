@@ -108,7 +108,7 @@ def test_a_half_busy_loop_reads_as_half_busy_not_as_idle():
         t.cancel()
         return res
     res = asyncio.run(go())
-    secs, steps, longest = res["rows"]["task: worker"]
+    secs, steps, longest = res["rows"]["task: worker"][:3]
     share = secs / res["seconds"]
     assert 0.30 < share < 0.75, f"a loop about half busy read as {share:.0%}"
     assert steps > 50 and 0.0015 < secs / steps < 0.02
@@ -312,3 +312,98 @@ def test_it_reads_names_and_nothing_else():
         assert banned not in code, banned
     assert "Names of tasks and functions only." in lp.render(RESULT)
     assert "/" not in "".join(RESULT["rows"]) and "/" not in lp.label(time.sleep)
+
+
+# ── computing or waiting, and memory tidying (2026-11-18) ────────────────────
+# The first report said the loop was "blocked" for 18 of its 57 points and
+# could not say where. Each step now has its own CPU clock.
+
+def _window(body, seconds=0.5):
+    async def go():
+        t = asyncio.create_task(body(), name="worker-u:c")
+        timing = lp.Timing()
+        timing.install()
+        await asyncio.sleep(seconds)
+        res = timing.finish()
+        t.cancel()
+        return res
+    return asyncio.run(go())
+
+
+def test_a_step_that_sleeps_is_waiting_not_computing():
+    async def stalls():
+        while True:
+            time.sleep(0.06)                   # a disk or a blocking call
+            await asyncio.sleep(0.01)
+    res = _window(stalls)
+    secs, steps, longest, cpu, cpu_longest = res["rows"]["task: worker"]
+    assert secs > 0.25 and cpu < 0.2 * secs, (secs, cpu)
+    assert cpu_longest < 0.5 * longest
+    text = lp.render(res)
+    assert "WAITING INSIDE A STEP" in text
+    after = text.split("WAITING INSIDE A STEP", 1)[1]
+    assert "task: worker" in after.split("STEPS THAT HELD", 1)[0]
+    assert "(computing for " in text
+
+
+def test_a_step_that_computes_is_not_called_waiting():
+    async def burns():
+        while True:
+            _spin(20)
+            await asyncio.sleep(0.005)
+    res = _window(burns)
+    secs, steps, longest, cpu, _ = res["rows"]["task: worker"]
+    assert cpu > 0.8 * secs, (secs, cpu)
+    section = lp.render(res).split("WAITING INSIDE A STEP")
+    assert len(section) == 1 or "task: worker" not in section[1].split("STEPS THAT HELD", 1)[0]
+
+
+def test_memory_tidying_is_timed_and_says_whose_thread_it_ran_on():
+    import gc
+    import threading
+
+    async def tidies():
+        while True:
+            gc.collect()                       # on the loop's thread
+            th = threading.Thread(target=gc.collect)
+            th.start()
+            while th.is_alive():
+                await asyncio.sleep(0.005)
+            await asyncio.sleep(0.02)
+    res = _window(tidies)
+    assert (2, True) in res["gc"] and (2, False) in res["gc"], res["gc"].keys()
+    runs, secs, longest = res["gc"][(2, True)]
+    assert runs >= 1 and secs >= longest > 0
+    text = lp.render(res)
+    assert "PYTHON TIDYING MEMORY" in text
+    assert "on the loop's thread" in text and "on another thread (the loop waits for it)" in text
+
+
+def test_the_collector_is_left_as_it_was_found():
+    import gc
+    before = list(gc.callbacks)
+    timing = lp.Timing()
+
+    async def go():
+        timing.install()
+        assert len(gc.callbacks) == len(before) + 1
+        timing.finish()
+    asyncio.run(go())
+    assert gc.callbacks == before
+    timing.finish()                            # twice is harmless
+    assert gc.callbacks == before
+
+
+def test_a_report_from_rows_without_the_cpu_clock_still_prints():
+    """Rows of three fields (the first version, and a machine that does not
+    offer the thread clock) print with the waiting column blank."""
+    text = lp.render({"seconds": 10.0, "cpu": 0.0,
+                      "rows": {"task: engine": (2.0, 100, 0.2), "task: a-x": (1.0, 5, 0.3),
+                               "task: a-y": (1.0, 5, 0.1)}})
+    assert "task: engine" in text and "a-*  (2 of them)" in text
+    assert "WAITING INSIDE A STEP" not in text and "computing for" not in text
+
+
+def test_grouped_rows_add_their_cpu():
+    got = lp.grouped({"task: z-a": (1.0, 2, 0.5, 0.25, 0.1), "task: z-b": (2.0, 3, 0.9, 0.5, 0.4)})
+    assert got["task: z-*  (2 of them)"] == (3.0, 5, 0.9, 0.75, 0.4)

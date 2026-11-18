@@ -9529,3 +9529,105 @@ pricing and the paywall read in a browser at desktop and phone widths.
 **Not verified on production**, and what share of live channels belongs to
 free accounts there is not known, so how often this actually changes who
 gets in has not been seen.
+
+## Third reading: the server is a third used, the one loop is the wall at about 74 live (2026-11-18)
+
+**Owner:** "I need to upgrade the server again desperately ... but there are
+no servers available", then, with the reading: "Nothing is broken I am just
+growing at a crazy rate."
+
+**The reading** (prod at e991e16, `LIVE_AUTO_BASE=44`,
+`MAX_CONCURRENT_STREAMS=120`, so the measured limit and Pro's place in the
+line are both live): **8 cores (DO-Premium-AMD), 15.62 GB, datacenter NYC1**
+(the hostname still says `s-1vcpu-2gb-nyc1`; a resize stays in its
+datacenter). 56-57 live, 81 listed of 300.
+
+| limit | room for | note |
+|---|---|---|
+| processors | ~245 live | Highlightz uses 137% of 800% |
+| memory | ~114 live | ~148 MB a channel in its own processes; no swap |
+| **the app's one loop** | **~74 live** | 52.4% of its one core at 56 live, ~0.9% a channel (was 1.4% before fac3107) |
+
+So **a bigger server would not let one more channel in**, and the shortage of
+servers does not matter until about 110 live, when memory runs out. The gate
+stops new channels at 65% of the loop for everybody (about 70 live), 70% for
+Pro, 75% for Studio.
+
+Refusals in the 30 minutes before: 73 "channels that just went live are
+still being measured", 8 "not been measured in the last few seconds", and
+**none naming the loop, the processors or memory**: the limit had not been
+reached; both reasons are what two deploys in that window produce (the first
+had no note to read back).
+
+**`loop_profile.py`, 20 s, 57 live: busy 57.2%, thread CPU 38.9%.**
+
+| share | what | read as |
+|---|---|---|
+| 13.6% | `engine` | 47 steps/s, 2.9 ms each: one evaluation a second per channel. `_metrics.snapshot()` + signals + `on_score`. The biggest row; not looked into |
+| 12.3% | `_SelectorSocketTransport._read_ready` | 253/s at 486 us: socket reads AND the protocol code they call (chat frames, requests) |
+| 8.1% | `audiometer-reader` | 973 steps/s = **17 a second per channel, not the 5 the 0.2 s chunk implies**: `stdout.read(3200)` returns whatever the pipe has (~940 bytes) |
+| 5.1% | `_accept_connection` | 21/s, average 2.5 ms, longest 490 ms: a few long stalls, not a slow function. nginx opens a connection per request (no upstream keepalive) |
+| 3.2 + 2.8% | request handling | |
+| 2.8% | `finish-clip` | 218 ms holds |
+| 2.4% | `chat-*` | |
+| ~2% | pipe transport callbacks | the audio pipes |
+
+**18.3 points of the 57 were the loop WAITING inside a step, not computing**,
+and the longest steps (490, 375, 234, 218 ms) are on unrelated rows. That
+looks like something stalling the whole thread from time to time (a blocking
+disk or network call somewhere, another thread holding the interpreter, or
+memory tidying) and being billed to whichever step was running. The first
+report could not say which.
+
+**Changed in this commit (both safe on a healthy stream):**
+1. **The profiler reads a CPU clock per step.** New `waiting` column (share
+   minus computing), a "WAITING INSIDE A STEP" list (rows where it is at
+   least 0.3 points and 15% of the row), "(computing for X of it)" on each
+   long step, and "PYTHON TIDYING MEMORY": every garbage collection timed,
+   by generation, and whether it ran on the loop's thread or another
+   (`gc.callbacks`; removed again at the end of the window). Spread thinly
+   over every row = held from outside; piled on a few = those rows block.
+2. **`audio_meter._rms_db` no longer squares samples in a Python generator.**
+   `_sum_squares` is exact integer arithmetic through numpy (already in
+   `requirements.lock`; falls back to the old arithmetic without it), so the
+   dB figure is **bit for bit what it was**: 20,007 chunks compared equal on
+   both paths, including the exact -100.0 of a silent feed. 14.4 us to
+   1.8 us a chunk here. **Expect only about 2 of the 8 points back**: most of
+   that row is the task waking 17 times a second per channel, not the
+   arithmetic.
+
+**Not done, in the order I would take them, each after the next reading:**
+- Whatever the `waiting` column points at (up to 18 points).
+- **The audio reader as a pipe protocol** that keeps the newest chunk and
+  works out its level only when the engine asks, once a second (about 8
+  points). It changes how ffmpeg's output is consumed, on the path every
+  live channel uses, so it needs a test against a real ffmpeg, and care that
+  the level stays "the newest chunk" and never "the last second".
+- **uvloop.** It is ALREADY INSTALLED (`uvloop==0.22.1` in
+  `requirements.lock`, a dependency of uvicorn) and not used: `main.py`
+  starts the stdlib loop. About 21 points of the table are loop machinery
+  (socket reads, accepts, pipe callbacks). Behind an env switch, after
+  checking the subprocess pipes under it. `loop_profile` hooks
+  `asyncio.events.Handle._run`, which uvloop does not use, so the profiler
+  would see nothing under it (stream_cost and the headroom meter still work).
+- `engine` at 2.9 ms a step; `finish-clip` holds; nginx upstream keepalive.
+
+**The real fix, told to the owner and waiting for their word: split the app
+into worker processes** (the stream workers out of the web process, each
+group with its own loop, talking through the Redis that is already there).
+Then the one-loop wall is gone, this same box carries what its memory allows
+(~114), and a bigger or a second server becomes a real lever. Everything a
+worker calls on the dashboard directly today has to cross a process boundary:
+`_streams`, `broadcast`, `notify_clip_ready`, `SHARED_BUFFERS`,
+`acquire_live_slot` and the headroom readings. Several days, behind a switch.
+
+**When hardware IS the answer (about 110 live): memory.** NYC1 is where the
+droplet lives and where "no servers available" was seen. Ways round it, none
+tried: another droplet type on the resize screen; a snapshot restored in
+another datacenter (new IP, so the domain is repointed; some downtime);
+another provider. A streamlink process per channel is ~53 MB of that 148 MB,
+so there is a software lever on memory as well.
+
+Tests: `tests/test_loop_profile.py` (+6), `tests/test_loop_relief.py` (+4).
+Full suite 4742 passed. The new report was produced by the whole app running
+locally. Not run on production.

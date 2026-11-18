@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import gc
 import os
 import threading
 import time
@@ -126,35 +127,79 @@ class Timing:
     """One window of timing. `install` and `finish` run on the loop's thread."""
 
     def __init__(self):
-        self.rows: dict[str, list] = {}        # label -> [seconds, steps, longest]
+        # label -> [seconds, steps, longest, cpu seconds, cpu of the longest]
+        self.rows: dict[str, list] = {}
+        # (generation, ran on the loop's thread) -> [runs, seconds, longest]
+        self.gc: dict[tuple, list] = {}
         self._orig = None
+        self._gc_cb = None
         self._wall0 = self._cpu0 = 0.0
 
     def install(self) -> None:
         handle = asyncio.events.Handle
         orig = self._orig = handle._run         # noqa: SLF001
-        rows, perf = self.rows, time.perf_counter
+        rows, perf, cpu_now = self.rows, time.perf_counter, _thread_cpu
 
+        # WALL AND CPU, each step (2026-11-18). The first report could say
+        # the loop spent 18 points of its 57 "blocked, not computing" and
+        # could not say WHERE. A step whose wall time is far above its CPU
+        # time was waiting: on a disk, on a network call made the blocking
+        # way, or on another thread that held the interpreter. The two clock
+        # reads cost about a tenth of a microsecond a step.
         def timed(h):
-            t0 = perf()
+            t0, c0 = perf(), cpu_now()
             try:
                 return orig(h)
             finally:
                 # Never let the bookkeeping raise into the loop.
                 try:
-                    dt = perf() - t0
+                    dt, dc = perf() - t0, cpu_now() - c0
                     key = label(h._callback)    # noqa: SLF001
                     row = rows.get(key)
                     if row is None:
-                        rows[key] = [dt, 1, dt]
+                        rows[key] = [dt, 1, dt, dc, dc]
                     else:
                         row[0] += dt
                         row[1] += 1
+                        row[3] += dc
                         if dt > row[2]:
-                            row[2] = dt
+                            row[2], row[4] = dt, dc
                 except BaseException:           # noqa: BLE001
                     pass
 
+        # PYTHON TIDYING MEMORY. A collection stops every thread until it is
+        # done, and a full one over a big heap can take a large part of a
+        # second. It starts wherever memory happened to be asked for, so in
+        # the table it shows up as a random step being slow. Timed here so it
+        # can be told apart. The callback runs inside the collector: it only
+        # reads a clock and adds, and never raises.
+        loop_thread = threading.get_ident()
+        stats, began = self.gc, {}
+
+        def on_gc(phase, info):
+            try:
+                me = threading.get_ident()
+                if phase == "start":
+                    began[me] = perf()
+                    return
+                t0 = began.pop(me, None)
+                if t0 is None:
+                    return
+                dt = perf() - t0
+                key = (int(info.get("generation", 0)), me == loop_thread)
+                row = stats.get(key)
+                if row is None:
+                    stats[key] = [1, dt, dt]
+                else:
+                    row[0] += 1
+                    row[1] += dt
+                    if dt > row[2]:
+                        row[2] = dt
+            except BaseException:               # noqa: BLE001
+                pass
+
+        self._gc_cb = on_gc
+        gc.callbacks.append(on_gc)
         self._wall0, self._cpu0 = perf(), _thread_cpu()
         handle._run = timed                      # noqa: SLF001
 
@@ -162,10 +207,29 @@ class Timing:
         if self._orig is not None:
             asyncio.events.Handle._run = self._orig     # noqa: SLF001
             self._orig = None
+        if self._gc_cb is not None:
+            try:
+                gc.callbacks.remove(self._gc_cb)
+            except ValueError:
+                pass
+            self._gc_cb = None
         wall = max(1e-9, time.perf_counter() - self._wall0)
         cpu = _thread_cpu() - self._cpu0 if self._cpu0 else 0.0
         return {"seconds": wall, "cpu": cpu,
-                "rows": {k: tuple(v) for k, v in self.rows.items()}}
+                "rows": {k: tuple(v) for k, v in self.rows.items()},
+                "gc": {k: tuple(v) for k, v in self.gc.items()}}
+
+
+def _five(v) -> tuple:
+    """A row as (seconds, steps, longest, cpu, cpu of the longest). Rows from
+    before the CPU clock was read per step have three fields: the last two
+    are then None, which the report prints as blank."""
+    v = tuple(v)
+    return v + (None,) * (5 - len(v)) if len(v) < 5 else v[:5]
+
+
+def _add(a, b):
+    return None if a is None or b is None else a + b
 
 
 def grouped(rows: dict) -> dict:
@@ -186,9 +250,11 @@ def grouped(rows: dict) -> dict:
             continue
         for n in names:
             out.pop(n)
+        five = [_five(rows[n]) for n in names]
+        worst = max(five, key=lambda v: v[2])
+        cpu = None if any(v[3] is None for v in five) else sum(v[3] for v in five)
         out[f"{prefix}-*  ({len(names)} of them)"] = (
-            sum(rows[n][0] for n in names), sum(rows[n][1] for n in names),
-            max(rows[n][2] for n in names))
+            sum(v[0] for v in five), sum(v[1] for v in five), worst[2], cpu, worst[4])
     return out
 
 
@@ -202,7 +268,8 @@ def _dur(s: float) -> str:
 
 def render(result: dict, live: int | None = None, top: int = 22) -> str:
     wall = result["seconds"]
-    rows = sorted(grouped(result["rows"]).items(), key=lambda kv: -kv[1][0])
+    rows = sorted(((k, _five(v)) for k, v in grouped(result["rows"]).items()),
+                  key=lambda kv: -kv[1][0])
     busy = sum(v[0] for _k, v in rows)
     steps = sum(v[1] for _k, v in rows)
     pct = lambda s: 100.0 * s / wall                              # noqa: E731
@@ -224,24 +291,60 @@ def render(result: dict, live: int | None = None, top: int = 22) -> str:
     if live is not None:
         out.append(f"  channels live          : {live}"
                    + (f"   (~{pct(busy) / live:.2f}% each)" if live else ""))
+    def waited(secs, cpu) -> str:
+        return "" if cpu is None else f"{pct(max(0.0, secs - cpu)):5.1f}%"
+
     out += ["", "=" * 78, "BY WHAT WAS RUNNING", "=" * 78,
-            f"  {'share':>6}  {'steps/s':>8}  {'each':>7}  {'longest':>8}   what"]
+            f"  {'share':>6}  {'waiting':>7}  {'steps/s':>8}  {'each':>7}  {'longest':>8}   what"]
     if not rows:
         out.append("  nothing was timed. Either the site did nothing at all in the window,")
         out.append("  or its loop is not the standard asyncio one and this cannot see it.")
-    for name, (secs, n, longest) in rows[:top]:
-        out.append(f"  {pct(secs):5.1f}%  {n / wall:8,.0f}  {_dur(secs / n):>7}  {_dur(longest):>8}   {name}")
+    for name, (secs, n, longest, cpu, _lc) in rows[:top]:
+        out.append(f"  {pct(secs):5.1f}%  {waited(secs, cpu):>7}  {n / wall:8,.0f}  "
+                   f"{_dur(secs / n):>7}  {_dur(longest):>8}   {name}")
     if len(rows) > top:
-        rest = rows[top:]
-        out.append(f"  {pct(sum(v[0] for _k, v in rest)):5.1f}%  "
-                   f"{sum(v[1] for _k, v in rest) / wall:8,.0f}  {'':>7}  {'':>8}   "
+        rest = [v for _k, v in rows[top:]]
+        rest_cpu = None if any(v[3] is None for v in rest) else sum(v[3] for v in rest)
+        out.append(f"  {pct(sum(v[0] for v in rest)):5.1f}%  "
+                   f"{waited(sum(v[0] for v in rest), rest_cpu):>7}  "
+                   f"{sum(v[1] for v in rest) / wall:8,.0f}  {'':>7}  {'':>8}   "
                    f"({len(rest)} smaller ones)")
-    slow = sorted(((v[2], k) for k, v in rows if v[2] >= SLOW_S), reverse=True)
+
+    # Where the waiting was, most first: the rows to go and read. A row is
+    # listed when the waiting is worth a look (0.3 points of the window) AND
+    # is a real part of that row (15% of its own time): a row that computes
+    # flat out still shows a few percent, from the OS taking the core away
+    # for a moment.
+    stuck = sorted(((v[0] - v[3], k) for k, v in rows
+                    if v[3] is not None and pct(v[0] - v[3]) >= 0.3
+                    and v[0] - v[3] >= 0.15 * v[0]), reverse=True)
+    if stuck:
+        out += ["", "=" * 78,
+                "WAITING INSIDE A STEP  (the loop was held up, not computing)", "=" * 78]
+        out += [f"  {pct(s):5.1f}%   {k}" for s, k in stuck[:10]]
+        out += ["  Spread thinly over everything = another thread held Python, or memory",
+                "  tidying (below). Piled on a few rows = those rows read a disk or call",
+                "  something over the network the blocking way."]
+
+    slow = sorted(((v[2], k, v[4]) for k, v in rows if v[2] >= SLOW_S), reverse=True)
     out += ["", "=" * 78,
             f"STEPS THAT HELD THE LOOP FOR {SLOW_S * 1000:.0f}ms OR MORE  (nothing else runs meanwhile)",
             "=" * 78]
-    out += [f"  {_dur(s):>8}   {k}" for s, k in slow[:10]] or ["  none in this window"]
+    out += [f"  {_dur(s):>8}   {k}" + ("" if lc is None else f"   (computing for {_dur(lc)} of it)")
+            for s, k, lc in slow[:10]] or ["  none in this window"]
+
+    tidy = result.get("gc") or {}
+    if tidy:
+        out += ["", "=" * 78,
+                "PYTHON TIDYING MEMORY  (every thread stops while it runs)", "=" * 78]
+        names = {0: "quick", 1: "medium", 2: "FULL"}
+        for (gen, on_loop), (runs, secs, longest) in sorted(tidy.items(), key=lambda kv: -kv[1][1]):
+            out.append(f"  {pct(secs):5.1f}%   {names.get(gen, str(gen)):<6} {runs:>6,} runs, "
+                       f"longest {_dur(longest):>6}   "
+                       + ("on the loop's thread (counted in the rows above as computing)"
+                          if on_loop else "on another thread (the loop waits for it)"))
     out += ["", "share   = of all the time watched, so the rows add up to the busy figure",
+            "waiting = the part of that share the loop was not computing",
             "steps/s = how often it ran; each = its average length; longest = its worst",
             "Names of tasks and functions only. No values, arguments or command lines."]
     return "\n".join(out) + "\n"
