@@ -10035,5 +10035,25 @@ as now. Until that stage the switch must not be turned on in production.
        live in a worker; approve, reject, undo, pause, resume, remove, force
        a clip; kill a worker by hand. Nothing here has seen a real stream in
        a worker process.
-5. Production: `INGEST_WORKERS=4`, watched, with the single-process mode one
-   env line away.
+5. **Production, in two steps. The first is ready to be tried.**
+   - **A TRIAL ON ONE CHANNEL (`INGEST_ONLY`, built 2026-11-18).** With
+     `INGEST_WORKERS=1` and `INGEST_ONLY=<channel>[,<channel>]`, only the
+     named channels run in a worker process; every other channel runs in the
+     web process exactly as today (`Ingest.handles`; `main._route_new` /
+     `_route_remove` send the rest to the old Redis publisher;
+     `restore_streams(skip=ingest.handles)` starts the rest in-process;
+     `loop_for` returns None for them, so the web loop is judged as always;
+     a worker may not report on, take a slot for, or be cleaned up as one of
+     them). Booted locally both ways: named, the saved channel's real
+     StreamWorker ran in the worker process; not named, in the web process.
+     **What the trial is for:** a real Twitch or Kick stream has never run in
+     a worker. Watch one channel there: it goes live, scores move on its
+     card, a clip is caught, its video is cut, approve / reject / undo move
+     its threshold, pausing and coming back work, the journal has no
+     `ImportError` or `must not be imported` from `"ingest": 0`.
+     **To end the trial:** remove both lines from `.env` and restart.
+   - **Everything** (`INGEST_WORKERS=4`, no `INGEST_ONLY`): only after the
+     trial is clean AND `stream_cost.py` / `loop_profile.py` can see worker
+     processes (stage 4's "still to do"), because the first hour of it has
+     to be measured, not guessed.
+

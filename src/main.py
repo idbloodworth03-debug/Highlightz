@@ -107,7 +107,7 @@ def take_health_restart_marker(folder: str | None = None) -> dict | None:
 # are imported at the top, so main.spawn_worker is still this function and
 # restore_streams / listen_for_new_streams below call it as before.
 
-async def restore_streams() -> int:
+async def restore_streams(skip=None) -> int:
     """At startup, start a worker for every saved channel except paused ones.
 
     Paused channels used to be started too. The worker then overwrote the
@@ -126,6 +126,8 @@ async def restore_streams() -> int:
     for stream in list(dashboard_api._streams.values()):
         if stream.get("status") == "paused":
             continue
+        if skip is not None and skip(stream.get("channel", "")):
+            continue                # THE SPLIT: a worker process is sent this one
         await spawn_worker(stream["channel"], stream.get("platform", "twitch"),
                            stream.get("user_id", ""), stream.get("preset", "default"))
         n += 1
@@ -793,12 +795,28 @@ async def main() -> None:
     ingest = None
     if settings.ingest_workers > 0:
         from src.dashboard.ingest import Ingest
-        ingest = Ingest(settings.ingest_workers)
-        dashboard_api.set_stream_publisher(ingest.publish_new, ingest.publish_remove)
+        ingest = Ingest(settings.ingest_workers, only=settings.ingest_only)
+
+        # A channel the workers handle goes to its worker; any other (a trial
+        # on a few channels, INGEST_ONLY) goes the way it always did.
+        async def _route_new(channel: str, platform: str, preset: str, user_id: str = "") -> None:
+            if ingest.handles(channel):
+                await ingest.publish_new(channel, platform, preset, user_id)
+            else:
+                await _publish_new_stream(channel, platform, preset, user_id)
+
+        async def _route_remove(channel: str, user_id: str = "") -> None:
+            if ingest.handles(channel):
+                await ingest.publish_remove(channel, user_id)
+            else:
+                await _publish_remove_stream(channel, user_id)
+
+        dashboard_api.set_stream_publisher(_route_new, _route_remove)
         dashboard_api.set_profile_gateway(ingest)
         dashboard_api.set_ingest_readers(ingest.loop_for, ingest.status)
         log.warning("ingest_split_on", workers=settings.ingest_workers,
-                    note="unfinished: see THE SPLIT in docs/HANDOFF.md before using this in production")
+                    only=sorted(ingest.only) if ingest.only else "every channel",
+                    note="see THE SPLIT in docs/HANDOFF.md before using this in production")
     else:
         dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)
 
@@ -913,6 +931,7 @@ async def main() -> None:
     # it comes up (Ingest.on_ready), now and after any restart of it.
     if ingest is not None:
         await ingest.start()
+        await restore_streams(skip=ingest.handles)      # the rest, here, as always
     else:
         await restore_streams()
 

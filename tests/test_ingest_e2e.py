@@ -369,7 +369,7 @@ def test_the_switch_is_off_unless_asked_for():
     assert Settings.model_fields["ingest_workers"].default == 0
     src = pathlib.Path("src/main.py").read_text()
     assert "if settings.ingest_workers > 0:" in src
-    assert src.index("if settings.ingest_workers > 0:") < src.index("ingest = Ingest(settings.ingest_workers)")
+    assert src.index("if settings.ingest_workers > 0:") < src.index("ingest = Ingest(settings.ingest_workers,")
     # Off: exactly the old publisher and the old restore.
     assert "dashboard_api.set_stream_publisher(_publish_new_stream, _publish_remove_stream)" in src
     assert "await restore_streams()" in src
@@ -495,3 +495,75 @@ def test_a_real_worker_reports_and_its_average_reaches_the_gate(web):
     reading, status = _run(web, body, count=1)
     assert reading["age_s"] < hr.STALE_S and 0.0 <= reading["pct"] < 60.0
     assert status["loop_avg"] == round(reading["pct"], 1) and status["up"] is True
+
+
+# ── a trial on a few channels (INGEST_ONLY) ──────────────────────────────────
+
+def test_with_no_list_every_channel_is_the_workers(web):
+    assert ingest_mod.Ingest(2, module="fakeingest").handles("anything") is True
+    assert ingest_mod.Ingest(2, module="fakeingest", only="  ,  ").only is None
+
+
+def test_only_the_named_channels_run_in_a_worker_and_the_rest_are_not_touched(web):
+    """One named channel goes to a worker. The other is left for the web
+    process to run as it always has: not sent, not reported on, not measured
+    against a worker, not cleaned up after."""
+    trial, other = _names("trial", 0, 1, count=1)[0], _names("other", 0, 1, count=1)[0]
+    web.add(trial)
+    web.add(other, status="live")                       # as if the web process is running it
+    api._live_slots.add(f"u1:{other}")
+
+    async def body(ing):
+        assert ing.handles(trial.upper()) and not ing.handles(other)
+        assert await _until(lambda: api._streams[f"u1:{trial}"]["status"] == "live")
+        watching = (await ing.pool.workers[0].link.call("probe"))["watching"]
+        reading_trial, reading_other = ing.loop_for(f"u1:{trial}"), ing.loop_for(f"u1:{other}")
+        assert ing.owns("u1", trial) and not ing.owns("u1", other)
+        assert ing.h_acquire(0, f"u1:{other}") is False              # a worker may not speak for it
+        os.kill(ing.pool.workers[0].proc.pid, signal.SIGKILL)       # and losing the worker...
+        assert await _until(lambda: any(e["stream"]["channel"] == trial and
+                                        e["stream"]["status"] == "reconnecting"
+                                        for e in web.events("stream_updated")))
+        return watching, reading_trial, reading_other, dict(api._streams[f"u1:{other}"]), set(api._live_slots)
+    async def go():
+        ing = ingest_mod.Ingest(1, module="fakeingest", only=f" {trial.upper()} , someone-else")
+        await ing.start()
+        try:
+            return await body(ing)
+        finally:
+            await ing.stop()
+    watching, reading_trial, reading_other, other_rec, slots = asyncio.run(go())
+    assert watching == [f"u1:{trial}"]
+    assert reading_trial is not None and reading_other is None      # the web loop is judged for it
+    assert other_rec["status"] == "live" and f"u1:{other}" in slots, "...did not disturb the other channel"
+    assert not web.events("stream_updated", other) and not web.events("stream_status", other)
+
+
+def test_the_web_process_restores_only_what_the_workers_do_not_handle(monkeypatch):
+    from src import main
+    spawned = []
+
+    async def _spawn(channel, platform, user_id="", preset="default"):
+        spawned.append(channel)
+    monkeypatch.setattr(main, "spawn_worker", _spawn)
+    monkeypatch.setattr(api, "_streams", {
+        "u:a": {"channel": "a", "status": "offline", "user_id": "u"},
+        "u:b": {"channel": "b", "status": "offline", "user_id": "u"},
+        "u:c": {"channel": "c", "status": "paused", "user_id": "u"}})
+    assert asyncio.run(main.restore_streams(skip=lambda ch: ch == "a")) == 1 and spawned == ["b"]
+    spawned.clear()
+    assert asyncio.run(main.restore_streams()) == 2 and spawned == ["a", "b"]      # no split: as before
+
+
+def test_main_routes_by_channel_and_the_setting_is_empty_by_default():
+    import pathlib
+    from config.settings import Settings
+    assert Settings.model_fields["ingest_only"].default == ""
+    src = pathlib.Path("src/main.py").read_text()
+    assert "Ingest(settings.ingest_workers, only=settings.ingest_only)" in src
+    assert "dashboard_api.set_stream_publisher(_route_new, _route_remove)" in src
+    assert "await restore_streams(skip=ingest.handles)" in src
+    route = src[src.index("async def _route_new("):src.index("dashboard_api.set_stream_publisher(_route_new")]
+    assert route.count("if ingest.handles(channel):") == 2
+    assert "await _publish_new_stream(channel, platform, preset, user_id)" in route
+    assert "await _publish_remove_stream(channel, user_id)" in route

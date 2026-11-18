@@ -49,7 +49,15 @@ def _wire(rec: dict) -> dict:
 
 class Ingest:
     def __init__(self, count: int, *, module: str = "src.ingestion.worker_main",
-                 python: str | None = None) -> None:
+                 python: str | None = None, only: str | list | None = None) -> None:
+        # A TRIAL ON A FEW CHANNELS (INGEST_ONLY). None = every channel is
+        # ours. Otherwise only these names are, and every other channel stays
+        # in the web process as if the split did not exist: `handles` is
+        # asked wherever a channel is routed, restored, measured or cleaned
+        # up after.
+        names = only.split(",") if isinstance(only, str) else list(only or [])
+        names = {n.strip().lower() for n in names if n and n.strip()}
+        self.only: set[str] | None = names or None
         self.pool = Pool(count, handlers={
             "broadcast": self.h_broadcast,
             "acquire_live_slot": self.h_acquire,
@@ -85,11 +93,15 @@ class Ingest:
     def status(self) -> list[dict]:
         return self.pool.status()
 
-    def loop_for(self, stream_key: str) -> dict:
+    def loop_for(self, stream_key: str) -> dict | None:
         """The reading the live limit judges for this channel: the loop of
         the worker it hashes to (headroom.allow, `loop`). A worker that is
-        down or has not reported reads as too old, which the gate refuses."""
+        down or has not reported reads as too old, which the gate refuses.
+        None for a channel that runs in the web process (a trial on a few
+        channels): the web loop is judged for it, as it always was."""
         import time
+        if not self.handles(_channel_of(stream_key)):
+            return None
         index = self.pool.owner(_channel_of(stream_key))
         w = self.pool.workers[index]
         fresh = w.ready and w.beat_at > 0
@@ -97,8 +109,12 @@ class Ingest:
                 "age_s": (time.monotonic() - w.beat_at) if fresh else 1e9,
                 "live": sum(1 for k in api._live_slots if self._owns(index, _channel_of(k)))}
 
+    def handles(self, channel: str) -> bool:
+        """Does this channel run in a worker process at all?"""
+        return self.only is None or (channel or "").strip().lower() in self.only
+
     def _owns(self, index: int, channel: str) -> bool:
-        return bool(channel) and self.pool.owner(channel) == index
+        return bool(channel) and self.handles(channel) and self.pool.owner(channel) == index
 
     # ── telling workers what to watch ────────────────────────────────────────
 

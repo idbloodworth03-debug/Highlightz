@@ -503,6 +503,13 @@ class Settings(BaseSettings):
     # are done: with it on, profile changes made in the dashboard (approve,
     # reject, sensitivity) and Kick chat do not reach a worker yet.
     ingest_workers: int = 0
+    # A TRIAL OF THE SPLIT ON A FEW CHANNELS. Channel names, comma separated.
+    # Empty (the default) means every channel goes to the workers when
+    # INGEST_WORKERS is set. With names here, ONLY those channels run in a
+    # worker process and every other channel runs in this process exactly as
+    # it does today: the way to see a real stream in a worker without
+    # betting the whole site on it.
+    ingest_only: str = ""
     # REGISTERED channels at once, across the whole process. Derived from the
     # live ceiling; override with MAX_REGISTERED_STREAMS in .env.
     max_registered_streams: int = 0
