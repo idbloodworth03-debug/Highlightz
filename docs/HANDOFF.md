@@ -9342,3 +9342,108 @@ Tests: `tests/test_loop_relief.py` (13) and two in
 `tests/test_admin_stripe_sync.py` (a webhook mid-check is not overwritten;
 the two Stripe calls do not run on the loop's thread). Full suite 4648 passed.
 Not yet run on production.
+
+## The live limit follows what the server measures (2026-11-18)
+
+**Owner:** "I want to maximize live monitored streams as much as possible
+without breaking the server." `MAX_CONCURRENT_STREAMS` had been moved by hand
+four times in a week (24, 36, 44, 60), each after somebody ran a script. A
+fixed number is too low on a quiet night and too high on a loud one.
+
+**What exists now (`src/ingestion/headroom.py`, `api.acquire_live_slot`).**
+A task (`headroom`, in `main()`, never raises) reads three things every 2 s
+and keeps a 15 s average: the app's one loop (the loop thread's own CPU, % of
+one core), the box's CPU (`/proc/stat`, % of all cores), and `MemAvailable`.
+It also tracks how late it wakes, which is the loop being held up.
+
+- **`LIVE_AUTO_BASE` (new, default 0 = OFF).** Unset, nothing is consulted and
+  the limit is `MAX_CONCURRENT_STREAMS`, exactly as before.
+- **Set, the two numbers mean different things.** `LIVE_AUTO_BASE` live
+  channels are let in without asking (a number the box is known to carry);
+  from there up to `MAX_CONCURRENT_STREAMS` (now the HARD MAXIMUM, the most
+  the box is ever asked for) a channel gets in only while one more would
+  still leave the loop under 65%, the box under 75% and a tenth of memory
+  (1.5 GB at least) free. Studio accounts are held to 75% / 85% instead,
+  which is their reserved room when the limit is a measurement.
+- **It can only say no.** Never past the hard maximum; a live channel is never
+  put out; no readings for 12 s means nothing past the base.
+- **It predicts.** A channel let in during the last 45 s has not reached the
+  readings, so it counts as a full share (the measured average per settled
+  channel, never under 1% of the loop / 1.5% of a core / 170 MB), and at most
+  `STEP = 6` NEW channels may be in that state at once. Past the floor the
+  limit climbs six channels per 45 s, each batch measured before the next. A
+  channel that gave a slot back under 3 minutes ago and takes one again is
+  reconnecting, not new (`note_released` / `note_admitted(key)`): it counts
+  in the arithmetic but never holds up the climb. `release_live_slot` only
+  reports a slot that was actually held, because every waiting channel calls
+  it every 30 s.
+- **A restart is not new load** (every deploy restarts; a Twitch hiccup drops
+  every feed). Twice a minute the number of channels the readings say the
+  box is carrying is noted, and that many are let straight back in for 3
+  minutes. It is written to `headroom.json` in the data folder so a restart
+  reads it (ignored when older than 10 minutes or unreadable). Without this
+  every deploy would have left channels above the base queued for minutes.
+  **What was running comes back up to the WIDER lines (75% / 85%)**; only
+  past those is the note scaled down. So between 65% and 75% of the loop
+  nothing new gets in, but a channel whose feed dropped for a moment does not
+  lose its place. The note is the most seen in 3 minutes, never more than
+  were actually live, so it cannot ratchet the limit up.
+- A refused channel is `queued` as it always was ("waiting for a slot",
+  asked again every 30 s); `live_slots_full` now carries `measured=<what ran
+  out>`.
+- **`app_loop_overloaded`** (an error, so it is emailed): the loop averaged
+  over 85% for two minutes. At most every 30 minutes. This runs whether or
+  not `LIVE_AUTO_BASE` is set.
+- **Admin, Live now tile:** "room for about N more live (most M) · main
+  thread X% · processors Y% · Z GB free", or "no room for more live: <what
+  ran out>", plus "N live and waiting for room". `/admin/overview.streams`
+  gained `queued` and `headroom`. With the base unset it reads as before.
+- `capacity_limits` (startup log) gained `live_auto_base`.
+  `scripts/stream_cost.py` says "THE SITE SETS ITS OWN LIVE LIMIT" instead of
+  telling the owner to pin a number, and still says so if the BASE is higher
+  than the sample supports (the base is the one part that is not measured).
+
+**The listed ceiling now stops at 300 unless typed** (`_MAX_DERIVED_REGISTERED`
+in `config/settings.py`). It derives as live x 4, and a hard maximum of 120
+would have made it 480. Every listed Twitch channel that is not live asks
+Helix `GET /streams?user_login=` every 30 s (2 a minute) and every live one
+once a minute, against 800 points a minute for the whole app, shared with
+clip creation: 480 listed is past the budget, and a 429 there is channels not
+being noticed going live. Under 75 live x 4 nothing changes (44 gives 176, 60
+gives 240). `MAX_REGISTERED_STREAMS` in `.env` still wins. **To list more than
+300, the poll has to change first:** Helix takes 100 `user_login`s in one
+request, so one shared poller for every waiting channel would cut this a
+hundredfold and take work off the loop too. Not built: it is the
+live-detection path and deserves its own change.
+
+**What the owner was given:** one command that sets `LIVE_AUTO_BASE=44` and
+`MAX_CONCURRENT_STREAMS=120` in prod's `.env`, deploys, and prints the
+`capacity_limits` line; then `stream_cost.py --sample=20; loop_profile.py`
+with channels live. 44 because it is the last number measured live there
+(loop 64.8% BEFORE the loop fixes of the section above; those fixes are
+still unmeasured on prod). 120 as a backstop only: by the last reading memory
+and CPU ran out near 100 on the old box, and the gate reads both.
+
+**The first deploy has no note to read**, so that one time the channels above
+the base wait about a minute and then come in six per 45 s.
+
+**To turn it off:** remove `LIVE_AUTO_BASE` from `.env`, set
+`MAX_CONCURRENT_STREAMS` to the fixed number wanted, restart. Leaving 120
+there WITHOUT the base would be a fixed limit of 120, which nothing has
+measured.
+
+**Verified:** `tests/test_headroom.py` (54: off changes nothing; each line;
+pending and the step; the carry and a bad file; a dropped feed keeping its
+place; Studio; the task measuring a busy loop and never raising; the admin
+figures; the listed bound; the cost script). The whole app run locally with redis and `LIVE_AUTO_BASE=2`:
+`headroom_started`, `/admin/overview` returning live readings, the admin
+tile read in a browser at desktop and phone widths, no page errors.
+**NOT verified: anything on production, and no real channel has been
+admitted or refused by it.** The first evening it is on, look at
+`journalctl -u highlightz | grep live_slots_full | tail` for the `measured=`
+reasons and at the admin tile.
+
+**Still open from before:** the droplet's new cores and memory have not been
+read back; `finish-clip` / `clip-processor` holds, `profile-<channel>` writes
+and the other blocking Stripe calls are untouched; "paying customers first"
+for slots was offered and not asked for.

@@ -5162,25 +5162,61 @@ def acquire_live_slot(stream_key: str) -> bool:
     if stream_key in _live_slots:
         return True                       # already holding one; re-entrant
     from src.billing.plans import uid_has_priority
+    from src.ingestion import headroom
     cap = max(1, settings.max_concurrent_streams)
     uid = stream_key.split(":", 1)[0] if ":" in stream_key else ""
-    if uid_has_priority(uid):
+    priority = uid_has_priority(uid)
+    if priority:
         room = cap
     else:
         reserve = min(PRIORITY_RESERVED_SLOTS, _priority_waiting(), cap - 1)
         room = cap - max(0, reserve)
-    if len(_live_slots) >= room:
-        log.warning("live_slots_full", held=len(_live_slots), cap=cap, room=room,
+    held = len(_live_slots)
+    if held >= room:
+        log.warning("live_slots_full", held=held, cap=cap, room=room,
                     waiting=stream_key)
         return False
+    # THE MEASURED LIMIT (owner, 2026-11-18: "maximize live monitored streams
+    # as much as possible without breaking the server"). With LIVE_AUTO_BASE
+    # set, `cap` above is the most the box is ever asked for, and from the base
+    # up a channel gets in only while the server measures room for one more
+    # (src/ingestion/headroom.py). It can only say no: nothing below the base
+    # or above the cap is decided here, and with LIVE_AUTO_BASE unset it is
+    # never asked. A Studio channel is held to wider lines, which is its
+    # reserved room when the limit is a measurement rather than a count.
+    if headroom.enabled() and held >= headroom.floor():
+        ok, why = headroom.allow(held, priority=priority)
+        if not ok:
+            log.warning("live_slots_full", held=held, cap=cap, room=held,
+                        waiting=stream_key, measured=why)
+            return False
     _live_slots.add(stream_key)
+    # Every channel let in, under the base too: its cost has not reached the
+    # readings yet, and the next decision has to count it as if it had.
+    headroom.note_admitted(stream_key)
     return True
+
+
+def _headroom_snapshot() -> dict:
+    """The server's own readings for the admin page, with "room for N more"
+    held to the hard maximum so the page never promises past it."""
+    from src.ingestion import headroom
+    held = len(_live_slots)
+    snap = headroom.snapshot(held)
+    snap["room"] = max(0, min(snap["room"], max(1, settings.max_concurrent_streams) - held))
+    return snap
 
 
 def release_live_slot(stream_key: str) -> None:
     """Give the slot back. Must be unconditional and idempotent: a slot leaked
     on an error path is capacity this process never gets back until restart."""
-    _live_slots.discard(stream_key)
+    if stream_key in _live_slots:
+        _live_slots.discard(stream_key)
+        # So the measured limit can tell this channel reconnecting in half a
+        # minute from a new one (src/ingestion/headroom.py). Only for a slot
+        # that was HELD: every waiting channel calls this every 30 seconds.
+        from src.ingestion import headroom
+        headroom.note_released(stream_key)
 
 
 def _counted_stream_keys() -> list[str]:
@@ -9477,6 +9513,11 @@ async def admin_overview(request: Request, tz: str = ""):
             "max": max(1, settings.max_registered_streams),
             "live": sum(1 for s in _streams.values() if s.get("status") == "live"),
             "live_max": max(1, settings.max_concurrent_streams),
+            # Channels that are live on Twitch or Kick and waiting for room.
+            "queued": sum(1 for s in _streams.values() if s.get("status") == "queued"),
+            # What the server measures of itself, and whether the live limit
+            # follows it (src/ingestion/headroom.py).
+            "headroom": _headroom_snapshot(),
         },
     }
 
@@ -18301,7 +18342,22 @@ async function loadOverview(){
   const st = [n0(s.monitored) + '/' + n0(s.max) + ' streams monitored'];
   if(s.monitored >= s.max) st.push('full, nobody can add a channel');
   if(s.paused) st.push(n0(s.paused) + ' paused');
-  st.push('up to ' + n0(s.live_max) + ' live at once');
+  // The live limit. Fixed, it is one number. Measured (LIVE_AUTO_BASE set),
+  // it is whatever the server has room for, so the line says how much room
+  // is left and, when a channel was just turned away, what ran out.
+  const hr = s.headroom || {};
+  if(hr.on && hr.measured){
+    st.push(hr.room > 0
+      ? 'room for about ' + n0(hr.room) + ' more live (most ' + n0(s.live_max) + ')'
+      : 'no room for more live' + (hr.full_because ? ': ' + hr.full_because : ''));
+    st.push('main thread ' + Math.round(hr.loop_pct) + '% · processors ' + Math.round(hr.cpu_pct)
+      + '% · ' + hr.mem_free_gb + ' GB free');
+  } else if(hr.on){
+    st.push('up to ' + n0(hr.base) + ' live until the server has measured itself (most ' + n0(s.live_max) + ')');
+  } else {
+    st.push('up to ' + n0(s.live_max) + ' live at once');
+  }
+  if(s.queued) st.push(n0(s.queued) + ' live and waiting for room');
   set('ov-live-s', st.join(' · '));
   const lv = document.getElementById('ov-live-s');
   if(lv) lv.classList.toggle('ov-full', s.monitored >= s.max);

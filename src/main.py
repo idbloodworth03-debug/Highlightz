@@ -18,6 +18,7 @@ from redis.asyncio import from_url as redis_from_url
 from config.settings import settings
 from src.dashboard import api as dashboard_api
 from src.autopilot import runner as _autopilot_runner
+from src.ingestion import headroom as _headroom
 from src.maintenance import loop_profile as _loop_profile
 from src.dashboard.api import app as dashboard_app
 from src.ingestion.stream_worker import StreamWorker, WorkerConfig
@@ -966,6 +967,12 @@ async def main() -> None:
             lambda: sum(1 for s in list(dashboard_api._streams.values())
                         if s.get("status") == "live")),
             name="loop-profile-watch"),
+        # What the server measures of itself every two seconds: the loop, the
+        # processors, memory. With LIVE_AUTO_BASE set the live limit follows
+        # it (src/ingestion/headroom.py); either way the admin page shows it
+        # and the owner is emailed if the loop stays overloaded. Never raises.
+        asyncio.create_task(_headroom.run(dashboard_api.live_stream_count),
+                            name="headroom"),
     ]
 
     # Restore streams that were running before the last shutdown

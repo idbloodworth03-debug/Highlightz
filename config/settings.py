@@ -48,6 +48,19 @@ _MAX_CONCURRENT_STREAMS = 400    # a nonsense cpu count must not uncap the box
 # control at go-live (api.acquire_live_slot), NOT this number.
 _REGISTERED_PER_LIVE_SLOT = 4
 
+# ...AND IT STOPS WHERE TWITCH'S BUDGET DOES. Every listed Twitch channel that
+# is not live asks Helix "is it live yet?" every 30 seconds (two requests a
+# minute, src/ingestion/stream_worker.py), and every live one asks once a
+# minute. Helix gives the whole app 800 a minute, shared with making clips. At
+# 300 listed and nobody live that is 600 a minute; past it Helix starts
+# answering 429 and channels stop being noticed going live, which is the
+# product failing for everyone at once. So a DERIVED ceiling never goes past
+# this, however high the live limit is set (2026-11-18: the measured live limit
+# made a hard maximum of 120 sensible, and x4 of that is 480). A number typed
+# as MAX_REGISTERED_STREAMS still wins. Raising this for real means asking
+# Helix about 100 channels in one request instead of one each.
+_MAX_DERIVED_REGISTERED = 300
+
 
 def _usable_cpus() -> int:
     """Cores this process may actually use.
@@ -166,6 +179,8 @@ def capacity_summary(s) -> dict:
         "cores": _usable_cpus(),
         "disk_mb": _disk_total_mb(s.local_storage_path),
         "live": s.max_concurrent_streams,
+        # 0 = the live limit is fixed; above 0, measured from here up to "live".
+        "live_auto_base": max(0, int(s.live_auto_base or 0)),
         "listed": s.max_registered_streams,
         "capture_mb": s.clip_capture_max_total_mb,
         "clip_store_mb": s.clip_file_max_total_mb,
@@ -474,6 +489,14 @@ class Settings(BaseSettings):
     # LIVE streams at once. Derived from the machine, overridable with
     # MAX_CONCURRENT_STREAMS in .env. See default_max_concurrent_streams().
     max_concurrent_streams: int = 0
+    # THE MEASURED LIVE LIMIT (src/ingestion/headroom.py). 0 is off: the limit
+    # is the number above and nothing else. Above 0, this many live channels
+    # are let in exactly as before, and from there up to MAX_CONCURRENT_STREAMS
+    # a channel is let in only while the server measures room for one more
+    # (the app's loop, the processors, memory). Set LIVE_AUTO_BASE to a number
+    # the box is known to carry and MAX_CONCURRENT_STREAMS to the most it
+    # should ever be asked for.
+    live_auto_base: int = 0
     # REGISTERED channels at once, across the whole process. Derived from the
     # live ceiling; override with MAX_REGISTERED_STREAMS in .env.
     max_registered_streams: int = 0
@@ -619,7 +642,8 @@ class Settings(BaseSettings):
         if self.max_registered_streams <= 0:
             object.__setattr__(
                 self, "max_registered_streams",
-                self.max_concurrent_streams * _REGISTERED_PER_LIVE_SLOT)
+                min(self.max_concurrent_streams * _REGISTERED_PER_LIVE_SLOT,
+                    max(_MAX_DERIVED_REGISTERED, self.max_concurrent_streams)))
             _log.info(
                 "max_registered_streams derived: %d registered channels "
                 "(%d live slots x %d). Set MAX_REGISTERED_STREAMS in .env to "

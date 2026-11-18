@@ -524,7 +524,8 @@ def test_the_resolved_limits_reach_the_journal(monkeypatch):
     monkeypatch.setattr("config.settings._usable_cpus", lambda: 8)
     monkeypatch.setattr("config.settings._disk_total_mb", lambda path: 320 * _GB)
     got = capacity_summary(Settings())
-    assert got == {"cores": 8, "disk_mb": 320 * _GB, "live": 48, "listed": 192,
+    assert got == {"cores": 8, "disk_mb": 320 * _GB, "live": 48, "live_auto_base": 0,
+                   "listed": 192,
                    "capture_mb": 9600, "clip_store_mb": 50000,
                    "pinned": ["clip_file_max_total_mb"]}
     main_src = pathlib.Path("src/main.py").read_text()

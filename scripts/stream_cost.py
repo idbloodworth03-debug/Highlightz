@@ -196,7 +196,8 @@ def room(*, live: int, cores: int, mem_available: float, mem_total: float,
     return out
 
 
-def verdict(*, live: int, cap: int, safe: int, production: bool) -> list[str]:
+def verdict(*, live: int, cap: int, safe: int, production: bool,
+            auto_base: int = 0) -> list[str]:
     """What to do about the limit, in words.
 
     THE HONESTY GUARD comes first. Every number is one sample scaled linearly,
@@ -211,6 +212,22 @@ def verdict(*, live: int, cap: int, safe: int, production: bool) -> list[str]:
         return [f"TOO THIN TO DECIDE. Only {live} channel(s) were live, and the estimate",
                 "scales one sample linearly. Re-run at your busiest before moving the",
                 "limit."]
+    if auto_base > 0:
+        # LIVE_AUTO_BASE is set: the running site reads these same three
+        # figures every two seconds and lets channels in while there is room
+        # (src/ingestion/headroom.py). So there is no number to move here,
+        # unless the part it does NOT measure, the base, is itself too high.
+        out = [f"THE SITE SETS ITS OWN LIVE LIMIT. {auto_base} are always let in, and from",
+               f"there up to {cap} only while it measures room for one more. This sample",
+               f"supports about {safe} live."]
+        if safe < auto_base:
+            return out + [f"THE BASE IS HIGHER THAN THIS SAMPLE SUPPORTS: set LIVE_AUTO_BASE={safe}",
+                          "in .env and restart, so nothing is let in without being measured",
+                          "past what the box can run."]
+        if safe >= cap:
+            return out + [f"It would carry more than the {cap} it is ever asked for: raise",
+                          "MAX_CONCURRENT_STREAMS if you want it to go further."]
+        return out + ["Nothing to change: it stops by itself where the box is full."]
     if safe > cap:
         return [f"RAISING IT LOOKS SUPPORTED. {cap} -> {safe} fits the measured cost.",
                 "Move it in ONE step, not to the computed maximum, and re-run this",
@@ -248,6 +265,7 @@ def main(args: list[str]) -> int:
     cores = cfg._usable_cpus()
     mem = meminfo()
     cap = max(1, settings.max_concurrent_streams)
+    auto_base = max(0, int(settings.live_auto_base or 0))
     listed_cap = max(1, settings.max_registered_streams)
     pinned = "max_concurrent_streams" in settings.model_fields_set
     listed = len(api._counted_stream_keys())
@@ -283,9 +301,14 @@ def main(args: list[str]) -> int:
     print("=" * 70)
     print("THE LIMITS THE SITE IS RUNNING WITH")
     print("=" * 70)
-    print(f"  live at once           : {cap}"
-          + ("   <- pinned by MAX_CONCURRENT_STREAMS in .env" if pinned
-             else f"   <- {cores} cores x {cfg._STREAMS_PER_CPU}, derived at startup"))
+    if auto_base:
+        print(f"  live at once           : as many as the server measures room for"
+              f"   <- {auto_base} always, never more than {cap}")
+        print("                           (LIVE_AUTO_BASE and MAX_CONCURRENT_STREAMS in .env)")
+    else:
+        print(f"  live at once           : {cap}"
+              + ("   <- pinned by MAX_CONCURRENT_STREAMS in .env" if pinned
+                 else f"   <- {cores} cores x {cfg._STREAMS_PER_CPU}, derived at startup"))
     print(f"  channels listed        : {listed} of {listed_cap}")
     buf_cap = settings.clip_capture_max_total_mb * MB
     buf_now = clip_recorder.total_bytes()
@@ -372,7 +395,7 @@ def main(args: list[str]) -> int:
 
     print()
     here = str(pathlib.Path(__file__).resolve()).startswith("/opt/highlightz")
-    for line in verdict(live=live, cap=cap, safe=safe, production=here):
+    for line in verdict(live=live, cap=cap, safe=safe, production=here, auto_base=auto_base):
         print("  " + line)
     return 0
 
