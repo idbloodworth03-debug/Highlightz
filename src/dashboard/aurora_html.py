@@ -2959,7 +2959,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
   const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
-  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : 'paused · resumes when you return') : s.status;
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : s.hold==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return') : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   return (
     <div className="rd-stream">
@@ -2970,7 +2970,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
             <span className="rd-chip" style={s.platform==='kick'?{background:'rgba(83,252,24,.12)',color:'#53fc18',border:'1px solid rgba(83,252,24,.3)'}:{}}>{s.platform}</span>
             <span className="rd-chip">{s.preset}</span>
             <span style={{color:statusColor,fontWeight:600}}
-                  title={s.status==='queued'?('This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.'+(ahead?'':' Channels on Pro and Studio go first.')):''}>{statusLabel}</span>
+                  title={s.status==='queued'?('This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.'+(ahead?'':' Channels on Pro and Studio go first.')):(s.status==='paused'&&s.hold==='queue_full')?'Your review queue filled up while Highlightz was closed, so there was no room for another clip. It starts again by itself when you are back.':''}>{statusLabel}</span>
             {calibrating && s.status==='live' &&
               <span className="rd-chip cal" title="Learning this channel's normal before it will clip anything">calibrating</span>}
           </div>
@@ -4810,6 +4810,12 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
               ? ' ' + PLAN_NAME(nextPlan) + ' holds '
                 + lost.next_limit + ' — $' + lost.next_price + '/month.'
               : ' Review or clear some to make room.'}
+            {/* Free only (plan_limits.pauses_when_idle). A full queue with
+                the tab closed pauses the channel, so say so here, where the
+                queue is full and they are still looking at it. */}
+            {me && me.plan_limits && me.plan_limits.pauses_when_idle && nextPlan
+              ? ' While your queue is full, Highlightz keeps watching only with this tab open; close it and your channel pauses until you are back. ' + PLAN_NAME(nextPlan) + ' keeps watching either way.'
+              : ''}
           </div>
           {nextPlan && <a className="rd-btn grad" href="/billing/paywall"
             style={{textDecoration:'none',flexShrink:0}}>See plans</a>}
@@ -5037,7 +5043,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
-  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : 'paused · resumes when you return') : active.status;
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : active.hold==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return') : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
@@ -12673,6 +12679,11 @@ function RdApp() {
           refetchAll();
           flash('Your account roles were updated.');
         }
+        // A Free account away with a full review queue was paused, or is
+        // back from that pause. The server writes the sentence (api.
+        // _queue_pause_words) so the toast and the bell note cannot disagree;
+        // the channels themselves arrive as stream_updated.
+        else if(msg.event==='queue_pause'){if(msg.message)flash(msg.message);}
         else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz. Paid plans keep watching while you are away.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is

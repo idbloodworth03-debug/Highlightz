@@ -9711,3 +9711,100 @@ passed. The whole app run locally on the 400,000-row ledger:
 `/admin/overview` 200 in 3.9 s from the process, `/admin/users` 3 ms from the
 same run, and 80 other requests meanwhile never slower than 18 ms. Not run on
 production.
+
+## Free watches while you are away until the queue is full, then pauses (2026-11-18)
+
+**Owner:** "Free tier users need to have their lives turned off after they
+hit their clip cap and dont have the tab open ... the free tier will clip
+till capacity when off the tab and then the stream will not be monitored
+after that. Also notify them that this is the case only because they are
+free and they should upgrade if they want more but say it a better way."
+
+**Why it is right for capacity too.** A channel whose owner's review queue is
+full cannot clip: every moment it scores is recorded as a miss. With nobody
+at the dashboard that is a live slot, two to four processes and a share of
+the one loop spent on clips that cannot be made, on the plan that pays
+nothing.
+
+**The rule (`api._pause_if_queue_full_and_away`, asked by `idle_stream_reaper`
+every 5 minutes, before the 8-hour check).** All of:
+- the plan pauses at all: `plans.pauses_when_idle` (Free and locked; never a
+  paid plan, a trial, or staff). The same accounts the 8-hour pause covers;
+- nobody is there: no dashboard socket AND no authenticated request for
+  `_QUEUE_PAUSE_GRACE` (300 s), `_away_seconds(uid)`. `_ws_last_seen` is
+  stamped when a socket opens and when it closes;
+- the queue is full by the count that refuses a clip: `pending_room(uid)`,
+  `used >= cap`, `cap > 0`. Highlight clips have their own allowance and do
+  not count.
+
+Then `_pause_user_streams(uid, hold="queue_full")`: every channel of the
+account that is not already paused, live or waiting, exactly as the idle
+pause does (record kept, slot released, worker stopped), with
+`hold: "queue_full"` on the record. **With the tab open nothing changes, full
+or not. Not full, it keeps clipping with the tab closed.** The 8-hour pause
+is untouched.
+
+**A deploy is not everybody leaving.** It closes every socket at once, so
+"away" is never counted from before `_PROCESS_STARTED_AT`: for 5 minutes
+after a restart nobody can be paused by this, by which time open tabs have
+long reconnected. Tested.
+
+**Coming back** is the existing path: any authenticated request by an
+account in `_paused_users` starts `_resume_user_streams`, which now also
+takes `hold` off (a billing hold is still skipped). If they close the tab
+again with the queue still full, it pauses again after the grace. It does
+NOT restart by itself when pending clips age out while they are away:
+"after that" is until they return.
+
+**What they are told (`_queue_pause_words`, one place for all three):**
+- **Bell note** (`user_store.add_notices`), at most one per 24 h
+  (`_QUEUE_PAUSE_NOTICE_GAP`): "Your review queue filled up, so we paused
+  <channel>". The body says what happened, that nothing already caught was
+  touched, that it restarts by itself, "That is how the Free plan works: it
+  keeps watching while you are away until your queue is full", and then what
+  the next plan does as a fact with its price ("Pro keeps watching around
+  the clock, with or without the tab open, and holds 200 clips. It is $25 a
+  month if you ever want that; you can change plans from Settings."). No
+  exclamation marks, no "upgrade now": the owner asked for a better way of
+  saying it, and a test holds the tone.
+- **A toast on the first tab they open afterwards**
+  (`_queue_pause_welcome`, sent by the `/ws` handler right after the socket
+  is registered, once): "Welcome back. Your review queue filled up while you
+  were away, so <channel> was paused. It is starting again now. Pro keeps
+  watching around the clock and holds 200 clips." In memory only; after a
+  restart the bell note is what is left.
+- **Before it happens:** the queue-full notice on Clip Review (the one that
+  already shows "N highlights were not clipped") adds, for accounts with
+  `me.plan_limits.pauses_when_idle`: "While your queue is full, Highlightz
+  keeps watching only with this tab open; close it and your channel pauses
+  until you are back. Pro keeps watching either way."
+- The card and detail head read "paused · review queue full" with a hover
+  note, for the moments a tab sees it.
+
+**Realtime:** new event `queue_pause` (`{message}`), handled in
+`ws.onmessage` with a toast; the pause itself still goes out as
+`stream_updated` per channel, plus `inbox_changed` for the bell. `/me` gained
+`plan_limits.pauses_when_idle` (already in `refetchAll`).
+
+**The site says what the code does:** the FAQ ("Do I have to leave anything
+running?" and "What happens when my review queue fills up?") and llms.txt.
+The Terms promise Free nothing about this and were not changed.
+
+**On the first deploy:** about five minutes after the restart, every Free
+account that is away with a full queue is paused at once and gets the note.
+How many is not known from here. `journalctl -u highlightz --since "-15min" |
+grep -c streams_paused_queue_full` counts them; the admin tile's "paused"
+and "live" figures move with it.
+
+**Verified:** `tests/test_free_queue_pause.py` (28: who is and is not paused,
+the grace, a restart, coming back, a billing hold left alone, the 8-hour rule
+still working and not announcing twice, the first tab told once over a real
+socket, the wording, once a day, a note that cannot be saved not stopping the
+pause, the events, the copy). Two older tests updated for the wording and
+the label. Full suite 4782 passed; JSX parsed. **In a real browser** (the
+real rule, grace shortened to 4 s): a Free account with 20 pending clips was
+paused with no tab, opened the dashboard and got the toast, the channel went
+to `starting`, the bell showed one note (still one after leaving and
+returning again), the Clip Review notice carried the new sentence at desktop
+and phone widths without sideways scroll, and closing the tab paused it
+again. Not run on production.

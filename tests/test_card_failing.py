@@ -285,7 +285,10 @@ def test_the_account_screen_offers_update_card_not_upgrade():
 
 
 def test_a_held_channel_says_why_it_is_paused():
-    assert SRC.count("==='billing' ? 'paused · payment failed' : 'paused · resumes when you return'") == 2
+    # Two places (the card, the detail head). Since 2026-11-18 a third reason
+    # sits between them: a Free queue that filled with the tab closed.
+    assert SRC.count("==='billing' ? 'paused · payment failed' : ") == 2
+    assert SRC.count("==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return'") == 2
 
 
 def test_no_new_event_went_out_without_a_handler():

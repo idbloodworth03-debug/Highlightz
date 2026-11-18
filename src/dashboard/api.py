@@ -762,6 +762,45 @@ def _load_activity() -> dict[str, float]:
 _user_last_active: dict[str, float] = _load_activity()
 _IDLE_STREAM_TIMEOUT = 28800  # 8 hours
 
+# ── FREE WATCHES WHILE YOU ARE AWAY UNTIL THE QUEUE IS FULL ──────────────────
+# Owner, 2026-11-18: "Free tier users need to have their lives turned off
+# after they hit their clip cap and dont have the tab open ... the free tier
+# will clip till capacity when off the tab and then the stream will not be
+# monitored after that. Also notify them that this is the case only because
+# they are free and they should upgrade if they want more."
+#
+# A channel whose owner's review queue is full cannot clip anything: every
+# moment it scores is recorded as a miss. With nobody at the dashboard it is a
+# live slot, two to four processes and a share of the app's one loop spent on
+# clips that cannot be made, on the plan that pays nothing, at a time the box
+# is the thing running out. So a FREE account (plans.pauses_when_idle, the
+# same accounts the 8-hour pause applies to) with a FULL queue and NO TAB OPEN
+# is paused, exactly as the idle reaper pauses: channels kept, slot freed,
+# restarted by the next visit. With the tab open nothing changes, full or not.
+#
+# "No tab open" is no dashboard socket AND no request, for _QUEUE_PAUSE_GRACE.
+# The grace is what keeps a page refresh, a laptop lid, a dropped connection
+# and above all a DEPLOY (which closes every socket at once) from reading as
+# somebody leaving: after a restart nobody is "away" until the grace has
+# passed since the process started.
+_QUEUE_PAUSE_GRACE = 300            # seconds without a tab or a request
+_QUEUE_PAUSE_NOTICE_GAP = 86400     # at most one bell note a day about it
+_PROCESS_STARTED_AT = time.time()
+_ws_last_seen: dict[str, float] = {}      # user id -> when a tab was last connected
+# What to tell the first tab an account opens after such a pause: the pause
+# happens, by definition, with nobody there to see a toast.
+_queue_pause_welcome: dict[str, dict] = {}
+
+
+def _away_seconds(uid: str, now: float | None = None) -> float:
+    """How long this account has had no tab open and made no request. 0 while
+    a tab is connected. Never longer than this process has been running."""
+    if _ws_clients.get(uid):
+        return 0.0
+    now = time.time() if now is None else now
+    last = max(_PROCESS_STARTED_AT, _ws_last_seen.get(uid, 0.0), _user_last_active.get(uid, 0.0))
+    return max(0.0, now - last)
+
 
 def _save_activity() -> None:
     """Called from the reaper's own 5-minute tick, so this costs one small
@@ -1767,6 +1806,11 @@ async def me(request: Request):
                                 # these to list them and to show the Direct
                                 # support row; without them here a Studio
                                 # subscriber's screen looks like Pro.
+                                # Free only: watching stops after 8 hours
+                                # away, and sooner if the review queue fills
+                                # with no tab open. The dashboard uses it to
+                                # say so BEFORE it happens.
+                                "pauses_when_idle": bool(limits.get("pauses_when_idle")),
                                 "priority": bool(limits.get("priority")),
                                 # Pro and Studio go before the accounts that
                                 # are not paying for it when the server is
@@ -5946,8 +5990,12 @@ async def _announce_card_failed(uid: str) -> None:
     await broadcast({"event": "inbox_changed"}, user_id=uid)
 
 
-async def _pause_user_streams(uid: str) -> int:
+async def _pause_user_streams(uid: str, hold: str | None = None) -> int:
     """Idle: stop the workers, KEEP the channels. Returns how many paused.
+
+    `hold` is why, when it is not the 8 hours: "queue_full" (a Free account
+    away with a full review queue, _pause_if_queue_full_and_away). It rides on
+    the record so the card can say which, and comes off when they are back.
 
     THE BUG THIS REPLACES, because it cost more than every other bug in this
     file put together. The idle reaper called _stop_user_streams_now, which
@@ -5971,6 +6019,8 @@ async def _pause_user_streams(uid: str) -> int:
                 continue
             rec["status"] = "paused"
             rec["paused_at"] = time.time()
+            if hold:
+                rec["hold"] = hold
             # The worker releases this on its way out too; doing it here means
             # the slot is free the instant the decision is made, and the call
             # is a discard so twice is harmless.
@@ -5981,7 +6031,8 @@ async def _pause_user_streams(uid: str) -> int:
     if not paused:
         return 0
     _paused_users.add(uid)
-    log.info("streams_paused_idle", user=uid, count=len(paused))
+    log.info("streams_paused_queue_full" if hold == "queue_full" else "streams_paused_idle",
+             user=uid, count=len(paused))
     for rec in paused:
         if _publish_remove_stream:
             try:
@@ -6009,6 +6060,7 @@ async def _resume_user_streams(uid: str) -> int:
                 continue            # held for a failing card: only payment releases it
             rec["status"] = "starting"
             rec.pop("paused_at", None)
+            rec.pop("hold", None)   # "queue_full": they are back, which is what it waited for
             resuming.append(rec)
         if resuming:
             _save_streams()
@@ -6323,6 +6375,96 @@ async def _adopt_orphaned_subscriptions() -> int:
     return adopted
 
 
+def _name_channels(channels: list[str]) -> str:
+    names = [c for c in channels if c]
+    if not names:
+        return "your channel"
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _queue_pause_words(channels: list[str], cap: int, user: dict | None) -> dict:
+    """What a Free account is told when its channels are paused for a full
+    queue: the bell note, and the two toasts (the moment it happens, and when
+    they are back). One place, so the three cannot drift apart.
+
+    THE TONE IS THE OWNER'S BRIEF: "notify them that this is the case only
+    because they are free and they should upgrade if they want more but say
+    it a better way". So: what happened and why it had to (there was nowhere
+    to put the next clip), that nothing was lost and it restarts by itself,
+    and only then what the next plan does differently, as a fact with its
+    price, not as a push."""
+    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan
+    who = _name_channels(channels)
+    were = "were" if len([c for c in channels if c]) > 1 else "was"
+    nxt = next_plan(get_plan(user))
+    more = ""
+    if nxt:
+        lim = PLAN_LIMITS[nxt]
+        more = (f" {lim['label']} keeps watching around the clock, with or without the tab "
+                f"open, and holds {lim['max_pending']} clips. It is ${lim['price']} a month "
+                "if you ever want that; you can change plans from Settings.")
+    plan = PLAN_LIMITS[get_plan(user)]["label"]
+    return {
+        "title": "Your review queue filled up, so we paused " + who,
+        "body": (f"Your review queue reached its {cap} clips while Highlightz was closed. "
+                 f"With no room for the next one, {who} {were} paused, and nothing you had "
+                 "already caught was touched. It starts again by itself the next time you "
+                 f"open Highlightz. That is how the {plan} plan works: it keeps watching "
+                 "while you are away until your queue is full." + more),
+        "paused": (f"Your review queue is full, so {who} {were} paused until you are back "
+                   "at Highlightz."),
+        "back": (f"Welcome back. Your review queue filled up while you were away, so {who} "
+                 f"{were} paused. It is starting again now."
+                 + (f" {PLAN_LIMITS[nxt]['label']} keeps watching around the clock and holds "
+                    f"{PLAN_LIMITS[nxt]['max_pending']} clips." if nxt else "")),
+    }
+
+
+async def _pause_if_queue_full_and_away(uid: str, db_user: dict | None,
+                                        now: float | None = None) -> bool:
+    """The rule above, for one account. True if it paused something.
+
+    Every condition has to hold, and each is checked the cheap way first:
+      * the plan pauses (Free; a trial, a paid plan or staff never does);
+      * nobody is there: no tab and no request for the grace;
+      * the queue is full by the same count that refuses a clip
+        (pending_room), on a plan that has a queue at all.
+    """
+    if not _plans.pauses_when_idle(db_user):
+        return False
+    now = time.time() if now is None else now
+    if _away_seconds(uid, now) < _QUEUE_PAUSE_GRACE:
+        return False
+    used, cap = pending_room(uid)
+    if cap <= 0 or used < cap:
+        return False
+    waiting = [rec.get("channel", "") for key, rec in _streams.items()
+               if key.startswith(f"{uid}:") and rec.get("status") != "paused"]
+    if not waiting or not await _pause_user_streams(uid, hold="queue_full"):
+        return False
+    words = _queue_pause_words(waiting, cap, db_user)
+    # The bell: what they will find when they are back. At most one a day, so
+    # an account that comes and goes with a full queue is not handed the same
+    # note every time it closes the tab.
+    try:
+        from src.auth import users as _note_store
+        recent = any(isinstance(n, dict) and str(n.get("title", "")).startswith("Your review queue filled up")
+                     and now - float(n.get("at") or 0) < _QUEUE_PAUSE_NOTICE_GAP
+                     for n in ((db_user or {}).get("notices") or []))
+        if not recent:
+            _note_store.add_notices({uid: {"title": words["title"], "body": words["body"]}})
+    except Exception as exc:
+        log.warning("queue_pause_notice_failed", user_id=uid, error=str(exc))
+    _queue_pause_welcome[uid] = {"event": "queue_pause", "message": words["back"]}
+    # Realtime contract. By the rule nobody has a tab open, but a tab can
+    # connect in the same second, and it must not sit on a stale screen.
+    await broadcast({"event": "queue_pause", "message": words["paused"]}, user_id=uid)
+    await broadcast({"event": "inbox_changed"}, user_id=uid)
+    return True
+
+
 async def idle_stream_reaper() -> None:
     """Background task: pause the channels of FREE accounts idle longer than 8
     hours (paid plans keep watching — plans.pauses_when_idle), and enforce
@@ -6385,6 +6527,13 @@ async def idle_stream_reaper() -> None:
                     if not _plans.pauses_when_idle(db_user):
                         if uid in _paused_users and await _resume_user_streams(uid):
                             log.info("idle_pause_lifted_paid_plan", user=uid)
+                        continue
+
+                    # FREE, AWAY, QUEUE FULL: nothing more can be clipped, so
+                    # stop watching until they are back (the rule is beside
+                    # _QUEUE_PAUSE_GRACE). Before the 8-hour check: an account
+                    # paused here has nothing left for that one to pause.
+                    if await _pause_if_queue_full_and_away(uid, db_user, now):
                         continue
 
                 # Idle timeout — stop if no HTTP activity in 8 hours.
@@ -8221,8 +8370,17 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.close(code=1008)
             return
         bucket.add(ws)
-    _user_last_active[uid] = time.time()
+    _user_last_active[uid] = _ws_last_seen[uid] = time.time()
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
+    # Back after a queue-full pause: said once, to the first tab that opens.
+    # The page load that brought this socket has already restarted the
+    # channels (AuthMiddleware), and the bell holds the longer note.
+    welcome = _queue_pause_welcome.pop(uid, None)
+    if welcome:
+        try:
+            await ws.send_text(json.dumps(welcome))
+        except Exception:
+            pass
     try:
         while True:
             # The browser auto-sends a 'ping' every 30s as a keepalive. That is
@@ -8237,6 +8395,7 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        _ws_last_seen[uid] = time.time()      # the clock "no tab open" counts from
         async with _ws_lock:
             _ws_clients.get(uid, set()).discard(ws)
             # Streams are NOT stopped on WebSocket disconnect — closing the browser
@@ -11636,7 +11795,8 @@ comparison — is at https://highlightz.app/llms-full.txt.
 - Monitors live Twitch and Kick channels continuously and clips automatically,
   with no one watching the stream. Add a channel before it goes live and it is
   rechecked every 30 seconds. Paid plans keep watching while you are away;
-  on Free, monitoring pauses after 8 hours without the dashboard being opened
+  on Free, monitoring continues with the dashboard closed until the review
+  queue is full, and pauses after 8 hours without the dashboard being opened
   and resumes on the next visit.
 - Scores each second from seven live signals against that channel's own
   threshold, so a small channel and a huge one are judged the same way:
@@ -15255,7 +15415,8 @@ def _faq() -> str:
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
          "until it is. On Pro and Studio it keeps watching for as long as the channel is in "
-         "your list. On Free, monitoring pauses after 8 hours without you opening the dashboard "
+         "your list. On Free it keeps watching with the tab closed until your review queue is "
+         "full or 8 hours have passed without you opening the dashboard, whichever comes first, "
          "and picks up again on your next visit."),
         ("How many channels can it watch at once?",
          f"<b>{free['max_streams']}</b> on Free, <b>{pro['max_streams']}</b> on Pro, "
@@ -15280,7 +15441,10 @@ def _faq() -> str:
          f"Pro, <b>{sd['max_pending']}</b> on Studio. When the queue is full the newest arrival is "
          "dropped, and nothing you have already caught is ever deleted to make room for it. The "
          "dashboard tells you how many moments were missed that way, so a full queue is something "
-         "you find out about rather than something that happens silently."),
+         "you find out about rather than something that happens silently. On Free, a queue that "
+         "fills while the dashboard is closed pauses the channel, since there would be nowhere to "
+         "put the next clip; it starts again when you open Highlightz, and you are told it "
+         "happened. Pro and Studio keep watching either way."),
     ]
     highlights = [
         # HOW they are found is deliberately not said anywhere on the public
