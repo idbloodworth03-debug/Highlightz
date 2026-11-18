@@ -9808,3 +9808,92 @@ to `starting`, the bell showed one note (still one after leaving and
 returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
+
+## THE SPLIT: stream workers into processes of their own (started 2026-11-18)
+
+**Owner, 2026-11-18:** "split it up lets start it". This is the open project.
+Read this section before touching `src/main.py`, `stream_worker.py` or
+anything named `ingest`. It is built in stages, each one safe to deploy with
+the switch off (`INGEST_WORKERS`, default 0 = today's single process).
+
+**Why.** Everything shares one event loop on one core (about 93 live by the
+last reading); the box has eight cores at 18% and memory for about 113. After
+the split the per-channel work (chat, scoring, the audio level, the cut)
+runs in N worker processes, each with its own loop, and the web process
+keeps the dashboard, the state, the clip processor and the gate. On this box
+the wall becomes memory; and more memory or a second server then adds
+capacity, which today they cannot.
+
+**Shape.**
+- **web** (today's process, `python -m src.main`): owns `_streams`, `_clips`,
+  users, sockets, `acquire_live_slot` and the headroom gate, the clip
+  processor, every background task. It STARTS and supervises the workers.
+- **ingest-i** (`python -m src.ingestion.worker_main`, children of web, so
+  one systemd unit and the same deploy command): run `StreamWorker`s. They
+  never import `src.dashboard.api` (a second copy of the dashboard's state
+  writing the same files would be the worst failure this can have; the
+  worker process blocks the import outright).
+- **Which worker gets a channel:** `crc32(channel.lower()) % N`, BY CHANNEL
+  NAME, not by user. Several things are one-per-channel inside a process and
+  must stay together: the video recorder (`clip_recorder.ensure(channel)`),
+  `SHARED_BUFFERS[channel]`, and the viewer-clip poll that five users of one
+  channel share (split across processes it would poll Helix twice and land
+  every Highlight twice).
+- **The channel between them** (`src/ingestion/bridge.py`, `Link`): one
+  socketpair per worker, newline-delimited JSON, both ends can `call` (wait
+  for an answer, 10 s) or `cast` (no answer, handled in order). A direct
+  socket rather than Redis pub/sub because it is ordered, loses nothing, and
+  its closing IS the signal that the other side died. A second server later
+  speaks the same messages over TCP.
+- **Death.** Web gone: the worker reads end-of-file and exits (and asks the
+  kernel to signal it if the parent dies hard). Worker gone: `Pool` sees it,
+  tells web (`on_lost`: give back that shard's live slots, show its channels
+  as reconnecting), starts another with backoff, and `on_ready` sends it its
+  channels again.
+
+**Every crossing, from reading the code (2026-11-18). Worker to web:**
+| today, in `stream_worker.py` / `main.spawn_worker` | becomes |
+|---|---|
+| `await dashboard_api.broadcast(ev, user_id=)` (and `score_update` once a second per channel) | cast `broadcast`; web relays to sockets |
+| `dashboard_api._streams[key]["status"] = ...`, `record["preset"] = ...` | the worker keeps a mirror of ITS records; web applies status/preset from the `stream_status` / `stream_updated` events the worker already sends right after |
+| `dashboard_api.acquire_live_slot(key)` (sync today) | call; the call site awaits it. No answer in time = no slot (queued, asks again in 30 s) |
+| `release_live_slot(key)` | cast |
+| `watchers_of(channel)`, `suggestion_room(uid)` | call |
+| `notify_clip_ready(meta)`, `on_clip_file_ready(clip_id)` | call (they must not be lost) |
+| `log.error(...)` | ALSO forwarded: `src/alerts` mails errors from the web process's log tap, so a worker's error would otherwise reach nobody |
+
+**Web to worker:**
+| today | becomes |
+|---|---|
+| `_publish_new_stream` / `_publish_remove_stream` (Redis pub/sub to the same process), `restore_streams()` | cast `spawn` / `stop` to the owning worker |
+| approve / reject (`profile.record_clip`), sensitivity, preset, undo: the dashboard MUTATES the same `StreamerProfile` object the worker holds (`get_profile_manager` cache, 6 places in api.py) | the worker owns a live channel's profile; the dashboard sends the change as a command and shows what comes back in `profile_updated`. Two writers of one profile file is the trap here |
+| Kick chat arrives as webhooks at the dashboard (`kick_events.handle_delivery` -> `_dispatch` -> the worker's `asyncio.Queue`) | worker casts `kick_listen(broadcaster_id)`; web forwards each message; `ensure_subscribed` stays in web (it owns `kick_event_subscriptions.json`), as a call |
+| force clip | nothing: web already just pushes a `ClipJob` to Redis |
+| `orphans.reap_orphan_capture(_worker_instances)` | runs inside each worker |
+
+**What does NOT cross:** the clip processor and the Redis job queue stay in
+web (workers already push `ClipJob`s to Redis). The cut of the local file
+happens in the worker that owns the recorder, as today. Append-only ledgers
+(`stream_stats.jsonl`, viewer clips) are safe to append from several
+processes.
+
+**The gate after the split.** `headroom` measures the web loop today. Each
+worker will report its own loop in its heartbeat, and a channel is let in
+against the loop of the worker it hashes to, plus the box's CPU and memory
+as now. Until that stage the switch must not be turned on in production.
+
+**Stages.**
+0. **Done in this commit:** `bridge.Link`, `pool.Pool`, `worker_main` and
+   their tests with real processes. Not wired into `main.py`: nothing in
+   production changes and there is no switch to flip yet.
+1. A seam, `src/ingestion/host.py`: every crossing above goes through it. In
+   one process it calls `src.dashboard.api` exactly as now (this refactor
+   ships with the switch off, so it must be byte-for-byte the same
+   behaviour); in a worker it is the bridge. A test that no worker-side
+   module imports the dashboard.
+2. Spawn/stop/restore through the pool; statuses; slots; clips; errors.
+3. Profiles and Kick chat.
+4. The gate per worker; admin page and `stream_cost` / `loop_profile` per
+   process.
+5. Production: `INGEST_WORKERS=4`, watched, with the single-process mode one
+   env line away.
