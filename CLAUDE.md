@@ -40,6 +40,23 @@ restarted with `INGEST_ONLY=CHANNEL`, on code that had not been deployed.
 - **Anything that changes production's `.env` validates before it writes**,
   and says "NOTHING WAS CHANGED" when it refuses.
 
+## This repository is PUBLIC: write accordingly
+
+Checked 2026-11-18 (GitHub reports the repository as public, and the server
+pulls from it with no login). Everything committed here, this file and
+`docs/HANDOFF.md` included, can be read by anybody, and stays readable in the
+history after it is deleted. Until the owner says it has been made private:
+
+- **Never commit** a customer's account name or email, revenue or account
+  counts, a secret, or a weakness that has not been fixed. Say those in chat.
+  (Before this was noticed the notes had already gained some: support-ticket
+  account names, and on 2026-11-18 the month's revenue and account counts.)
+- A diagnostic the owner pastes is for the chat, not for the notes: record
+  what was decided and what to do, not the figures.
+- If the owner makes it private, the server's `git fetch` stops working until
+  it has a read-only deploy key: set that up FIRST, and change the deploy
+  command here and in the handoff in the same commit.
+
 ## Realtime is mandatory: the UI must never need a manual refresh
 
 The dashboard is a long-lived single-page app. Users keep a tab open for hours

@@ -9883,6 +9883,44 @@ returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
 
+## What security is in place: an inventory, and `scripts/security_check.py` (2026-11-18)
+
+**Owner:** "what security measures do i have in place currently on my server,
+site and my github". An audit, so nothing was changed; one read-only script
+was added. **This repository is public (see `CLAUDE.md`), so the findings
+themselves were given to the owner in chat and are not written here.** What is
+safe to record:
+
+- **The site, read from the code:** passwords are salted PBKDF2-SHA256
+  (200,000 rounds); sign-in is throttled per address and resets the session;
+  the session cookie is signed, HTTPS-only and SameSite=lax; stored platform
+  tokens are encrypted with a key of their own; every response carries HSTS,
+  a CSP, no-framing, nosniff and a referrer policy; CORS is the site's own
+  origin only; every admin route re-checks the account in the store; the
+  socket requires a signed-in session; Stripe and Kick webhooks are signature
+  checked; the app will not seed an admin on the default password and makes a
+  random session key when none is set. No CSRF token (SameSite and CORS carry
+  that), and the CSP has to allow inline script because the dashboard is
+  compiled in the browser.
+- **The repository:** all 888 commits were searched for the shapes of real
+  keys (Stripe, Google, GitHub, AWS, Slack, private keys, Twitch chat tokens)
+  and for data files ever committed and deleted: nothing. `.env` was never
+  committed. The one workflow runs the tests on `push` and `pull_request`,
+  uses no secrets, and is not the `pull_request_target` kind.
+- **The server:** the facts near the top of this file (firewall, TLS,
+  backups, the service's user) are as old as the day they were written.
+  `cd /opt/highlightz && venv/bin/python scripts/security_check.py` reads them
+  again: updates, the firewall, what is listening and how far it reaches,
+  SSH, the service's lock-down, `.env`'s permissions, Redis, the certificate,
+  backups, and the site's own settings as yes or no. It prints no address, no
+  value and no name, says "could not tell" rather than guess (unknown is
+  never read as "off"), and ends with what only an account's own settings
+  page can show (DigitalOcean, GitHub, Stripe, Google, Twitch).
+  Tests: `tests/test_security_check.py` (9).
+- **Decisions waiting on the owner:** whether to make the repository private
+  (needs a deploy key on the server first), and an off-site copy of the
+  backups, open since July.
+
 ## What each account costs, free against paying: `scripts/unit_costs.py` (2026-11-18)
 
 **Owner:** "figure out my per person cost currently and do it free vs paying
