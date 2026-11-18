@@ -176,7 +176,10 @@ def test_the_reaper_pauses_and_access_loss_still_deletes():
 def test_a_returning_user_is_resumed_from_the_middleware():
     import inspect
     src = inspect.getsource(api.AuthMiddleware)
-    assert "if uid in _paused_users:" in src
+    # Everybody paused for being idle comes back on their next request. The
+    # one exception asked of _may_resume_now: a channel paused for a FULL
+    # QUEUE waits for room, not for a request (tests/test_free_queue_pause.py).
+    assert "if uid in _paused_users and _may_resume_now(uid):" in src
     assert "_resume_user_streams(uid)" in src
     # Discarding before the task starts is the lock against a page load firing
     # a dozen resumes at once.

@@ -135,8 +135,11 @@ def test_the_stream_context_is_only_shown_when_there_is_any():
     """"0 live · avg trigger 0" is four words for "nothing is happening", and it
     was half the tile row. It appears when there is something to report."""
     body = _review_screen()
-    assert re.search(r"\{streamsArr\.length > 0 &&\s*\n\s*<span className=\"rd-toolbar-meta\"",
+    # Counted from the channels actually being watched since 2026-11-18: a
+    # paused channel is not "live" (tests/test_free_queue_pause.py).
+    assert re.search(r"\{watchedN > 0 &&\s*\n\s*<span className=\"rd-toolbar-meta\"",
                      body), "the stream line renders even with no streams"
+    assert re.search(r"\{heldN > 0 &&\s*\n\s*<span className=\"rd-toolbar-meta warn\"", body)
     assert re.search(r"\{avgScore > 0 && <>", body), \
         "an average of zero is still printed"
 

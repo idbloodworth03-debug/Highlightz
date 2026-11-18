@@ -2970,7 +2970,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
             <span className="rd-chip" style={s.platform==='kick'?{background:'rgba(83,252,24,.12)',color:'#53fc18',border:'1px solid rgba(83,252,24,.3)'}:{}}>{s.platform}</span>
             <span className="rd-chip">{s.preset}</span>
             <span style={{color:statusColor,fontWeight:600}}
-                  title={s.status==='queued'?('This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.'+(ahead?'':' Channels on Pro and Studio go first.')):(s.status==='paused'&&s.hold==='queue_full')?'Your review queue filled up while Highlightz was closed, so there was no room for another clip. It starts again by itself when you are back.':''}>{statusLabel}</span>
+                  title={s.status==='queued'?('This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.'+(ahead?'':' Channels on Pro and Studio go first.')):(s.status==='paused'&&s.hold==='queue_full')?'Your review queue is full, so there is no room for another clip. Accept or reject one and it starts again.':''}>{statusLabel}</span>
             {calibrating && s.status==='live' &&
               <span className="rd-chip cal" title="Learning this channel's normal before it will clip anything">calibrating</span>}
           </div>
@@ -4749,6 +4749,9 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
   const approvedElsewhere = Object.values(clips).filter(c=>c.status==='approved').length;
   const streamsArr = Object.values(streams);
   const avgScore = streamsArr.length ? Math.round(streamsArr.reduce((a,s)=>a+(scores[s.channel]?.score||0),0)/streamsArr.length) : 0;
+  // Channels being watched, and channels paused because the queue is full.
+  const watchedN = streamsArr.filter(s=>s.status!=='paused').length;
+  const heldN = streamsArr.filter(s=>s.status==='paused'&&s.hold==='queue_full').length;
   // Streamer filter options come from the clips themselves, so the moment a
   // new streamer gets clipped (clip_ready over the WS) they become filterable.
   // If the selected streamer's clips all disappear (culled/removed), fall back
@@ -4841,11 +4844,13 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
               ? ' ' + PLAN_NAME(nextPlan) + ' holds '
                 + lost.next_limit + ' — $' + lost.next_price + '/month.'
               : ' Review or clear some to make room.'}
-            {/* Free only (plan_limits.pauses_when_idle). A full queue with
-                the tab closed pauses the channel, so say so here, where the
-                queue is full and they are still looking at it. */}
+            {/* Free only (plan_limits.pauses_when_idle). A full queue pauses
+                the channel: within minutes with Highlightz closed, and after
+                15 minutes with nothing accepted or rejected even with it
+                open. Said here, where the queue is full and they are still
+                looking at it, with the way out. */}
             {me && me.plan_limits && me.plan_limits.pauses_when_idle && nextPlan
-              ? ' While your queue is full, Highlightz keeps watching only with this tab open; close it and your channel pauses until you are back. ' + PLAN_NAME(nextPlan) + ' keeps watching either way.'
+              ? ' While your queue is full nothing more can be clipped. If it stays full for 15 minutes with nothing accepted or rejected, or you close Highlightz, your channel pauses until you make room. ' + PLAN_NAME(nextPlan) + ' keeps watching either way.'
               : ''}
           </div>
           {nextPlan && <a className="rd-btn grad" href="/billing/paywall"
@@ -4881,11 +4886,21 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
           {/* Only when there is something to say. "0 live · avg trigger 0" is
               four words to tell somebody nothing is happening, and it was two
               of the four tiles. */}
-          {streamsArr.length > 0 &&
+          {/* A paused channel is not "live". Since 2026-11-18 a Free channel
+              can be paused for a full queue WHILE this screen is open, and
+              this is the screen that ends it, so it says so here instead of
+              counting the paused channel as live beside the notice above. */}
+          {watchedN > 0 &&
             <span className="rd-toolbar-meta">
               <Icon name="radio" size={12}/>
-              {streamsArr.length} live
+              {watchedN} live
               {avgScore > 0 && <> · avg trigger {avgScore}</>}
+            </span>}
+          {heldN > 0 &&
+            <span className="rd-toolbar-meta warn"
+              title="Your review queue is full, so there is no room for another clip. Accept or reject one and it starts again.">
+              <Icon name="radio" size={12}/>
+              {heldN} paused · queue full
             </span>}
           {/* Shown before it bites, not after. A limit a user only meets by
               being refused reads as the product breaking; a counter they have

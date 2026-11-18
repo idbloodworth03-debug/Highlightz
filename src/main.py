@@ -1124,6 +1124,10 @@ async def main() -> None:
                             name="videoless-kick-sweep"),
         asyncio.create_task(reap_orphan_capture_task(), name="capture-orphan-reaper"),
         asyncio.create_task(dashboard_api.idle_stream_reaper(), name="idle-reaper"),
+        # Free, queue full: paused when away, and after 15 minutes at capacity
+        # with nothing accepted or rejected even with the tab open. Asked
+        # every minute so that fifteen means fifteen.
+        asyncio.create_task(dashboard_api.queue_full_watch(), name="queue-full-watch"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
         # Campaigns go live, close and finish their grace period on the clock;
         # this tells every open marketplace when one does.

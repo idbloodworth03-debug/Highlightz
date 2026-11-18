@@ -361,7 +361,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 # the night. Discarding from the set IS the lock — only the
                 # request that removes the uid starts the resume, so a burst
                 # of requests on page load cannot fire it twice.
-                if uid in _paused_users:
+                # EXCEPT a channel paused because the review queue is full:
+                # that waits for room, not for a request (_may_resume_now).
+                if uid in _paused_users and _may_resume_now(uid):
                     _paused_users.discard(uid)
                     asyncio.create_task(_resume_user_streams(uid))
             else:
@@ -790,6 +792,130 @@ _ws_last_seen: dict[str, float] = {}      # user id -> when a tab was last conne
 # What to tell the first tab an account opens after such a pause: the pause
 # happens, by definition, with nobody there to see a toast.
 _queue_pause_welcome: dict[str, dict] = {}
+
+# ── ...AND WITH THE TAB OPEN TOO, AFTER 15 MINUTES AT CAPACITY ───────────────
+# Owner, 2026-11-18 (later the same day): "make it so that even free users
+# with tabs open get the streams offline 15 min after their at capacity and
+# have not accepted or rejected anything. Also I had some users that had
+# multiple tabs of highlightz open before make sure there are no loop holes
+# with getting more clips on the free tier with that".
+#
+# A tab left open used to be the whole exemption ("with the tab open nothing
+# changes, full or not"), so a Free account that never closed the dashboard
+# was watched for as long as the tab lived, at capacity or not. Now a Free
+# account whose queue has been full for _QUEUE_FULL_UNREVIEWED with no clip
+# accepted or rejected in that time is paused the same way, tab or no tab.
+#
+# THE CLOCK IS THE ACCOUNT'S, NEVER A TAB'S. It runs from the later of two
+# things read from the account, not from any socket:
+#   * when the queue filled: the newest clip waiting in it (a queue only gets
+#     fuller when a clip lands), which survives a restart because it is the
+#     clip's own timestamp;
+#   * the last time the account accepted, rejected or took back a clip
+#     (_last_review_at, stamped by the endpoints that do it). That one is in
+#     memory, so the clock is also never counted from before the process
+#     started (_queue_full_reason).
+# Opening a tab, a second tab, a third, a reconnect, a refresh: none of them
+# is either of those, so none of them moves it.
+#
+# AND IT STAYS PAUSED UNTIL THERE IS ROOM. This is the half that closes the
+# loophole. A paused channel used to restart on the account's next request,
+# any request. With a tab open there is always a next request, so a pause
+# that ended that way would end seconds after it began and the rule would be
+# decoration. A channel paused for a full queue (hold "queue_full") restarts
+# only when the queue has room again, which is what accepting or rejecting a
+# clip makes: _resume_user_streams leaves it paused while the queue is full,
+# and the review endpoints ask again the moment they have changed it
+# (_reviewed). Being away and coming back is the same rule: back with room,
+# it restarts; back with a full queue, it waits for a decision.
+_QUEUE_FULL_UNREVIEWED = 900        # seconds at capacity with nothing accepted or rejected
+_QUEUE_WATCH_EVERY = 60             # how often the two queue-full rules are asked
+_QUEUE_HOLD_RECHECK = 3.0           # a held account's room is counted at most this often per request burst
+_last_review_at: dict[str, float] = {}
+_queue_hold_checked: dict[str, float] = {}
+# Accounts with a channel paused for a full queue. Rebuilt from the store, so
+# a restart cannot turn such a pause into one any request ends.
+_queue_held: set[str] = {
+    s.get("user_id", "") for s in _streams.values()
+    if s.get("status") == "paused" and s.get("hold") == "queue_full" and s.get("user_id")
+}
+_review_tasks: set = set()
+
+
+def _queue_snapshot() -> dict[str, tuple[int, float]]:
+    """{account: (clips waiting in its review queue, when the newest landed)}
+    in ONE pass over the clips. Highlight clips are not counted, as in
+    pending_room: they have their own allowance.
+
+    One pass, because the alternative (pending_room per account) reads every
+    clip once per account, on the app's one loop, every time the rule is
+    asked."""
+    out: dict[str, list] = {}
+    for c in _clips.values():
+        if c.get("status") != "pending" or c.get("suggested"):
+            continue
+        uid = c.get("user_id")
+        if not uid:
+            continue
+        row = out.get(uid)
+        if row is None:
+            row = out[uid] = [0, 0.0]
+        row[0] += 1
+        try:
+            at = float(c.get("created_at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        if at > row[1]:
+            row[1] = at
+    return {uid: (n, at) for uid, (n, at) in out.items()}
+
+
+def _queue_still_full(uid: str, db_user: dict | None = None) -> bool:
+    """Is a queue-full pause still owed? Only for a plan that pauses at all:
+    an account that has moved to a paying plan is never kept paused by it."""
+    if db_user is None:
+        from src.auth import users as _held_store
+        db_user = _held_store.get_by_id(uid)
+    if not _plans.pauses_when_idle(db_user):
+        return False
+    used, cap = pending_room(uid)
+    return cap > 0 and used >= cap
+
+
+def _may_resume_now(uid: str, now: float | None = None) -> bool:
+    """Asked by the request that finds an account in _paused_users. True is
+    the old behaviour: they are back, restart their channels. False only for
+    an account held for a FULL QUEUE that is still full; a request is not a
+    decision about a clip, however many tabs are making them.
+
+    The room is counted at most once every _QUEUE_HOLD_RECHECK per account: a
+    page load is twenty requests, and the count reads every clip."""
+    if uid not in _queue_held:
+        return True
+    now = time.time() if now is None else now
+    if now - _queue_hold_checked.get(uid, 0.0) < _QUEUE_HOLD_RECHECK:
+        return False
+    _queue_hold_checked[uid] = now
+    if not any(rec.get("status") == "paused" and rec.get("hold") == "queue_full"
+               for key, rec in _streams.items() if key.startswith(f"{uid}:")):
+        _queue_held.discard(uid)            # the held channel was removed
+        return True
+    return not _queue_still_full(uid)
+
+
+def _reviewed(uid: str) -> None:
+    """The account accepted, rejected or took back a clip: the two things the
+    15 minutes wait for. Stamps the clock, and if a channel is held for a full
+    queue, asks straight away whether there is room now (the request's own
+    pass through AuthMiddleware asked BEFORE the clip was decided)."""
+    if not uid:
+        return
+    _last_review_at[uid] = time.time()
+    if uid in _queue_held:
+        _queue_hold_checked.pop(uid, None)
+        task = asyncio.create_task(_resume_user_streams(uid), name=f"review-resume-{uid[:8]}")
+        _review_tasks.add(task)
+        task.add_done_callback(_review_tasks.discard)
 
 
 def _away_seconds(uid: str, now: float | None = None) -> float:
@@ -4727,6 +4853,7 @@ async def undo_last(request: Request, entry_id: str | None = None):
         await broadcast({"event": "clip_ready", "clip": clip}, user_id=uid)
 
     log.info("undo_applied", uid=uid, kind=entry.kind, restored=len(restored))
+    _reviewed(uid)                  # taking a decision back is being at the queue too
     return {"restored": len(restored), "kind": entry.kind}
 
 
@@ -4813,6 +4940,8 @@ async def approve_clip(request: Request, clip_id: str):
     from src.autopilot import runner as _autopilot
     _autopilot.kick(library_copy_if_approved(clip_id))
     _autopilot.kick(_autopilot.maybe_run(clip))
+    # Accepted: the queue has room again, and the 15-minute clock restarts.
+    _reviewed(uid)
     return _clip_out(clip)
 
 
@@ -4901,6 +5030,7 @@ async def reject_clip(request: Request, clip_id: str):
         await broadcast({"event": "profile_updated",
                          "profile": profile_after["profile"] if profile_after is not None
                          else profile.to_dict()}, user_id=uid)
+    _reviewed(uid)                  # rejected: room in the queue, and the clock restarts
     return {"status": "deleted", "clip_id": clip_id}
 
 
@@ -4953,6 +5083,7 @@ async def delete_clip_endpoint(request: Request, clip_id: str):
         user_id=uid, kind="delete", label="Deleted 1 clip",
         clips=[clip], held_files=_hold_files([clip])), on_drop=_drop_undo_entry)
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
+    _reviewed(uid)                  # a clip dealt with, whichever button did it
 
 
 @app.post("/clips/clear-pending")
@@ -5027,6 +5158,8 @@ async def clear_pending_clips(request: Request, platform: str | None = None):
         await broadcast({"event": "clip_removed", "clip_id": clip["id"]}, user_id=uid)
 
     log.info("clips_cleared", uid=uid, removed=len(removed))
+    if removed:
+        _reviewed(uid)
     return {"removed": len(removed)}
 
 
@@ -5086,6 +5219,8 @@ async def bulk_cull_clips(request: Request, body: BulkCullBody):
         await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
 
     log.info("bulk_cull", uid=uid, removed=len(to_remove), min_score=min_score)
+    if to_remove:
+        _reviewed(uid)
     return {"removed": len(to_remove), "min_score": min_score}
 
 
@@ -6176,8 +6311,9 @@ async def _pause_user_streams(uid: str, hold: str | None = None) -> int:
     """Idle: stop the workers, KEEP the channels. Returns how many paused.
 
     `hold` is why, when it is not the 8 hours: "queue_full" (a Free account
-    away with a full review queue, _pause_if_queue_full_and_away). It rides on
-    the record so the card can say which, and comes off when they are back.
+    with a full review queue, away or at the dashboard, _pause_if_queue_full).
+    It rides on the record so the card can say which, and comes off when the
+    queue has room again.
 
     THE BUG THIS REPLACES, because it cost more than every other bug in this
     file put together. The idle reaper called _stop_user_streams_now, which
@@ -6213,6 +6349,8 @@ async def _pause_user_streams(uid: str, hold: str | None = None) -> int:
     if not paused:
         return 0
     _paused_users.add(uid)
+    if hold == "queue_full":
+        _queue_held.add(uid)
     log.info("streams_paused_queue_full" if hold == "queue_full" else "streams_paused_idle",
              user=uid, count=len(paused))
     for rec in paused:
@@ -6234,19 +6372,34 @@ async def _resume_user_streams(uid: str) -> int:
     than overrunning it, exactly as a wave of new channels always did.
     """
     resuming = []
+    still_full: bool | None = None          # counted once, and only if a channel is held for it
+    waiting = False
     async with _data_lock:
         for key, rec in _streams.items():
             if not key.startswith(f"{uid}:") or rec.get("status") != "paused":
                 continue
             if rec.get("hold") == "billing":
                 continue            # held for a failing card: only payment releases it
+            if rec.get("hold") == "queue_full":
+                # Held for a full queue: it waits for ROOM, not for a visit
+                # (the note beside _QUEUE_FULL_UNREVIEWED). Every other pause
+                # restarts as it always did.
+                if still_full is None:
+                    still_full = _queue_still_full(uid)
+                if still_full:
+                    waiting = True
+                    continue
             rec["status"] = "starting"
             rec.pop("paused_at", None)
-            rec.pop("hold", None)   # "queue_full": they are back, which is what it waited for
+            rec.pop("hold", None)   # "queue_full": there is room again, which is what it waited for
             resuming.append(rec)
         if resuming:
             _save_streams()
-    _paused_users.discard(uid)
+    if waiting:
+        _paused_users.add(uid)      # still paused: the next request asks again
+    else:
+        _paused_users.discard(uid)
+        _queue_held.discard(uid)
     if not resuming:
         return 0
     log.info("streams_resumed_on_return", user=uid, count=len(resuming))
@@ -6573,10 +6726,16 @@ def _name_channels(channels: list[str]) -> str:
     return ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def _queue_pause_words(channels: list[str], cap: int, user: dict | None) -> dict:
+def _queue_pause_words(channels: list[str], cap: int, user: dict | None,
+                       reason: str = "away") -> dict:
     """What a Free account is told when its channels are paused for a full
-    queue: the bell note, and the two toasts (the moment it happens, and when
-    they are back). One place, so the three cannot drift apart.
+    queue: the bell note, and the toasts (the moment it happens, and when
+    they are back). One place, so they cannot drift apart.
+
+    `reason` is which of the two rules paused it: "away" (the dashboard was
+    closed) or "unreviewed" (the queue sat full for 15 minutes with nothing
+    accepted or rejected, tab open or not). Either way the way back is the
+    same and is said every time: accept or reject a clip.
 
     THE TONE IS THE OWNER'S BRIEF: "notify them that this is the case only
     because they are free and they should upgrade if they want more but say
@@ -6595,45 +6754,86 @@ def _queue_pause_words(channels: list[str], cap: int, user: dict | None) -> dict
                 f"open, and holds {lim['max_pending']} clips. It is ${lim['price']} a month "
                 "if you ever want that; you can change plans from Settings.")
     plan = PLAN_LIMITS[get_plan(user)]["label"]
+    mins = _QUEUE_FULL_UNREVIEWED // 60
+    holds = (f" {PLAN_LIMITS[nxt]['label']} keeps watching around the clock and holds "
+             f"{PLAN_LIMITS[nxt]['max_pending']} clips." if nxt else "")
+    how = ("It starts again as soon as you accept or reject a clip, which makes room for "
+           "the next one.")
+    if reason == "unreviewed":
+        opened = (f"Your review queue held its {cap} clips for {mins} minutes without one "
+                  "being accepted or rejected.")
+        paused = (f"Your review queue has been full for {mins} minutes, so {who} {were} "
+                  "paused. Accept or reject a clip and it starts again.")
+    else:
+        opened = f"Your review queue reached its {cap} clips while Highlightz was closed."
+        paused = (f"Your review queue is full, so {who} {were} paused. Accept or reject a "
+                  "clip and it starts again.")
     return {
         "title": "Your review queue filled up, so we paused " + who,
-        "body": (f"Your review queue reached its {cap} clips while Highlightz was closed. "
-                 f"With no room for the next one, {who} {were} paused, and nothing you had "
-                 "already caught was touched. It starts again by itself the next time you "
-                 f"open Highlightz. That is how the {plan} plan works: it keeps watching "
-                 "while you are away until your queue is full." + more),
-        "paused": (f"Your review queue is full, so {who} {were} paused until you are back "
-                   "at Highlightz."),
+        "body": (f"{opened} With no room for the next one, {who} {were} paused, and nothing "
+                 f"you had already caught was touched. {how} That is how the {plan} plan "
+                 "works: it keeps watching, with the dashboard open or closed, until your "
+                 "queue is full." + more),
+        "paused": paused,
+        # The first tab back, in its two states: the visit found room and the
+        # channel is already restarting, or the queue is still full.
         "back": (f"Welcome back. Your review queue filled up while you were away, so {who} "
-                 f"{were} paused. It is starting again now."
-                 + (f" {PLAN_LIMITS[nxt]['label']} keeps watching around the clock and holds "
-                    f"{PLAN_LIMITS[nxt]['max_pending']} clips." if nxt else "")),
+                 f"{were} paused. It is starting again now." + holds),
+        "back_full": (f"Welcome back. Your review queue filled up while you were away, so "
+                      f"{who} {were} paused. Accept or reject a clip and it starts again."
+                      + holds),
     }
 
 
-async def _pause_if_queue_full_and_away(uid: str, db_user: dict | None,
-                                        now: float | None = None) -> bool:
-    """The rule above, for one account. True if it paused something.
+def _queue_full_reason(uid: str, now: float, newest: float) -> str | None:
+    """Which rule pauses an account whose queue is known to be full, or None.
+
+    "away": no tab and no request for the grace (the first rule). Otherwise
+    "unreviewed": the queue has been full for _QUEUE_FULL_UNREVIEWED and
+    nothing was accepted or rejected in that time, whatever tabs are open.
+    `newest` is when the newest clip waiting in the queue landed: the moment
+    it filled."""
+    if _away_seconds(uid, now) >= _QUEUE_PAUSE_GRACE:
+        return "away"
+    # Never counted from before this process started: a restart forgets who
+    # accepted or rejected something a minute ago, and somebody in the middle
+    # of their queue must not be paused for that. It costs an account that is
+    # NOT reviewing at most 15 more minutes after a deploy.
+    since = max(newest, _last_review_at.get(uid, 0.0), _PROCESS_STARTED_AT)
+    return "unreviewed" if now - since >= _QUEUE_FULL_UNREVIEWED else None
+
+
+async def _pause_if_queue_full(uid: str, db_user: dict | None, now: float | None = None,
+                               room: tuple[int, float] | None = None) -> bool:
+    """The two rules above, for one account. True if it paused something.
 
     Every condition has to hold, and each is checked the cheap way first:
       * the plan pauses (Free; a trial, a paid plan or staff never does);
-      * nobody is there: no tab and no request for the grace;
       * the queue is full by the same count that refuses a clip
-        (pending_room), on a plan that has a queue at all.
+        (pending_room), on a plan that has a queue at all;
+      * and either nobody is there (no tab and no request for the grace), or
+        it has sat full for 15 minutes with nothing accepted or rejected.
+    `room`: this account's (clips waiting, when the newest landed) from
+    _queue_snapshot, when the caller has one; counted here otherwise.
     """
     if not _plans.pauses_when_idle(db_user):
         return False
     now = time.time() if now is None else now
-    if _away_seconds(uid, now) < _QUEUE_PAUSE_GRACE:
-        return False
-    used, cap = pending_room(uid)
+    if room is None:
+        room = _queue_snapshot().get(uid, (0, 0.0))
+    used, newest = room
+    cap = _plans.limits_for(db_user)["max_pending"]
     if cap <= 0 or used < cap:
+        return False
+    reason = _queue_full_reason(uid, now, newest)
+    if reason is None:
         return False
     waiting = [rec.get("channel", "") for key, rec in _streams.items()
                if key.startswith(f"{uid}:") and rec.get("status") != "paused"]
     if not waiting or not await _pause_user_streams(uid, hold="queue_full"):
         return False
-    words = _queue_pause_words(waiting, cap, db_user)
+    log.info("queue_full_pause", user=uid, reason=reason, pending=used, cap=cap)
+    words = _queue_pause_words(waiting, cap, db_user, reason)
     # The bell: what they will find when they are back. At most one a day, so
     # an account that comes and goes with a full queue is not handed the same
     # note every time it closes the tab.
@@ -6646,12 +6846,59 @@ async def _pause_if_queue_full_and_away(uid: str, db_user: dict | None,
             _note_store.add_notices({uid: {"title": words["title"], "body": words["body"]}})
     except Exception as exc:
         log.warning("queue_pause_notice_failed", user_id=uid, error=str(exc))
-    _queue_pause_welcome[uid] = {"event": "queue_pause", "message": words["back"]}
-    # Realtime contract. By the rule nobody has a tab open, but a tab can
-    # connect in the same second, and it must not sit on a stale screen.
+    if reason == "away":
+        # Nobody was there to see a toast: the first tab they open is told,
+        # in whichever state it finds the channel (the /ws handler picks).
+        _queue_pause_welcome[uid] = {"event": "queue_pause", "message": words["back"],
+                                     "full": words["back_full"]}
+    # Realtime contract. With a tab open this is how they learn of it; with
+    # none, a tab can still connect in the same second, and it must not sit
+    # on a stale screen.
     await broadcast({"event": "queue_pause", "message": words["paused"]}, user_id=uid)
     await broadcast({"event": "inbox_changed"}, user_id=uid)
     return True
+
+
+async def queue_full_watch_once(now: float | None = None) -> int:
+    """One pass of both queue-full rules over every account that could be
+    owed a pause. Returns how many accounts were paused.
+
+    Cheap by construction, because it runs every minute on the app's one
+    loop: ONE read of the clips, ONE read of the stream records, and the
+    account itself is only looked up for an account that is watching
+    something and whose queue is at least as full as the smallest queue any
+    pausing plan has."""
+    from src.auth import users as _watch_store
+    now = time.time() if now is None else now
+    floor = min((lim["max_pending"] for lim in _plans.PLAN_LIMITS.values()
+                 if lim.get("pauses_when_idle") and lim["max_pending"] > 0), default=0)
+    if floor <= 0:
+        return 0
+    room = _queue_snapshot()
+    watching = {key.split(":", 1)[0] for key, rec in _streams.items()
+                if ":" in key and rec.get("status") != "paused"}
+    paused = 0
+    for uid in watching:
+        got = room.get(uid)
+        if not got or got[0] < floor:
+            continue
+        try:
+            if await _pause_if_queue_full(uid, _watch_store.get_by_id(uid), now, got):
+                paused += 1
+        except Exception as exc:
+            log.error("queue_full_watch_error", user_id=uid, error=str(exc))
+    return paused
+
+
+async def queue_full_watch() -> None:
+    """Background task: ask the two queue-full rules every minute, so "15
+    minutes" means fifteen and not "the next five-minute pass after it"."""
+    while True:
+        await asyncio.sleep(_QUEUE_WATCH_EVERY)
+        try:
+            await queue_full_watch_once()
+        except Exception as exc:
+            log.error("queue_full_watch_error", error=str(exc))
 
 
 async def idle_stream_reaper() -> None:
@@ -6667,6 +6914,8 @@ async def idle_stream_reaper() -> None:
         try:
             now = time.time()
             seen: set[str] = set()
+            # Every account's queue, counted once for this pass.
+            queues = _queue_snapshot()
             for stream_key in list(_streams.keys()):
                 if ":" not in stream_key:
                     continue
@@ -6718,11 +6967,14 @@ async def idle_stream_reaper() -> None:
                             log.info("idle_pause_lifted_paid_plan", user=uid)
                         continue
 
-                    # FREE, AWAY, QUEUE FULL: nothing more can be clipped, so
-                    # stop watching until they are back (the rule is beside
-                    # _QUEUE_PAUSE_GRACE). Before the 8-hour check: an account
-                    # paused here has nothing left for that one to pause.
-                    if await _pause_if_queue_full_and_away(uid, db_user, now):
+                    # FREE, QUEUE FULL, and away or unreviewed for 15 minutes:
+                    # nothing more can be clipped, so stop watching until
+                    # there is room (the rules are beside _QUEUE_PAUSE_GRACE
+                    # and _QUEUE_FULL_UNREVIEWED; queue_full_watch asks them
+                    # every minute, this is the same question on this pass).
+                    # Before the 8-hour check: an account paused here has
+                    # nothing left for that one to pause.
+                    if await _pause_if_queue_full(uid, db_user, now, queues.get(uid, (0, 0.0))):
                         continue
 
                 # Idle timeout — stop if no HTTP activity in 8 hours.
@@ -8598,11 +8850,14 @@ async def websocket_endpoint(ws: WebSocket):
     log.info("ws_connected", user=uid, total=sum(len(v) for v in _ws_clients.values()))
     # Back after a queue-full pause: said once, to the first tab that opens.
     # The page load that brought this socket has already restarted the
-    # channels (AuthMiddleware), and the bell holds the longer note.
+    # channels if the queue had room (AuthMiddleware); if it is still full
+    # they are still paused, and the toast says what starts them. The bell
+    # holds the longer note.
     welcome = _queue_pause_welcome.pop(uid, None)
     if welcome:
+        said = welcome["full"] if (uid in _queue_held and welcome.get("full")) else welcome.get("message")
         try:
-            await ws.send_text(json.dumps(welcome))
+            await ws.send_text(json.dumps({"event": welcome.get("event", "queue_pause"), "message": said}))
         except Exception:
             pass
     try:
@@ -12088,9 +12343,10 @@ comparison — is at https://highlightz.app/llms-full.txt.
 - Monitors live Twitch and Kick channels continuously and clips automatically,
   with no one watching the stream. Add a channel before it goes live and it is
   rechecked every 30 seconds. Paid plans keep watching while you are away;
-  on Free, monitoring continues with the dashboard closed until the review
-  queue is full, and pauses after 8 hours without the dashboard being opened
-  and resumes on the next visit.
+  on Free, monitoring continues, with the dashboard open or closed, until the
+  review queue is full (it resumes once a clip is accepted or rejected), and
+  pauses after 8 hours without the dashboard being opened and resumes on the
+  next visit.
 - Scores each second from seven live signals against that channel's own
   threshold, so a small channel and a huge one are judged the same way:
 {signals}
@@ -15708,9 +15964,10 @@ def _faq() -> str:
          "No. The watching happens on our servers, not in your browser. Add a channel, close the "
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
          "until it is. On Pro and Studio it keeps watching for as long as the channel is in "
-         "your list. On Free it keeps watching with the tab closed until your review queue is "
-         "full or 8 hours have passed without you opening the dashboard, whichever comes first, "
-         "and picks up again on your next visit."),
+         "your list. On Free it keeps watching, with the tab open or closed, until your review "
+         "queue is full or 8 hours have passed without you opening the dashboard, whichever "
+         "comes first. A full queue pauses the channel until you accept or reject a clip; the "
+         "8 hours end on your next visit."),
         ("How many channels can it watch at once?",
          f"<b>{free['max_streams']}</b> on Free, <b>{pro['max_streams']}</b> on Pro, "
          f"<b>{sd['max_streams']}</b> on Studio. At the same time, not in rotation, and each one "
@@ -15734,10 +15991,11 @@ def _faq() -> str:
          f"Pro, <b>{sd['max_pending']}</b> on Studio. When the queue is full the newest arrival is "
          "dropped, and nothing you have already caught is ever deleted to make room for it. The "
          "dashboard tells you how many moments were missed that way, so a full queue is something "
-         "you find out about rather than something that happens silently. On Free, a queue that "
-         "fills while the dashboard is closed pauses the channel, since there would be nowhere to "
-         "put the next clip; it starts again when you open Highlightz, and you are told it "
-         "happened. Pro and Studio keep watching either way."),
+         "you find out about rather than something that happens silently. On Free, a full queue "
+         "pauses the channel, since there would be nowhere to put the next clip: within minutes "
+         "if the dashboard is closed, and after 15 minutes without a clip accepted or rejected "
+         "if it is open. It starts again as soon as you accept or reject one, and you are told "
+         "it happened. Pro and Studio keep watching either way."),
     ]
     highlights = [
         # HOW they are found is deliberately not said anywhere on the public

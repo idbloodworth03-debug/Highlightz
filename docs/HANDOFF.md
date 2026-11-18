@@ -9829,6 +9829,10 @@ takes `hold` off (a billing hold is still skipped). If they close the tab
 again with the queue still full, it pauses again after the grace. It does
 NOT restart by itself when pending clips age out while they are away:
 "after that" is until they return.
+**SUPERSEDED THE SAME DAY, see the next section:** a channel paused for a full
+queue now restarts only when the queue has ROOM. Back with a full queue, it
+stays paused until a clip is accepted or rejected; and "with the tab open
+nothing changes" stopped being true (15 minutes at capacity pauses it).
 
 **What they are told (`_queue_pause_words`, one place for all three):**
 - **Bell note** (`user_store.add_notices`), at most one per 24 h
@@ -9882,6 +9886,133 @@ to `starting`, the bell showed one note (still one after leaving and
 returning again), the Clip Review notice carried the new sentence at desktop
 and phone widths without sideways scroll, and closing the tab paused it
 again. Not run on production.
+
+## Free: 15 minutes at capacity pauses it with the tab open too, and it waits for ROOM (2026-11-18)
+
+**Owner** (later the same day): "make it so that even free users with tabs
+open get the streams offline 15 min after their at capacity and have not
+accepted or rejected anything. Also I had some users that had multiple tabs
+of highlightz open before make sure there are no loop holes with getting more
+clips on the free tier with that".
+
+**The rule.** A Free account (`plans.pauses_when_idle`) whose review queue is
+full is paused, hold `queue_full`, when EITHER
+- it is away: no tab and no request for 5 minutes (the section above), OR
+- **it has sat full for 15 minutes with nothing accepted or rejected**
+  (`_QUEUE_FULL_UNREVIEWED`, 900 s), whatever tabs are open.
+
+**The clock is the account's, never a tab's** (`_queue_full_reason`). It runs
+from the latest of:
+- when the queue filled: the newest clip waiting in it (`created_at`; a queue
+  only gets fuller when a clip lands). Read from the clips, so it survives a
+  restart;
+- the last clip the account accepted, rejected, deleted, cleared, culled or
+  took back (`_last_review_at`, stamped by `_reviewed(uid)` in those six
+  endpoints and nowhere else);
+- when the process started. `_last_review_at` is memory, a deploy forgets
+  it, and somebody in the middle of their queue must not be paused for that.
+  It costs an account that is NOT reviewing at most 15 more minutes after a
+  deploy.
+Opening a tab, a second, an eighth, a reconnect, a refresh: none of those is
+on that list.
+
+**IT STAYS PAUSED UNTIL THERE IS ROOM. This is the loophole that mattered.**
+Every pause used to end on the account's next request (AuthMiddleware: "they
+are back"). With a tab open there is always a next request, from that tab or
+any other, so a pause ended that way would last seconds and come back every
+15 minutes: watched for ever. Now:
+- `_resume_user_streams` leaves a `queue_full` record paused while the queue
+  is still full (`_queue_still_full`), keeps the account in `_paused_users`
+  so it is asked again, and restarts everything else as before;
+- the request path asks `_may_resume_now(uid)` first: for an account in
+  `_queue_held` it counts the room at most once every 3 s (a page load is
+  twenty requests and the count reads every clip) and says no while full;
+- `_reviewed(uid)` asks again the moment a clip has been decided (the
+  request's own pass through the middleware ran BEFORE the decision), so
+  accepting or rejecting one restarts the channel at once, in every tab
+  (`stream_updated`);
+- `_queue_held` is rebuilt from the saved records like `_paused_users`, so a
+  restart cannot turn the hold into one a request ends;
+- an account that has moved to a paying plan is never kept paused by it, and
+  removing the held channel does not leave the account stuck.
+**This changes the away rule too, on purpose:** back with room, it restarts;
+back with the queue still full, it stays paused and the first tab is told
+"Accept or reject a clip and it starts again" (`back_full`; the `/ws` handler
+picks between the two welcomes by whether the account is still held). It
+used to restart on the visit and pause again when the tab closed, and a
+restarted channel with a full queue can do nothing.
+
+**Asked every minute** (`queue_full_watch`, started in `main.py` beside the
+idle reaper, which still asks the same question on its own five-minute pass),
+so fifteen means fifteen and not "the next five-minute pass after it".
+**Cheap on purpose, it is on the one loop:** one pass over the clips
+(`_queue_snapshot`: count and newest per account), one over the stream
+records, and the account is only looked up if it is watching something and
+its queue is at least as full as the smallest queue a pausing plan has. The
+reaper's old per-account `pending_room` call (every clip, once per away Free
+account, every five minutes) is gone the same way.
+
+**What they are told** (`_queue_pause_words(..., reason)`): the toast, in the
+tab that is open: "Your review queue has been full for 15 minutes, so
+<channel> was paused. Accept or reject a clip and it starts again." The bell
+note (still at most one a day) says which of the two it was, that nothing
+caught was touched, the way back, and then Pro as a fact with its price.
+On screen: the card's hover note, the Clip Review notice ("If it stays full
+for 15 minutes with nothing accepted or rejected, or you close Highlightz,
+your channel pauses until you make room"), and the Clip Review toolbar, which
+counted every listed channel as "live" and now says "1 paused · queue full".
+The FAQ (two answers) and llms.txt say the same.
+
+**THE MULTI-TAB AUDIT (what the owner asked to be made sure of).** Read in
+the code, each one:
+- **Every allowance is the account's and is enforced on the server**, so a
+  second tab is a second window on the same numbers: the queue (the clip
+  processor checks `pending_room` plus clips still in flight BEFORE it makes
+  a clip, and `notify_clip_ready` checks again when it lands); Highlights
+  (`suggestion_room`); the weekly library (checked inside the lock in
+  `approve_clip`, written there for exactly "two tabs approving at once");
+  channels (`add_stream` checks and inserts inside the lock); "Clip now" (six
+  a minute per account, and held to the same queue check); sockets (eight per
+  account).
+- **A tab that is only open asks for nothing:** the page has no timer that
+  calls the server (only the socket's keep-alive, which is deliberately not
+  activity), so a paused account's idle tabs do not knock on the door.
+- **The one real way round** was the one above: any request restarted a
+  paused channel. Closed.
+- **Left alone, and why:** (1) Undo puts rejected clips back without asking
+  the cap, so a queue can sit over 20 for a while: bounded by the 10 minutes
+  an undo lives, takes no new clip while over, and refusing an undo would
+  destroy work on a slip. (2) The weekly library count is of what is STORED,
+  so deleting a kept clip returns its slot: a recorded decision
+  (`library_room`'s docstring), not a tab matter. (3) Several ACCOUNTS on one
+  channel each have their own allowance: not what was asked, and a different
+  problem.
+
+**On the first deploy:** accounts already paused for a full queue stop
+restarting on a visit until they decide a clip. About 15 minutes after the
+restart, every Free account at capacity with a tab open and nothing decided
+is paused and told. How many is not known from here;
+`journalctl -u highlightz --since "-30min" | grep -c queue_full_pause` counts
+them (the line carries `reason`: `away` or `unreviewed`).
+
+**Blast radius.** Free accounts with a full queue only: a paid plan, a trial
+and staff return before anything is counted, and a queue that is not full is
+never touched, so no healthy channel that could have clipped is stopped (a
+full queue refuses every clip already). The 8-hour pause and the billing hold
+are untouched. No new event name (`queue_pause` and `stream_updated` exist).
+**Verified:** `tests/test_free_queue_pause.py` is now 55 (26 new: fifteen
+means fifteen; a decision or a new clip restarts the clock; eight tabs buy
+nothing; forty requests do not restart it and count the room once; deciding
+a clip restarts it and tells the tab; undo does not; every deciding endpoint
+stamps and nothing else does; a paying plan is never held; a restart; one
+pass, one lookup). Full suite 5082; JSX parsed. **In a real browser, three
+tabs of one Free account, the real rule and constants, asked every 2 s
+instead of 60:** paused with two tabs open as the queue turned 15 minutes
+full, both tabs told with no reload; three reloads and a third tab later it
+was still paused; the card, the bell and the Clip Review notice said why;
+one Reject in tab A and the other two tabs showed it starting again 0.2 s
+later; no page errors, no sideways scroll at 1440 or 390. Not run on
+production.
 
 ## Admin: who joined in the last hour (2026-11-18)
 

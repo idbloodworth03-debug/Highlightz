@@ -172,9 +172,11 @@ def test_the_faq_the_brief_and_the_toast_say_free_only():
     from src.dashboard.aurora_html import DASHBOARD_HTML
     faq = api.LANDING_HTML
     assert "On Pro and Studio it keeps watching" in faq
-    # Since 2026-11-18 Free also pauses when its queue fills with the tab
-    # closed (tests/test_free_queue_pause.py); the 8 hours still stand.
-    assert "On Free it keeps watching with the tab closed until your review queue is full or 8" in faq
+    # Since 2026-11-18 Free also pauses when its queue is full, with the tab
+    # closed and, after 15 minutes with nothing decided, with it open
+    # (tests/test_free_queue_pause.py); the 8 hours still stand.
+    assert "On Free it keeps watching, with the tab open or closed, until your review" in faq
+    assert "queue is full or 8 hours have passed without you opening the dashboard" in faq
     assert "Monitoring stops after 8 hours without you opening the dashboard, so a" not in faq
     brief = TestClient(api.app).get("/llms.txt").text
     assert "Paid plans keep watching while you are away;" in brief
