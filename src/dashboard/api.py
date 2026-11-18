@@ -962,6 +962,23 @@ def set_stream_publisher(add_cb: Callable, remove_cb: Callable) -> None:
     _publish_new_stream    = add_cb
     _publish_remove_stream = remove_cb
 
+# THE SPLIT, stage 3. None in one process. With INGEST_WORKERS set it is the
+# Ingest (src/dashboard/ingest.py): a channel a worker is watching has its
+# profile in THAT process, so a change to it is sent there instead of made
+# here (src/profiles/ops.py). `owns(uid, channel)` says which applies.
+_profile_gateway = None
+
+
+def set_profile_gateway(gateway) -> None:
+    global _profile_gateway
+    _profile_gateway = gateway
+
+
+def _profile_held_elsewhere(uid: str, channel: str) -> bool:
+    gw = _profile_gateway
+    return gw is not None and gw.owns(uid, channel)
+
+
 def set_force_clip_callback(cb: Callable) -> None:
     global _force_clip_cb
     _force_clip_cb = cb
@@ -4584,6 +4601,12 @@ async def undo_last(request: Request, entry_id: str | None = None):
     from src.profiles.manager import get_profile_manager
     pm = get_profile_manager(uid)
     for channel, snap in entry.profiles_before.items():
+        if _profile_held_elsewhere(uid, channel):
+            res = await _profile_gateway.change(uid, channel, {"op": "restore", "snap": snap})
+            if res:
+                await broadcast({"event": "profile_updated",
+                                 "profile": res["profile"]}, user_id=uid)
+            continue
         profile = await pm.load(channel)
         if profile:
             undo.restore_profile(profile, snap)
@@ -4667,7 +4690,18 @@ async def approve_clip(request: Request, clip_id: str):
     # the channel isn't currently being monitored (e.g. reviewing a clip after a
     # deploy or once the stream ended). A cache-miss here used to silently drop
     # the feedback, skewing learning toward rejections only.
-    profile = await pm.load(clip["channel"])
+    # The split: a worker watching this channel holds its profile, so the
+    # lesson is taught there. Otherwise, exactly as before.
+    if _profile_held_elsewhere(uid, clip["channel"]):
+        if not _excluded_from_learning(clip):
+            res = await _profile_gateway.change(uid, clip["channel"], {
+                "op": "record_clip", "approved": True,
+                "signals": clip.get("trigger_signals", [])})
+            if res:
+                await broadcast({"event": "profile_updated", "profile": res["profile"]}, user_id=uid)
+        profile = None
+    else:
+        profile = await pm.load(clip["channel"])
     # Never teach a channel's profile from a clip the formula did not produce:
     # the decision says nothing about whether the formula was right, and it
     # would drift that channel's threshold on borrowed evidence. For a crowd
@@ -4722,12 +4756,26 @@ async def reject_clip(request: Request, clip_id: str):
     pm      = get_profile_manager(uid)
     # load() (not cache-only get()) so the rejection is always recorded, matching
     # the approve path — see note there.
-    profile = await pm.load(clip["channel"])
+    # The split: taught in the worker that holds the profile; its answer
+    # carries the snapshot from before, which is what undo restores.
+    profile_after = None
+    if _profile_held_elsewhere(uid, clip["channel"]):
+        profile = None
+        if not _excluded_from_learning(clip):
+            res = await _profile_gateway.change(uid, clip["channel"], {
+                "op": "record_clip", "approved": False,
+                "signals": clip.get("trigger_signals", [])})
+            if res:
+                profile_after = res
+    else:
+        profile = await pm.load(clip["channel"])
     # Never teach a channel's profile from a clip the formula did not produce:
     # the decision says nothing about whether the formula was right, and it
     # would drift that channel's threshold on borrowed evidence. For a crowd
     # suggestion the drift has a direction — see _excluded_from_learning.
     profiles_before = {}
+    if profile_after is not None:
+        profiles_before[clip["channel"]] = profile_after["before"]
     if profile and not _excluded_from_learning(clip):
         # Snapshot first: record_clip clamps the threshold and every weight, so
         # subtracting the step back off later would not always land where we
@@ -4754,7 +4802,9 @@ async def reject_clip(request: Request, clip_id: str):
 
     await broadcast({"event": "clip_removed", "clip_id": clip_id}, user_id=uid)
     if profiles_before:
-        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+        await broadcast({"event": "profile_updated",
+                         "profile": profile_after["profile"] if profile_after is not None
+                         else profile.to_dict()}, user_id=uid)
     return {"status": "deleted", "clip_id": clip_id}
 
 
@@ -5565,18 +5615,28 @@ async def patch_stream(request: Request, channel: str, req: StreamPatch):
             rec["preset"] = req.preset
             _save_streams()
         rec = dict(rec)
-    pm = get_profile_manager(uid)
-    profile = await pm.load(channel, platform)
-    touched = False
-    if req.sensitivity is not None and int(req.sensitivity) != int(getattr(profile, "sensitivity", 0)):
-        profile.sensitivity = int(req.sensitivity)
-        touched = True
-    if preset_changed:
-        profile.preset = req.preset
-        touched = True
-    if touched:
-        await pm.save(profile)
-        await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
+    if _profile_held_elsewhere(uid, channel):
+        # The split: set in the worker that holds the profile. It answers
+        # before the restart below replaces that worker, so the new one loads
+        # what was just saved.
+        res = await _profile_gateway.change(uid, channel, {
+            "op": "set", "sensitivity": req.sensitivity,
+            "preset": req.preset if preset_changed else None}, platform)
+        if res and res.get("touched"):
+            await broadcast({"event": "profile_updated", "profile": res["profile"]}, user_id=uid)
+    else:
+        pm = get_profile_manager(uid)
+        profile = await pm.load(channel, platform)
+        touched = False
+        if req.sensitivity is not None and int(req.sensitivity) != int(getattr(profile, "sensitivity", 0)):
+            profile.sensitivity = int(req.sensitivity)
+            touched = True
+        if preset_changed:
+            profile.preset = req.preset
+            touched = True
+        if touched:
+            await pm.save(profile)
+            await broadcast({"event": "profile_updated", "profile": profile.to_dict()}, user_id=uid)
     if preset_changed:
         await broadcast({"event": "stream_updated", "stream": rec}, user_id=uid)
         # New rules need a new worker; the record survives the restart. A

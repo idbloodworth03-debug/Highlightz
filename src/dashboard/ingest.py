@@ -60,7 +60,12 @@ class Ingest:
             "on_clip_file_ready": self.h_file_ready,
             "trim_clip_store": self.h_trim,
             "log_error": self.h_log,
+            "stopped": self.h_stopped,
         }, on_ready=self.on_ready, on_lost=self.on_lost, module=module, python=python)
+        # stream key -> the worker told to watch it and not yet heard to have
+        # stopped. While a key is here that worker holds the channel's
+        # PROFILE, and a change to it is sent there (`change`).
+        self._watching: dict[str, int] = {}
 
     async def start(self) -> None:
         await self.pool.start()
@@ -92,8 +97,9 @@ class Ingest:
         rec = api._streams.get(_key(channel, user_id)) or {
             "channel": channel, "platform": platform, "preset": preset,
             "user_id": user_id, "status": "starting"}
-        link.cast("spawn", {**_wire(rec), "platform": rec.get("platform") or platform,
-                            "preset": rec.get("preset") or preset})
+        if link.cast("spawn", {**_wire(rec), "platform": rec.get("platform") or platform,
+                               "preset": rec.get("preset") or preset}):
+            self._watching[_key(channel, user_id)] = self.pool.owner(channel)
 
     async def publish_remove(self, channel: str, user_id: str = "") -> None:
         link = self.pool.link_for(channel)
@@ -108,6 +114,7 @@ class Ingest:
             if rec.get("status") == "paused" or not self._owns(index, rec.get("channel", "")):
                 continue
             if link.cast("spawn", _wire(rec)):
+                self._watching[_key(rec.get("channel", ""), rec.get("user_id") or "")] = index
                 sent += 1
         log.info("ingest_worker_given_channels", index=index, channels=sent)
 
@@ -116,6 +123,12 @@ class Ingest:
         channels hold no slot any more and are not live; say so. on_ready
         starts them again when the next one is up."""
         hit = 0
+        # The profiles it held are gone with it; what it last saved is on
+        # disk. Forget this process's copies so the next read is the file.
+        for key in [k for k, i in self._watching.items() if i == index]:
+            self._watching.pop(key, None)
+            uid, _, channel = key.rpartition(":")
+            self._forget_profile(uid, channel)
         for key, rec in list(api._streams.items()):
             if not self._owns(index, rec.get("channel", "")):
                 continue
@@ -154,6 +167,10 @@ class Ingest:
                     rec["preset"] = theirs["preset"]
             if kind == "stream_updated":
                 event = {**event, "stream": rec}    # rule 3
+        elif kind == "profile_updated":
+            # The worker saved it; keep this process's copy the same, so
+            # GET /profiles/{channel} answers with what the detector has.
+            self._remember_profile(user_id or "", event.get("profile"))
         await api.broadcast(event, user_id=user_id)
 
     def h_acquire(self, index: int, stream_key: str) -> bool:
@@ -189,6 +206,72 @@ class Ingest:
         import asyncio
         from src.clips import files as clip_files
         return int(await asyncio.to_thread(clip_files.trim_to_cap) or 0)
+
+    # ── profiles: held by the worker that is watching the channel ────────────
+
+    def owns(self, uid: str, channel: str) -> bool:
+        """Is this channel's profile in a worker right now? (api.py asks
+        before every change to one.)"""
+        index = self._watching.get(_key(channel, uid))
+        if index is None:
+            return False
+        w = self.pool.workers[index]
+        return bool(w.ready and w.link is not None and not w.link.closed)
+
+    async def change(self, uid: str, channel: str, op: dict, platform: str = "twitch") -> dict | None:
+        """Make one change (src/profiles/ops.py) where the profile is. If the
+        worker cannot be reached it is made here instead, from what the
+        worker last saved: the change is never dropped."""
+        from src.ingestion.bridge import LinkClosed, RemoteError
+        from src.profiles import ops
+        key = _key(channel, uid)
+        index = self._watching.get(key)
+        link = self.pool.workers[index].link if index is not None else None
+        if link is not None and not link.closed:
+            try:
+                res = await link.call("profile_apply", uid, channel, op, platform)
+                if res:
+                    self._remember_profile(uid, res.get("profile"))
+                return res
+            except (LinkClosed, RemoteError, TimeoutError) as exc:
+                log.error("ingest_profile_change_fell_back", index=index, error=str(exc)[:160])
+        self._watching.pop(key, None)
+        self._forget_profile(uid, channel)
+        return await ops.apply(uid or None, channel, op, platform)
+
+    @staticmethod
+    def _remember_profile(uid: str, data) -> None:
+        if not isinstance(data, dict) or not data.get("channel"):
+            return
+        try:
+            import copy
+            from src.profiles.manager import get_profile_manager
+            from src.profiles.profile import StreamerProfile
+            # A COPY: from_dict removes keys from the dict it is given, and
+            # this one goes on to the user's tabs as profile_updated.
+            get_profile_manager(uid or None)._cache[data["channel"]] = \
+                StreamerProfile.from_dict(copy.deepcopy(data))
+        except Exception as exc:                    # noqa: BLE001
+            log.warning("ingest_profile_copy_failed", error=repr(exc)[:160])
+
+    @staticmethod
+    def _forget_profile(uid: str, channel: str) -> None:
+        try:
+            from src.profiles.manager import get_profile_manager
+            get_profile_manager(uid or None)._cache.pop(channel, None)
+        except Exception:
+            pass
+
+    def h_stopped(self, index: int, channel: str, user_id: str = "", final=None) -> None:
+        """The worker has finished stopping a channel and no longer holds its
+        profile. `final` is the profile as it left it."""
+        key = _key(channel, user_id)
+        if self._watching.get(key) == index:
+            self._watching.pop(key, None)
+        if isinstance(final, dict):
+            self._remember_profile(user_id, final)
+        else:
+            self._forget_profile(user_id, channel)
 
     def h_log(self, index: int, event: str, level: str = "error", fields: dict | None = None) -> None:
         """A worker's error, counted as one of ours: src/alerts mails the

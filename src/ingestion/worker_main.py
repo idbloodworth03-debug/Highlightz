@@ -158,11 +158,32 @@ def build_handlers(state: dict, remote=None) -> dict:
 
     async def stop(channel: str, user_id: str = "") -> None:
         from src.ingestion import workers
+        from src.profiles.manager import get_profile_manager
+        final = None
         try:
             await workers.stop_worker(channel, user_id)
         finally:
             remote.forget(channel, user_id)
             count()
+            # This process no longer holds the channel's profile. Hand the web
+            # process the last state and forget it here, so that if the
+            # channel comes back to this worker it is read from the file
+            # again (the dashboard may have changed it in between).
+            try:
+                pm = get_profile_manager(user_id or None)
+                prof = await pm.get(channel)
+                final = prof.to_dict() if prof is not None else None
+                pm._cache.pop(channel, None)        # noqa: SLF001
+            except Exception:
+                final = None
+            remote._link.cast("stopped", channel, user_id, final)   # noqa: SLF001
+
+    async def profile_apply(uid: str, channel: str, op: dict, platform: str = "twitch"):
+        """A change made in the dashboard (approve, reject, undo, sensitivity,
+        preset) to a profile this worker holds: made on the same object its
+        stream worker scores against."""
+        from src.profiles import ops
+        return await ops.apply(uid or None, channel, op, platform)
 
     def probe() -> dict:
         import importlib
@@ -181,7 +202,7 @@ def build_handlers(state: dict, remote=None) -> dict:
 
     out = {"ping": lambda: "pong", "probe": probe}
     if remote is not None:
-        out.update(spawn=spawn, stop=stop)
+        out.update(spawn=spawn, stop=stop, profile_apply=profile_apply)
     return out
 
 

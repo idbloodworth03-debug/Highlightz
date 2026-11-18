@@ -122,20 +122,7 @@ def clear(user_id: str) -> None:
     _stacks.pop(user_id, None)
 
 
-def snapshot_profile(profile) -> dict:
-    """The mutable scoring state record_clip() touches, and nothing else."""
-    return {
-        "trigger_threshold": profile.trigger_threshold,
-        "signal_weights":    dict(profile.signal_weights),
-        "total_clips":       profile.total_clips,
-        "approved_clips":    profile.approved_clips,
-        "rejected_clips":    profile.rejected_clips,
-    }
-
-
-def restore_profile(profile, snap: dict) -> None:
-    profile.trigger_threshold = snap["trigger_threshold"]
-    profile.signal_weights    = dict(snap["signal_weights"])
-    profile.total_clips       = snap["total_clips"]
-    profile.approved_clips    = snap["approved_clips"]
-    profile.rejected_clips    = snap["rejected_clips"]
+# The two functions that make a reject reversible live in src/profiles/ops.py
+# since the split (2026-11-18): a worker process applies them too, and it
+# cannot import anything of the dashboard's. Same functions, old names.
+from src.profiles.ops import restore as restore_profile, snapshot as snapshot_profile  # noqa: E402,F401
