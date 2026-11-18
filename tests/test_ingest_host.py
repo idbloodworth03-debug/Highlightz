@@ -203,3 +203,84 @@ def test_host_holds_no_reference_to_the_dashboard():
     body = src.split('"""', 2)[2]
     assert body.count("from src.dashboard import api") == 1
     assert "import api as" not in body and "_api = " not in body
+
+
+# ── stage 2a: starting and stopping workers lives where a worker can reach it ─
+
+def test_main_still_has_the_names_and_they_are_the_same_objects():
+    """src/main.py imports them, so everything that calls main.spawn_worker,
+    reads main._workers or shares main.SHARED_BUFFERS is using the one copy."""
+    from src import main
+    from src.ingestion import workers
+    for name in ("spawn_worker", "stop_worker", "reap_orphan_capture_task", "_workers",
+                 "_worker_instances", "SHARED_BUFFERS", "PLATFORM_MAP"):
+        assert getattr(main, name) is getattr(workers, name), name
+    src = pathlib.Path("src/main.py").read_text()
+    assert "async def spawn_worker(" not in src and "async def stop_worker(" not in src
+    assert "_ingest_workers.set_queue(_queue)" in src
+
+
+def test_a_spawned_worker_gets_the_queue_and_reports_through_the_seam(monkeypatch):
+    from src.ingestion import workers
+    made, sent, records = [], [], {"u1:nova": {"channel": "nova", "status": "live"}}
+
+    class FakeWorker:
+        def __init__(self, config, platform, queue, shared_buffers, on_score):
+            made.append(self)
+            self.config, self.queue, self.shared, self.on_score = config, queue, shared_buffers, on_score
+
+        async def start(self):
+            await self.on_score("nova", 71.5, {"CHAT_VELOCITY": 0.4})
+            raise RuntimeError("the session blew up")
+
+        def stop(self):
+            pass
+
+    async def bcast(event, user_id=None):
+        sent.append((event["event"], user_id, event))
+    monkeypatch.setattr(workers, "StreamWorker", FakeWorker)
+    monkeypatch.setattr(workers, "_workers", {})
+    monkeypatch.setattr(workers, "_worker_instances", {})
+    monkeypatch.setattr(api, "broadcast", bcast)
+    monkeypatch.setattr(api, "_streams", records)
+    queue = object()
+    workers.set_queue(queue)
+
+    async def go():
+        await workers.spawn_worker("nova", "kick", "u1", "fps")
+        await workers.spawn_worker("nova", "kick", "u1", "fps")     # already running: not a second one
+        task = workers._workers["u1:nova"]
+        await task
+    try:
+        asyncio.run(go())
+    finally:
+        workers.set_queue(None)
+    assert len(made) == 1
+    w = made[0]
+    assert w.queue is queue and w.shared is workers.SHARED_BUFFERS
+    assert (w.config.channel, w.config.platform_name, w.config.user_id, w.config.preset) == ("nova", "kick", "u1", "fps")
+    assert sent[0][:2] == ("score_update", "u1") and sent[0][2]["score"] == 71.5
+    # A worker that ends, however it ends, leaves its channel "offline" and says so.
+    assert records["u1:nova"]["status"] == "offline"
+    assert sent[-1][:2] == ("stream_updated", "u1") and sent[-1][2]["stream"]["status"] == "offline"
+
+
+def test_stopping_a_worker_forgets_it_and_its_buffer(monkeypatch):
+    from src.ingestion import workers
+    stopped = []
+
+    class W:
+        def stop(self):
+            stopped.append(True)
+
+    async def go():
+        async def forever():
+            await asyncio.sleep(60)
+        monkeypatch.setattr(workers, "_workers", {"u1:nova": asyncio.create_task(forever())})
+        monkeypatch.setattr(workers, "_worker_instances", {"u1:nova": W()})
+        monkeypatch.setattr(workers, "SHARED_BUFFERS", {"nova": object(), "other": object()})
+        await workers.stop_worker("nova", "u1")
+        await workers.stop_worker("nova", "u1")                     # twice is harmless
+        return dict(workers._workers), dict(workers._worker_instances), list(workers.SHARED_BUFFERS)
+    assert asyncio.run(go()) == ({}, {}, ["other"])
+    assert stopped == [True]

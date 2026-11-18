@@ -9906,6 +9906,32 @@ as now. Until that stage the switch must not be turned on in production.
    `_worker_instances` / `SHARED_BUFFERS` out of `main.py` (a worker cannot
    import it) into a module both sides can use.
 2. Spawn/stop/restore through the pool; statuses; slots; clips; errors.
+   - **2a, done:** `spawn_worker`, `stop_worker`, `reap_orphan_capture_task`,
+     `_workers`, `_worker_instances`, `SHARED_BUFFERS`, `PLATFORM_MAP` moved
+     verbatim from `src/main.py` to **`src/ingestion/workers.py`** (a worker
+     process must run them and cannot import `main`). `main.py` imports the
+     names, so `main.spawn_worker` IS that function and `restore_streams` /
+     `listen_for_new_streams` call it as before; `workers.set_queue(q)` hands
+     it the Redis clip queue at startup. Its three dashboard touches
+     (`score_update`, the final "offline" + `stream_updated`) go through
+     `host`. Also live on deploy; the whole app was booted locally with one
+     saved channel and its worker started.
+   - **2b, next:** the worker-side remote (an object with `host`'s eight
+     methods that casts/calls over the `Link`, plus a mirror of that worker's
+     stream records, filled by `spawn`), `worker_main` handlers `spawn` and
+     `stop` calling `workers.spawn_worker` / `stop_worker`, and structlog set
+     up in the worker with error forwarding.
+   - **2c:** the web-side handlers for those casts and calls. `broadcast`
+     must apply `stream_status` / `stream_updated` to the real `_streams`
+     record before relaying it, for a key that worker owns and nothing else.
+   - **2d:** `INGEST_WORKERS` in `config/settings.py`; `main()` builds the
+     `Pool`; `_publish_new_stream` / `_publish_remove_stream` /
+     `restore_streams` route to `pool.link_for(channel)`; `on_ready` sends a
+     worker its channels; `on_lost` releases that shard's live slots and
+     marks its channels reconnecting.
+   - **2e:** an end-to-end test with real worker processes and a platform
+     that needs no network (the real ones need Twitch or Kick), then the
+     same by hand against one real channel.
 3. Profiles and Kick chat.
 4. The gate per worker; admin page and `stream_cost` / `loop_profile` per
    process.
