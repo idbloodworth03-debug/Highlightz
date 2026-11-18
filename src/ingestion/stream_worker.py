@@ -245,8 +245,7 @@ class StreamWorker:
                     if not offline and not queued:
                         log.info("worker_reconnecting", channel=self._config.channel, delay=30)
                     _sk = self._stream_key
-                    if _sk in host.streams():
-                        host.streams()[_sk]["status"] = status
+                    host.set_status(_sk, status)
                     await host.broadcast({
                         "event": "stream_status",
                         "channel": self._config.channel,
@@ -373,8 +372,7 @@ class StreamWorker:
         self._stream_info = await self._platform.get_stream_info(channel)
         log.info("stream_found", channel=channel, title=self._stream_info.title)
         _sk = self._stream_key
-        if _sk in host.streams():
-            host.streams()[_sk]["status"] = "live"
+        host.set_status(_sk, "live")
         await host.broadcast({
             "event": "stream_status",
             "channel": channel,

@@ -193,7 +193,11 @@ def test_the_stream_worker_goes_through_the_seam_for_everything():
                  "await host.watchers_of(self._config.channel)", "await host.suggestion_room(uid)",
                  "await host.on_clip_file_ready(clip_id)", "await host.notify_clip_ready(meta.to_dict())"):
         assert src.count(call) == 1, call
-    assert src.count("await host.broadcast(") == 6 and src.count("host.streams()") == 5
+    assert src.count("await host.broadcast(") == 6
+    # Its record is read once (the preset) and its status is only ever SET
+    # through set_status, which is where "paused stays paused" is held.
+    assert src.count("host.streams()") == 1 and src.count("host.set_status(") == 2
+    assert '["status"] =' not in src
 
 
 def test_host_holds_no_reference_to_the_dashboard():
@@ -284,3 +288,83 @@ def test_stopping_a_worker_forgets_it_and_its_buffer(monkeypatch):
         return dict(workers._workers), dict(workers._worker_instances), list(workers.SHARED_BUFFERS)
     assert asyncio.run(go()) == ({}, {}, ["other"])
     assert stopped == [True]
+
+
+# ── a paused channel stays paused when its worker stops ──────────────────────
+# Found reading this path for the split, and older than it: pausing sets the
+# record to "paused" and THEN stops the worker, and the worker's last act was
+# to write "offline" over it. Nothing was then marked paused, so the owner's
+# next visit restarted nothing.
+
+def test_a_worker_report_never_replaces_paused(monkeypatch):
+    recs = {"u:c": {"status": "paused"}, "u:d": {"status": "live"}}
+    monkeypatch.setattr(api, "_streams", recs)
+    assert host.set_status("u:c", "offline") is False and recs["u:c"]["status"] == "paused"
+    assert host.set_status("u:c", "live") is False and recs["u:c"]["status"] == "paused"
+    assert host.set_status("u:d", "offline") is True and recs["u:d"]["status"] == "offline"
+    assert host.set_status("u:gone", "live") is False and "u:gone" not in recs
+    recs["u:c"]["status"] = "starting"                 # they came back: the dashboard's word
+    assert host.set_status("u:c", "live") is True
+
+
+def test_pausing_a_running_channel_leaves_it_paused_and_coming_back_restarts_it(monkeypatch):
+    """The real pause, the real worker wrapper, the real resume. Only the
+    stream worker itself and Redis are stood in for."""
+    from src.ingestion import workers
+    started, sent = [], []
+
+    class FakeWorker:
+        def __init__(self, config, **kw):
+            self.channel = config.channel
+
+        async def start(self):
+            started.append(self.channel)
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                return                                  # as StreamWorker.start does
+
+        def stop(self):
+            pass
+
+    async def bcast(event, user_id=None):
+        sent.append((event.get("event"), (event.get("stream") or {}).get("status")))
+
+    async def publish_new(channel, platform, preset, uid=""):
+        await workers.spawn_worker(channel, platform, uid, preset)
+
+    async def publish_remove(channel, uid=""):
+        await workers.stop_worker(channel, uid)
+
+    monkeypatch.setattr(workers, "StreamWorker", FakeWorker)
+    monkeypatch.setattr(workers, "_workers", {})
+    monkeypatch.setattr(workers, "_worker_instances", {})
+    monkeypatch.setattr(api, "_streams", {"u1:nova": {"channel": "nova", "platform": "kick", "preset": "default",
+                                                      "status": "live", "user_id": "u1"}})
+    monkeypatch.setattr(api, "_paused_users", set())
+    monkeypatch.setattr(api, "_save_streams", lambda: None)
+    monkeypatch.setattr(api, "broadcast", bcast)
+    monkeypatch.setattr(api, "_publish_new_stream", publish_new)
+    monkeypatch.setattr(api, "_publish_remove_stream", publish_remove)
+    api._live_slots.add("u1:nova")
+
+    async def go():
+        await workers.spawn_worker("nova", "kick", "u1")
+        await asyncio.sleep(0)
+        assert await api._pause_user_streams("u1", hold="queue_full") == 1
+        after_pause = dict(api._streams["u1:nova"])
+        while_paused = list(sent)
+        running = dict(workers._workers)
+        assert await api._resume_user_streams("u1") == 1
+        await asyncio.sleep(0)
+        after_resume = dict(api._streams["u1:nova"])
+        await workers.stop_worker("nova", "u1")
+        return after_pause, running, after_resume, while_paused
+    after_pause, running, after_resume, while_paused = asyncio.run(go())
+    assert after_pause["status"] == "paused" and after_pause["hold"] == "queue_full", after_pause
+    assert running == {}, "the paused channel's worker was still registered"
+    assert "u1:nova" not in api._live_slots
+    # Every report a tab got while it was paused said paused, the last one included.
+    assert while_paused == [("stream_updated", "paused"), ("stream_updated", "paused")], while_paused
+    assert after_resume["status"] == "starting" and "hold" not in after_resume
+    assert started == ["nova", "nova"], "coming back did not start the channel again"

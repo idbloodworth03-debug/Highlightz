@@ -10,7 +10,8 @@ same ones for the channels that hash to it.
 Moved verbatim on 2026-11-18. The only change is that the three places that
 touched the dashboard (the once-a-second `score_update`, and the final
 "offline" with its `stream_updated`) go through src/ingestion/host.py, as
-everything in stream_worker.py already does.
+everything in stream_worker.py already does. (One fix since: the final
+"offline" no longer replaces "paused", host.set_status.)
 
 The registries are per process and keyed as before: a worker by
 "user_id:channel", SHARED_BUFFERS by channel name. That last one is why a
@@ -88,7 +89,10 @@ async def spawn_worker(channel: str, platform_name: str, user_id: str = "", pres
             log.error("worker_crashed", channel=channel, error=str(exc))
         finally:
             if stream_key in host.streams():
-                host.streams()[stream_key]["status"] = "offline"
+                # "offline", unless the dashboard paused it: see host.set_status.
+                # The record is sent either way, so a tab is told the truth
+                # last, whatever the worker said on its way out.
+                host.set_status(stream_key, "offline")
                 await host.broadcast(
                     {"event": "stream_updated", "stream": host.streams().get(stream_key, {})},
                     user_id=user_id,

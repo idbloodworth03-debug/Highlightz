@@ -48,6 +48,26 @@ def streams() -> dict:
     return _remote.streams() if _remote is not None else _api()._streams
 
 
+def set_status(stream_key: str, status: str) -> bool:
+    """A worker reporting what its channel is doing: starting, live, offline,
+    reconnecting, queued. True if the record now says so.
+
+    A CHANNEL THE DASHBOARD PAUSED STAYS PAUSED. Pausing sets the record to
+    "paused" and THEN stops the worker, and a worker on its way out used to
+    write "offline" over it (found 2026-11-18, reading this path for the
+    split; reproduced). The record then said "offline" with no worker
+    running, so the owner's next visit found nothing marked paused to
+    restart: the channel stayed dead until the next idle pass re-paused it,
+    or the next deploy. "paused" is the dashboard's word, not the worker's,
+    and no worker report may replace it. Coming back sets "starting" first,
+    which a worker may then replace as before."""
+    rec = streams().get(stream_key)
+    if rec is None or rec.get("status") == "paused":
+        return False
+    rec["status"] = status
+    return True
+
+
 async def broadcast(event: dict, user_id: str | None = None) -> None:
     if _remote is not None:
         return await _remote.broadcast(event, user_id=user_id)
