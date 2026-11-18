@@ -107,14 +107,16 @@ def milestones(summary: dict) -> list[tuple[str, int]]:
 
 def verdict(*, asked: int, found: int, summary: dict, only: list, journal: bool) -> list[str]:
     """What to do, in words. The worst thing first, and only one of them."""
-    end = ["To turn the split off: remove INGEST_WORKERS and INGEST_ONLY from .env",
-           "and restart. Every channel is then watched in the one process, as before."]
+    end = ["To turn the split off (every channel is then watched in the one process,",
+           "as before):",
+           "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py stop"]
     if asked <= 0:
         if found:
             return [f"THE SWITCH IS OFF IN .env BUT {found} WORKER PROCESS(ES) ARE RUNNING. The",
                     "site was started before .env was changed. Restart it."]
         return ["THE SPLIT IS OFF. Nothing here to check: every channel is watched in the",
-                "one process. docs/HANDOFF.md, \"THE SPLIT\", says how to start the trial."]
+                "one process. To see the channels a trial could use, each with its command:",
+                "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py"]
     if found < asked:
         return [f"A WORKER IS MISSING. .env asks for {asked} and {found} "
                 f"{'is' if found == 1 else 'are'} running. The site",
@@ -274,7 +276,9 @@ def main(argv: list[str]) -> int:
                       + (f"   (listed by {row['listed']} accounts)" if row["listed"] > 1 else ""))
             for name in ch["missing"]:
                 print(f"  {name[:22]:<22} : NOT LISTED BY ANYBODY   <- nobody has added this "
-                      "channel, so there is nothing to watch. Check the spelling in INGEST_ONLY.")
+                      "channel, so nothing is in a worker.")
+                print("      For the channels a trial could use, each with its command:")
+                print("      cd /opt/highlightz && venv/bin/python scripts/split_trial.py")
         else:
             for index in sorted(ch["per_worker"]):
                 said = ", ".join(f"{n} {s}" for s, n in ch["per_worker"][index].most_common())

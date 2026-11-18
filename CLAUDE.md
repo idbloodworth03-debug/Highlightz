@@ -22,6 +22,24 @@ cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff
 
 If `docs/HANDOFF.md` ever changes the command, change it here too.
 
+## Commands for the owner are pasted exactly as written
+
+Learned 2026-11-18. A reply listed three commands, said "deploy first (the
+command at the bottom)", and one of them had the word `CHANNEL` in it to be
+replaced by hand. The first block was pasted as written: production was
+restarted with `INGEST_ONLY=CHANNEL`, on code that had not been deployed.
+
+- **Never hand over a command that needs editing.** No placeholders. If a
+  value is theirs to choose, give a command that prints the choices with the
+  finished command beside each (`scripts/split_trial.py` is the pattern), or
+  ask for the value first and then write the command with it filled in.
+- **The first code block in a reply is the first thing that will be run.**
+  If a step needs the deploy first, put the deploy INSIDE that step's
+  command. The plain deploy command still ends the reply (the rule above);
+  say that running it as well does no harm.
+- **Anything that changes production's `.env` validates before it writes**,
+  and says "NOTHING WAS CHANGED" when it refuses.
+
 ## Realtime is mandatory: the UI must never need a manual refresh
 
 The dashboard is a long-lived single-page app. Users keep a tab open for hours

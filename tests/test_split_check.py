@@ -67,7 +67,7 @@ def test_a_worker_that_loads_what_it_must_not_is_counted_wherever_the_words_are(
     assert dict(s["workers"][0]["errors"]) == {"worker_crashed": 1}
     v = K.verdict(asked=2, found=2, summary=s, only=[], journal=True)
     assert v[0].startswith("STOP: A WORKER TRIED TO LOAD SOMETHING IT MUST NOT (2 line(s))")
-    assert any("remove INGEST_WORKERS and INGEST_ONLY" in x for x in v)
+    assert any("scripts/split_trial.py stop" in x for x in v)
 
 
 def test_the_web_processes_lines_about_its_workers_are_shown_when_they_are_trouble():

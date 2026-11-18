@@ -10191,16 +10191,42 @@ as now. Until that stage the switch must not be turned on in production.
      its threshold, pausing and coming back work, the journal has no
      `ImportError` or `must not be imported` from `"ingest": 0`.
      **To end the trial:** remove both lines from `.env` and restart.
-     **The commands given to the owner (2026-11-18), CHANNEL being a channel
-     somebody has added, ideally one of the owner's own that is live:**
-     start `cd /opt/highlightz && sed -i '/^INGEST_WORKERS=/d;/^INGEST_ONLY=/d' .env && printf '\nINGEST_WORKERS=1\nINGEST_ONLY=CHANNEL\n' >> .env && systemctl restart highlightz`
-     (the leading newline matters: a `.env` whose last line has no line ending would
-     otherwise have the setting glued onto it; `sed -i` as root keeps the file's
-     `640 root:highlightz`, tried here on GNU sed 4.9);
-     check `cd /opt/highlightz && venv/bin/python scripts/split_check.py`;
-     end `cd /opt/highlightz && sed -i '/^INGEST_WORKERS=/d;/^INGEST_ONLY=/d' .env && systemctl restart highlightz`.
-     Several names may be given with commas (one Twitch and one Kick is the
-     best trial). **Nothing has been turned on in production yet.**
+     **How it is started, checked and ended: `scripts/split_trial.py`**
+     (2026-11-18, replacing a pasted `sed` command, see below). With no
+     arguments it changes nothing: it prints where the split stands and the
+     channels a trial could use (on an admin account first, live first,
+     fewest accounts first), each with its finished command.
+     `split_trial.py start <channel>` refuses a name nobody has added, then
+     writes `INGEST_WORKERS=1` and `INGEST_ONLY=<channel>` INTO `.env` (same
+     file, so its `640 root:highlightz` is kept; every other line untouched)
+     and restarts the site. `split_trial.py stop` takes both out and
+     restarts. Check with `scripts/split_check.py`.
+     **WHAT WENT WRONG THE FIRST TIME (owner's paste, 2026-11-18).** The
+     reply gave three commands and said to deploy first with "the command at
+     the bottom"; the start command contained the word `CHANNEL` to be
+     replaced by hand. The owner pasted the first block as written. So
+     production was restarted with `INGEST_WORKERS=1`, `INGEST_ONLY=CHANNEL`
+     on whatever code it had, which was NOT the latest (`split_check.py` was
+     not there). What that did depends on the commit it was running, which
+     was not known when this was written:
+       - before `4a7318e`: both settings unknown and ignored
+         (`extra="ignore"`): nothing happened;
+       - `4a7318e` to `6ebfb1a`: `INGEST_WORKERS` honoured and `INGEST_ONLY`
+         unknown, so EVERY channel went into one worker on code without the
+         later stages (before `6a26d5e` a dashboard approve or reject did not
+         reach the worker's profile; before `786a7dc` Kick chat did not reach
+         a worker at all) until the repair;
+       - `25aff63` or later: a trial on a channel called "channel", which
+         nobody lists: one idle worker, everything else as always.
+     The repair given was one command: print the commit that was running,
+     take both lines out, deploy, restart, then `split_trial.py` to list the
+     channels. **If the owner's paste shows "was running" in the middle
+     range, say plainly what was affected and for how long.** The rule this
+     produced is in `CLAUDE.md` ("Commands for the owner are pasted exactly
+     as written").
+     Several names may be given (`start a,b`; one Twitch and one Kick is the
+     best trial). **No real trial has run on production yet**: the only time
+     the switch was on there is the mistake described above.
    - **Everything** (`INGEST_WORKERS=4`, no `INGEST_ONLY`): only after the
      trial's `split_check.py` reads "CLEAN, AND A CHANNEL HAS DONE
      EVERYTHING THE TRIAL IS FOR". The tools to measure its first hour now
