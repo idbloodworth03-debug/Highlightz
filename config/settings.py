@@ -514,11 +514,12 @@ class Settings(BaseSettings):
     # the box is known to carry and MAX_CONCURRENT_STREAMS to the most it
     # should ever be asked for.
     live_auto_base: int = 0
-    # THE SPLIT (docs/HANDOFF.md, "THE SPLIT"). 0 is today's single process.
+    # THE SPLIT (docs/HANDOFF.md, "THE SPLIT"). 0 is the single process.
     # Above 0, stream workers run in this many processes of their own, each
-    # with its own loop. NOT FOR PRODUCTION until the handoff says the stages
-    # are done: with it on, profile changes made in the dashboard (approve,
-    # reject, sensitivity) and Kick chat do not reach a worker yet.
+    # with its own loop. Production's .env is not edited by hand for this:
+    # scripts/split_trial.py starts a trial on one channel (`start`), moves
+    # every channel once that trial has been seen to work (`all`), and turns
+    # it off (`stop`), checking before it writes each time.
     ingest_workers: int = 0
     # A TRIAL OF THE SPLIT ON A FEW CHANNELS. Channel names, comma separated.
     # Empty (the default) means every channel goes to the workers when

@@ -236,3 +236,18 @@ def test_what_a_worker_is_capturing_is_read_from_proc(monkeypatch):
     monkeypatch.setattr(K, "_stream_cost", lambda: cost)
     assert K.workers_running() == [{"index": 0, "rss": 70 * MB, "live": 1},
                                    {"index": 1, "rss": 60 * MB, "live": 1}]
+
+
+def test_a_clean_trial_is_handed_the_command_that_moves_everything():
+    """The owner pastes what is printed (CLAUDE.md): the next step is given
+    finished, on the one verdict it belongs to, and never for anything less."""
+    cmd = "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py all"
+    assert cmd in _v()
+    # The whole site already split: there is nothing further to move.
+    whole = _v(asked=4, found=4, only=[])
+    assert whole[0].startswith("CLEAN, AND A CHANNEL HAS DONE") and cmd not in whole
+    for kw in (dict(summary=K.summarize(HEALTHY[:5])),                                   # clean so far
+               dict(summary=K.summarize(HEALTHY + [L("worker_session_error", "error", ingest=0)])),
+               dict(summary=K.summarize(HEALTHY + [L("ingest_worker_lost", "error", index=0)])),
+               dict(asked=1, found=0)):
+        assert not any("split_trial.py all" in line for line in _v(**kw)), kw

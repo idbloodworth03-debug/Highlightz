@@ -106,10 +106,11 @@ def test_looking_changes_nothing_and_hands_over_finished_commands(box, capsys):
     # Each channel comes with its command, already filled in. No placeholder anywhere.
     assert "cd /opt/highlightz && venv/bin/python scripts/split_trial.py start ownerslive" in out
     assert "<channel>" not in out and "start CHANNEL" not in out
-    # The owner's own first, live before offline; then the fewest accounts; never a paused one.
+    # LIVE first (a trial shows nothing until its channel is live), the owner's
+    # own first among those, then the fewest accounts; never a paused one.
     order = [ln.split()[0] for ln in out.splitlines()
              if ln.startswith("  ") and ln.split()[-1] in ("account", "accounts")]
-    assert order == ["ownerslive", "ownerschannel", "quietone", "bigstreamer"]
+    assert order == ["ownerslive", "quietone", "bigstreamer", "ownerschannel"]
     assert "asleep" not in out
     for private in ("the-owner-name", "customer-one", "example.com", "SECRET-KEY-VALUE", "LIVE_AUTO_BASE"):
         assert private not in out
@@ -121,7 +122,9 @@ def test_looking_says_which_of_the_three_states_env_is_in(box, capsys):
     assert "the split is OFF" in capsys.readouterr().out
     box.env.write_text("INGEST_WORKERS=4\n")
     box.run()
-    assert "EVERY channel is in a worker. This is not a trial." in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "EVERY channel is in a worker process" in out and "THE WHOLE SITE IS SPLIT" in out
+    assert "split_trial.py stop" in out and "CHANNELS A TRIAL COULD USE" not in out
     box.env.write_text("INGEST_WORKERS=1\nINGEST_ONLY=quietone\n")
     box.run()
     out = capsys.readouterr().out
@@ -209,3 +212,197 @@ def test_it_prints_no_setting_but_the_two_and_no_account():
     assert src.count("username") == 0 and src.count("email") == 0
     body = src[src.index("def read_split("):src.index("def without_split(")]
     assert "not in KEYS" in body
+
+
+# ── who is live now ────────────────────────────────────────────────────────
+
+def _note(box, keys, age=5.0):
+    import time
+    (box.store / "headroom.json").write_text(json.dumps(
+        {"live": len(keys), "at": time.time() - age, "keys": keys}))
+
+
+def test_live_now_is_the_sites_own_note_not_the_saved_status(box, capsys):
+    """streams.json said three channels were live. Its statuses are only as
+    fresh as the last add, remove or pause; the note is 30 seconds old."""
+    _note(box, ["c1:BigStreamer", "c2:bigstreamer", "owner:ownerschannel", "solo"])
+    assert T.live_names(box.store) == {"bigstreamer", "ownerschannel", "solo"}
+    box.run()
+    out = capsys.readouterr().out
+    order = [ln.split()[0] for ln in out.splitlines()
+             if ln.startswith("  ") and ln.split()[-1] in ("account", "accounts")]
+    assert order == ["ownerschannel", "bigstreamer", "ownerslive", "quietone"]
+    assert "live now" in out and "not live" in out and "is as last saved" not in out
+
+
+def test_a_stale_or_missing_note_falls_back_and_says_so(box, capsys):
+    assert T.live_names(box.store) is None                                # no note at all
+    _note(box, ["c1:quietone"], age=600)
+    assert T.live_names(box.store) is None                                # the site is not writing it
+    (box.store / "headroom.json").write_text("not json")
+    assert T.live_names(box.store) is None
+    box.run()
+    assert "is as last saved" in capsys.readouterr().out
+
+
+def test_when_nothing_listed_is_live_it_says_a_trial_would_wait(box, capsys):
+    _note(box, [])
+    box.run()
+    assert "NONE OF THESE IS LIVE RIGHT NOW" in capsys.readouterr().out
+
+
+# ── everything ───────────────────────────────────────────────────────────
+
+def _seen(found=1, lost=0, forbidden=0, lines=500, readable=True, errors=0, done=(3, 2, 1, 1)):
+    import collections
+    names = ("found its channel live", "is receiving the channel's audio",
+             "is recording the rolling video", "cut a clip's video")
+    return {"found": found, "readable": readable, "source": "test",
+            "summary": {"lost": lost, "forbidden": forbidden, "lines": lines, "worker_lines": 40,
+                        "workers": {0: {"errors": collections.Counter({"some_error": errors} if errors else {}),
+                                        "warnings": collections.Counter()}}},
+            "milestones": list(zip(names, done))}
+
+
+TRIAL = "A=1\nINGEST_WORKERS=1\nB=2\nINGEST_ONLY=quietone\n"
+
+
+def _all(box, seen, *extra):
+    return T.main(["all", *extra], env_path=box.env, store=box.store,
+                  restart=lambda: (box.restarts.append(1), (True, "the site was restarted"))[1], seen=seen)
+
+
+def test_half_the_cores_carry_the_loops():
+    assert [T.workers_for(n) for n in (8, 16, 4, 2, 1, 0, None, 64, "x")] == [4, 8, 2, 2, 2, 2, 2, 8, 2]
+
+
+def test_the_whole_site_is_the_worker_count_and_no_list():
+    out = T.with_everything(TRIAL, 4)
+    assert out == "A=1\nB=2\nINGEST_WORKERS=4\n" and T.read_split(out) == (4, [])
+    assert T.with_everything("A=1", 4) == "A=1\nINGEST_WORKERS=4\n"       # nothing glued on
+
+
+def test_a_trial_seen_working_moves_every_channel_and_restarts_once(box, capsys, monkeypatch):
+    box.env.write_text(TRIAL)
+    monkeypatch.setattr(T.os, "cpu_count", lambda: 8)
+    assert _all(box, _seen()) == 0
+    out = capsys.readouterr().out
+    assert box.env.read_text() == "A=1\nB=2\nINGEST_WORKERS=4\n" and box.restarts == [1]
+    assert stat.S_IMODE(os.stat(box.env).st_mode) == 0o640
+    assert "EVERY CHANNEL IS NOW WATCHED IN ONE OF 4 WORKER PROCESSES" in out
+    assert "split_check.py" in out and "split_trial.py stop" in out and "NOTHING WAS CHANGED" not in out
+
+
+@pytest.mark.parametrize("env, seen, says", [
+    ("A=1\n", _seen(), "NO TRIAL IS RUNNING"),                              # the split is off
+    (ENV, _seen(), "THE TRIAL HAS NOT STARTED"),                            # INGEST_ONLY=CHANNEL
+    (TRIAL, _seen(found=0), "A WORKER IS MISSING"),
+    (TRIAL, _seen(readable=False), "COULD NOT BE READ"),
+    (TRIAL, _seen(lines=0), "COULD NOT BE READ"),
+    (TRIAL, _seen(forbidden=2), "TRIED TO LOAD SOMETHING IT MUST NOT"),
+    (TRIAL, _seen(lost=1), "A WORKER DIED 1 TIME(S)"),
+    (TRIAL, _seen(done=(3, 2, 1, 0)), "cut a clip's video"),                # live, but no clip yet
+    (TRIAL, _seen(done=(0, 0, 0, 0)), "found its channel live"),            # never went live
+    (TRIAL, _seen(errors=3), "LOGGED 3 ERROR(S)"),
+])
+def test_anything_short_of_a_working_trial_changes_nothing(box, capsys, env, seen, says):
+    box.env.write_text(env)
+    assert _all(box, seen) == 1
+    out = capsys.readouterr().out
+    assert says in out and "NOTHING WAS CHANGED." in out, out
+    assert box.env.read_text() == env and box.restarts == []
+
+
+def test_the_worst_thing_is_the_one_said(box, capsys):
+    box.env.write_text(TRIAL)
+    _all(box, _seen(found=0, forbidden=1, lost=2, done=(0, 0, 0, 0), errors=5))
+    out = capsys.readouterr().out
+    assert "A WORKER IS MISSING" in out and "DIED" not in out and "ERROR(S)" not in out
+
+
+def test_errors_somebody_has_read_do_not_block_but_nothing_else_is_waived(box, capsys, monkeypatch):
+    monkeypatch.setattr(T.os, "cpu_count", lambda: 8)
+    box.env.write_text(TRIAL)
+    assert _all(box, _seen(errors=3), "--errors-read") == 0 and box.restarts == [1]
+    box.env.write_text(TRIAL)
+    box.restarts.clear()
+    assert _all(box, _seen(errors=3, done=(1, 1, 1, 0)), "--errors-read") == 1 and box.restarts == []
+    assert _all(box, _seen(lost=1), "--errors-read") == 1 and box.restarts == []
+    assert box.env.read_text() == TRIAL
+    capsys.readouterr()
+
+
+def test_already_everything_is_left_alone(box, capsys):
+    box.env.write_text("A=1\nINGEST_WORKERS=4\n")
+    assert _all(box, _seen(found=0)) == 0
+    out = capsys.readouterr().out
+    assert "ALREADY IN A WORKER PROCESS" in out and "NOTHING WAS CHANGED" in out
+    assert box.env.read_text() == "A=1\nINGEST_WORKERS=4\n" and box.restarts == []
+
+
+def test_a_slip_after_all_changes_nothing(box, capsys):
+    box.env.write_text(TRIAL)
+    for argv in (["all", "now"], ["all", "--force"], ["everything"]):
+        assert T.main(argv, env_path=box.env, store=box.store, restart=lambda: (True, "x"), seen=_seen()) == 1
+    assert box.env.read_text() == TRIAL and "NOTHING WAS CHANGED" in capsys.readouterr().out
+
+
+def test_a_check_that_cannot_run_changes_nothing(box, capsys, monkeypatch):
+    box.env.write_text(TRIAL)
+
+    def broken(minutes=60):
+        raise RuntimeError("no journal here")
+    monkeypatch.setattr(T, "evidence", broken)
+    assert T.main(["all"], env_path=box.env, store=box.store, restart=lambda: (True, "x")) == 1
+    assert box.env.read_text() == TRIAL and "NOTHING WAS CHANGED" in capsys.readouterr().out
+
+
+def test_the_gate_reads_what_the_check_reads(monkeypatch):
+    """One definition of "the trial worked": the journal and /proc, through
+    split_check's own functions, and its own names for the four things."""
+    check = T._split_check()
+    line = lambda event, **kw: json.dumps({"event": event, "level": "info", **kw})
+    lines = [line("stream_found", ingest=0), line("audio_meter_receiving_audio", ingest=0),
+             line("clip_recorder_pipeline_up", ingest=0), line("clip_cut_ok", ingest=0),
+             line("something_else"), line("clip_cut_ok")]            # the last: the web process, not a worker
+    monkeypatch.setattr(T, "_split_check", lambda: check)
+    monkeypatch.setattr(check, "read_lines", lambda minutes, log: (lines, True, "test"))
+    monkeypatch.setattr(check, "workers_running", lambda: [{"index": 0, "rss": 1, "live": 1}])
+    seen = T.evidence()
+    assert seen["found"] == 1 and [n for _w, n in seen["milestones"]] == [1, 1, 1, 1]
+    assert T.not_ready(workers=1, only=["quietone"], channels={"quietone": {}}, seen=seen) == []
+    lines.pop(3)                                                      # no clip cut in a WORKER
+    seen = T.evidence()
+    assert "cut a clip's video" in "\n".join(T.not_ready(workers=1, only=["quietone"],
+                                                          channels={"quietone": {}}, seen=seen))
+
+
+def test_a_running_trial_is_shown_its_next_two_commands(box, capsys):
+    box.env.write_text(TRIAL)
+    box.run()
+    out = capsys.readouterr().out
+    assert "A TRIAL IS RUNNING" in out
+    assert "cd /opt/highlightz && venv/bin/python scripts/split_check.py" in out
+    assert "cd /opt/highlightz && venv/bin/python scripts/split_trial.py all" in out
+    box.env.write_text(ENV)                                           # a trial that names nobody
+    box.run()
+    assert "split_trial.py all" not in capsys.readouterr().out
+
+
+def test_the_quickest_trial_is_two_live_channels_one_of_each_platform_if_there_is(box, capsys):
+    # As saved: ownerslive (kick, the owner's), quietone (kick), bigstreamer (twitch) are live.
+    box.run()
+    out = capsys.readouterr().out
+    assert "cd /opt/highlightz && venv/bin/python scripts/split_trial.py start ownerslive,bigstreamer" in out
+    # By the site's own note only one is live: there is no pair to offer.
+    _note(box, ["c1:quietone"])
+    box.run()
+    assert "THE QUICKEST TRIAL" not in capsys.readouterr().out
+    # Two live on the same platform: the two best, in order.
+    _note(box, ["c1:quietone", "owner:ownerslive"])
+    box.run()
+    assert "split_trial.py start ownerslive,quietone\n" in capsys.readouterr().out
+    # And the command it prints is one `start` accepts as it is.
+    assert box.run("start", "ownerslive,quietone") == 0
+    assert T.read_split(box.env.read_text()) == (1, ["ownerslive", "quietone"])
+    capsys.readouterr()

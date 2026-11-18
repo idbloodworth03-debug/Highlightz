@@ -9978,6 +9978,30 @@ seconds later with no reload.
 Stripe's answer stubbed). If the line about missing start dates is still
 there an hour after a deploy, that is the thing to look at.
 
+**OPEN, NOT DIAGNOSED (owner, the same day, after deploying it):** "it says 0
+for all the paying stuff but thats not true". The owner then moved on to the
+split before anything was run on production, so which of these it is is NOT
+known; do not fix on a guess (CLAUDE.md, audits):
+1. Looked at within two minutes of the restart, before the first Stripe
+   check. The tile's note would say how many of the paying have no start date
+   yet. Fixes itself.
+2. The Stripe check ran and did not fill the dates: an error in the hourly
+   check stops the whole pass (`subscription_reconcile_failed` in the
+   journal), or Stripe's record gave no usable date. The note would still be
+   there an hour on.
+3. The dates ARE filled and are all older than last week, and the owner
+   means something else by "paying" (somebody who subscribed this week and is
+   not `active` with a Stripe customer, or is marked as a gift, is not in
+   these rows by design).
+What tells them apart, read-only on the server: the note under the tile; how
+many paying accounts have `paying_since` in the accounts file and how old the
+dates are; and the journal's `subscription_reconcile_done` /
+`subscription_reconcile_failed` / `stripe_authoritative_lookup_failed` since
+the restart. Read here, the code path is right: the check reaches the fill-in
+line for an `active` account with or without drift (tested), and
+`paying_since_of` reads a Stripe object by attribute as the rest of that
+function does.
+
 ## What security is in place: an inventory, and `scripts/security_check.py` (2026-11-18)
 
 **Owner:** "what security measures do i have in place currently on my server,
@@ -10523,15 +10547,29 @@ as now. Until that stage the switch must not be turned on in production.
      cap whoever is recording. `deploy/highlightz.service` restricts nothing
      a worker needs (it starts streamlink and ffmpeg the same way today), and
      stopping the unit stops the workers with it (one control group).
-   - **Found while building the Twitch fallback (2026-11-18), not fixed:**
-     `clip_files.discard` / `discarded` is a registry in ONE process's memory
-     (the 2026-10-13 fix: a moment the queue drops gets no file). With a
-     channel in an ingest worker the queue is in the web process and the cut
-     in the worker, so the worker never hears that a moment was dropped and
-     cuts the file anyway; the six-hourly orphan sweep removes it. Harmless
-     for a trial on one channel; before every channel moves, the discard has
-     to cross the link (a cast to the owning worker) or the 2026-10-13
-     problem is back at full size.
+   - **Found while building the Twitch fallback (2026-11-18), FIXED the same
+     day, before every channel moves:** `clip_files.discard` / `discarded` is
+     a registry in ONE process's memory (the 2026-10-13 fix: a moment the
+     queue drops gets no file). With a channel in an ingest worker the queue
+     is in the web process and the cut in the worker, so the worker looked in
+     its own empty copy and cut the file anyway. Now the cut ASKS:
+     `host.clip_dropped(clip_id)`, before it writes and again after. In one
+     process that is the same lookup at the same point without giving the
+     loop a turn; in a worker it is a call to the web process
+     (`Remote.clip_dropped` -> `Ingest.h_dropped`). Asked rather than told
+     (a cast of every drop to the owning worker) so that nothing has to be
+     replayed to a worker that restarted. **No answer means "not dropped":**
+     a file nobody wanted is cleaned up, a file somebody wanted and did not
+     get is lost. The belt for that case: `Ingest.h_file_ready` removes a
+     dropped moment's file when the worker reports it and tells nobody.
+     The same handler now drops the web process's cached listing of the clip
+     folder (`clip_files._forget_scan`): the worker dropping ITS copy did
+     nothing for a page loaded in the web process in the next five seconds.
+     `tests/test_ingest_dropped.py` (8): a REAL worker process running the
+     REAL `_cut_local_file` against the real web side: dropped before the cut
+     is never written, dropped during the cut is removed, kept arrives and is
+     announced; the worker's own registry was empty throughout. With the old
+     lookup put back, that test fails.
    - **Still not done, and only the trial can do it:** a real Twitch and a
      real Kick channel live in a worker; approve, reject, undo, pause,
      resume, remove, force a clip; kill a worker by hand. Nothing here has
@@ -10612,14 +10650,64 @@ as now. Until that stage the switch must not be turned on in production.
      Several names may be given (`start a,b`; one Twitch and one Kick is the
      best trial). **No real trial has run on production yet**: the only time
      the switch was on there is the mistake described above.
-   - **Everything** (`INGEST_WORKERS=4`, no `INGEST_ONLY`): only after the
-     trial's `split_check.py` reads "CLEAN, AND A CHANNEL HAS DONE
-     EVERYTHING THE TRIAL IS FOR". The tools to measure its first hour now
-     exist (`stream_cost.py`, `loop_profile.py`, `split_check.py`, and the
-     `ingest_loop_overloaded` email). Why 4 on the 8-core box: at about 0.7%
-     of a loop per channel, 120 live is about 21% of each of four loops,
-     and the four cores left carry streamlink, ffmpeg and the clip
-     processor. **Changing the number re-deals every channel** (`crc32 % N`),
-     which is only a restart's worth of reconnecting, but do not change it
-     for no reason.
+     **The listing picks channels that are LIVE NOW (2026-11-18).** It read
+     "live" from `streams.json`, which is only as fresh as the last add,
+     remove or pause; a trial started on a channel that only looked live
+     waits for nothing. It now reads the site's own note of who holds a live
+     slot (`headroom.json`, rewritten every 30 seconds; `live_names`), falls
+     back to the saved statuses when that note is missing or older than three
+     minutes and says which it used. Order: live first, then on an admin
+     account, then the fewest accounts. It also prints ONE finished command
+     for the two best live channels together (`best_pair`: one of each
+     platform if there is one), because the last thing a trial waits for is a
+     clip being caught and two channels are quicker than one.
+   - **Everything: `scripts/split_trial.py all` (built 2026-11-18).** Owner:
+     "alright lets get back to splitting I need all the cores carrying the
+     load". It writes `INGEST_WORKERS=<half the cores, 2 to 8>` (4 on the
+     8-core box), removes `INGEST_ONLY`, and restarts the site once.
+     **It refuses, changing nothing, unless the trial that is running has
+     been seen to work** (`not_ready`, the worst thing first): a trial is on
+     and names a channel somebody has added; every worker is there; the
+     journal could be read; no worker loaded what it must not; none died in
+     the last hour; a channel in a worker was found live, received audio,
+     recorded video and had a clip cut; and the workers logged no error. It
+     reads all of that through `split_check.py`'s own functions (`evidence`),
+     so "the trial worked" has one definition, and `split_check.py` prints
+     the finished `all` command on its "CLEAN, AND A CHANNEL HAS DONE
+     EVERYTHING" verdict and on no other.
+     - **`all --errors-read`**: an error logged by the trial's worker blocks
+       `all`, because some errors are ordinary (`worker_session_error` is how
+       a dropped feed is logged; seen on every local boot) and some are not,
+       and nothing here can tell which. Whoever reads `split_check.py`'s list
+       and finds them ordinary hands over that form, finished. It waives the
+       errors and nothing else. No script prints it.
+     - **Why half the cores and not all of them** (the owner asked for all):
+       every live channel already runs a streamlink and an ffmpeg process,
+       and those were always spread over the cores by the kernel, as is the
+       clip processor. What sat on ONE core was the app's loop. A worker is
+       one such loop; at about 0.7% of a loop per channel, 120 live is about
+       a fifth of each of four, and memory (about 113 live on 16 GB) is then
+       the wall, not the loops. More workers than that add nothing until
+       there is more memory. **Changing the number re-deals every channel**
+       (`crc32 % N`), which is only a restart's worth of reconnecting, but do
+       not change it for no reason.
+     - **The way back** from a trial and from everything alike is
+       `split_trial.py stop` (one restart).
+     - **Mixed versions degrade safely**, which matters because the files are
+       updated on disk before the restart that loads them: a worker on the
+       new code asking an old web process `clip_dropped` gets an error, which
+       reads as "not dropped", and cuts the file as it always did.
+     - **Seen on a real boot here** (`INGEST_WORKERS=4`, eight saved channels,
+       no Twitch credentials so nothing live): four workers up and given
+       their channels, the real `StreamWorker` running in three of them (the
+       fourth was dealt none of the eight names), no import of the dashboard,
+       about 72 MB a worker, all four gone with the web process;
+       `split_check.py --log=` read "EVERY channel is watched in a worker"
+       and named the errors. `all` itself has only run in tests (it needs the
+       journal). The tools to measure the first hour exist
+       (`stream_cost.py`, `loop_profile.py`, `split_check.py`, and the
+       `ingest_loop_overloaded` email).
+     - **Still true:** nothing here has seen a real Twitch or Kick stream in
+       a worker process. That is what the trial is, and why `all` will not
+       run without one.
 

@@ -67,6 +67,7 @@ class Ingest:
             "notify_clip_ready": self.h_clip_ready,
             "on_clip_file_ready": self.h_file_ready,
             "trim_clip_store": self.h_trim,
+            "clip_dropped": self.h_dropped,
             "log_error": self.h_log,
             "stopped": self.h_stopped,
             "kick_listen": self.h_kick_listen,
@@ -276,7 +277,27 @@ class Ingest:
         await api.notify_clip_ready(meta)
         return True
 
+    def h_dropped(self, index: int, clip_id: str) -> bool:
+        """Did the clip processor drop this moment? (host.clip_dropped: the
+        worker's cut asks before it writes the file and again after.)"""
+        from src.clips import files as clip_files
+        return bool(clip_files.discarded(str(clip_id or "")))
+
     async def h_file_ready(self, index: int, clip_id: str):
+        from src.clips import files as clip_files
+        # The worker's own two questions can both go unanswered (a slow
+        # moment on this side reads as "not dropped", and the file is cut).
+        # This is the last place to catch it: a file for a moment that was
+        # dropped is removed here and goes no further, as if never cut.
+        if clip_files.discarded(str(clip_id or "")):
+            clip_files.delete(clip_id)
+            log.info("clip_file_skipped", clip_id=clip_id, why="not_kept", ingest=index)
+            return True
+        # The file was written by ANOTHER process, so this process's cached
+        # listing of the clip folder (what /clips reads, clips.files) does not
+        # have it. The worker dropping its own copy of that cache did nothing
+        # for a page loaded here in the next few seconds.
+        clip_files._forget_scan()
         await api.on_clip_file_ready(clip_id)
         return True
 

@@ -170,7 +170,10 @@ def verdict(*, asked: int, found: int, summary: dict, only: list, journal: bool,
         return ["CLEAN, AND A CHANNEL HAS DONE EVERYTHING THE TRIAL IS FOR IN A WORKER:",
                 "found live, audio, video, a clip cut. No worker died, none logged an",
                 "error, none loaded anything it must not."
-                + ("" if only else " This is the whole site, not a trial.")]
+                + ("" if only else " This is the whole site, not a trial.")] + ([
+                "To move EVERY channel into worker processes (restarts the site once; it",
+                "checks all of the above again first and changes nothing if one fails):",
+                "  cd /opt/highlightz && venv/bin/python scripts/split_trial.py all"] if only else [])
     return ["CLEAN SO FAR: no worker died, none logged an error, none loaded anything it",
             "must not. Not everything the trial is for has happened yet (see the list",
             "above); leave it running through a live stream and run this again."]

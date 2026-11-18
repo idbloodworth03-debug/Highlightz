@@ -119,6 +119,30 @@ async def trim_clip_store() -> int:
     return await asyncio.to_thread(clip_files.trim_to_cap)
 
 
+async def clip_dropped(clip_id: str) -> bool:
+    """Has the clip processor already decided this moment will NOT become a
+    clip (queue full, a stale backlog, a refusal, an error)? The cut asks
+    before it writes a file and again after (clips.files, "moments that will
+    never become a clip").
+
+    THE DECISION LIVES IN THE WEB PROCESS, where the clip processor runs, in
+    one process's memory (clips.files._DISCARDED). A worker process used to
+    look in its OWN copy of that registry, which nothing ever writes to, so
+    with a channel in a worker every dropped moment got a file nobody could
+    see (the 2026-10-13 problem: 27 from one channel in a day, each taking
+    the room of a video somebody can download). So a worker asks.
+
+    No answer is "not dropped": the file is cut. A file nobody wanted is
+    removed by the web process when the worker reports it (Ingest.h_file_ready)
+    or by the sweep; a file somebody wanted and did not get is lost for good.
+    In one process this is the same lookup at the same point as before, and
+    it does not give the loop a turn."""
+    if _remote is not None:
+        return bool(await _remote.clip_dropped(clip_id))
+    from src.clips import files as clip_files
+    return clip_files.discarded(clip_id)
+
+
 async def notify_clip_ready(meta: dict):
     if _remote is not None:
         return await _remote.notify_clip_ready(meta)

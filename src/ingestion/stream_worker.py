@@ -755,7 +755,7 @@ class StreamWorker:
                         channel=self._config.channel,
                         why="no_recorder" if rec is None else "worker_stopped")
             return
-        if clip_files.discarded(clip_id):
+        if await host.clip_dropped(clip_id):
             # The processor already dropped this moment (queue full, backlog,
             # refusal), so no record will ever point at the file. Checked
             # BEFORE the headroom trim below, which would otherwise evict a
@@ -794,7 +794,7 @@ class StreamWorker:
             log.warning("clip_file_skipped", clip_id=clip_id,
                         channel=self._config.channel, why="buffer_miss")
             return
-        if clip_files.discarded(clip_id):
+        if await host.clip_dropped(clip_id):
             # Dropped while the cut was running.
             clip_files.delete(clip_id)
             log.info("clip_file_skipped", clip_id=clip_id,

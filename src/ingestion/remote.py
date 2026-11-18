@@ -1,7 +1,7 @@
 """The web process, as an ingest worker sees it.
 
 THE SPLIT, stage 2 (docs/HANDOFF.md). In a worker process `host._remote` is
-one of these: the eight things a stream worker asks of the web process, sent
+one of these: the things a stream worker asks of the web process, sent
 over the Link instead of called.
 
 WHAT HAPPENS WHEN THE WEB PROCESS DOES NOT ANSWER. It is the same every time:
@@ -110,6 +110,15 @@ class Remote:
         except _NO_ANSWER as exc:
             log.warning("ingest_no_answer", asked="trim_clip_store", error=str(exc)[:160])
             return 0
+
+    async def clip_dropped(self, clip_id: str) -> bool:
+        # Asked of the web process, where the clip processor's decisions are.
+        # No answer = not dropped: cut the file (host.clip_dropped says why).
+        try:
+            return bool(await self._link.call("clip_dropped", clip_id))
+        except _NO_ANSWER as exc:
+            log.warning("ingest_no_answer", asked="clip_dropped", error=str(exc)[:160])
+            return False
 
     async def notify_clip_ready(self, meta: dict):
         return await self._link.call("notify_clip_ready", meta, timeout=DELIVERY_TIMEOUT_S)
