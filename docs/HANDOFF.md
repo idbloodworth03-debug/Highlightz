@@ -9363,8 +9363,9 @@ It also tracks how late it wakes, which is the loop being held up.
   from there up to `MAX_CONCURRENT_STREAMS` (now the HARD MAXIMUM, the most
   the box is ever asked for) a channel gets in only while one more would
   still leave the loop under 65%, the box under 75% and a tenth of memory
-  (1.5 GB at least) free. Studio accounts are held to 75% / 85% instead,
-  which is their reserved room when the limit is a measurement.
+  (1.5 GB at least) free. Paying plans are held to wider lines, which is
+  their reserved room when the limit is a measurement: Pro 70% / 80%, Studio
+  75% / 85% (see the next section).
 - **It can only say no.** Never past the hard maximum; a live channel is never
   put out; no readings for 12 s means nothing past the base.
 - **It predicts.** A channel let in during the last 45 s has not reached the
@@ -9379,10 +9380,15 @@ It also tracks how late it wakes, which is the loop being held up.
   it every 30 s.
 - **A restart is not new load** (every deploy restarts; a Twitch hiccup drops
   every feed). Twice a minute the number of channels the readings say the
-  box is carrying is noted, and that many are let straight back in for 3
-  minutes. It is written to `headroom.json` in the data folder so a restart
-  reads it (ignored when older than 10 minutes or unreadable). Without this
-  every deploy would have left channels above the base queued for minutes.
+  box is carrying is noted, and **a channel that held a slot in the last 3
+  minutes** is let straight back in, up to that many (`floor(key)`,
+  `returning(key)`). It is written to `headroom.json` in the data folder,
+  with the channels' keys, so a restart reads it (ignored when older than 10
+  minutes or unreadable; a file from the first version, with no keys, counts
+  for anybody that one time). Without this every deploy would have left
+  channels above the base queued for minutes. **It is for the channels that
+  were running and nobody else** (corrected the same day, see the next
+  section): a NEW channel is always measured against its own plan's line.
   **What was running comes back up to the WIDER lines (75% / 85%)**; only
   past those is the note scaled down. So between 65% and 75% of the loop
   nothing new gets in, but a channel whose feed dropped for a moment does not
@@ -9447,3 +9453,79 @@ reasons and at the admin tile.
 read back; `finish-clip` / `clip-processor` holds, `profile-<channel>` writes
 and the other blocking Stripe calls are untouched; "paying customers first"
 for slots was offered and not asked for.
+
+## Pro goes ahead too: one order, Studio, Pro, everybody else (2026-11-18)
+
+**Owner:** "can we make pro get priority now too". Not asked which way, so
+the default was taken and told to the owner: **Pro goes ahead of the accounts
+that are not paying for it; Studio stays ahead of Pro.** Making Pro equal to
+Studio would have quietly removed the thing Studio is sold on at $250
+("front of the line" is on the landing, the paywall, the Terms).
+
+**Flags (`src/billing/plans.py`).** `priority` is unchanged and still
+Studio's alone, so every "Front of the line: Yes" on the site is still true
+of exactly Studio. New `ahead`: true for Pro and Studio.
+`uid_priority_level(uid)` turns the two into the number the code compares:
+2 Studio (`LEVEL_FRONT`), 1 Pro (`LEVEL_AHEAD`), 0 the rest; never raises.
+Starter (not sold) is 0 because the owner said Pro. **Admins, labelers and
+trials resolve to a plan as before, so those that resolve to Pro now stand
+where Pro stands** (they used to be at the back with everyone).
+
+**The three places a line forms, none of which puts out work already
+running:**
+- **Live slots, fixed limit** (`api.acquire_live_slot`): Studio's reserve is
+  as it was (up to 2, only for its channels listed and not live) and is held
+  from Pro too. New: `_ahead_queued()` counts Pro channels whose status is
+  `queued` (live on their platform and turned away). That many slots are
+  held from level-0 accounts, never the last one. So when the box is full
+  and a slot frees up, the waiting Pro channel gets it before any free
+  account's channel. Deliberately NOT sized by Pro channels merely listed:
+  nearly all of those are offline, and it would be a permanent reserve that
+  keeps the box emptier for nobody.
+- **Live slots, measured limit** (`headroom._LINES`): three sets of lines.
+  Everybody 65% of the loop / 75% of the box; Pro 70% / 80%; Studio 75% /
+  85%. So there is room for Pro when it is full for Free, and for Studio
+  when it is full for Pro. 70% is the line `stream_cost.py` plans to. The
+  loop-held-up check exempts Studio only.
+- **Clip jobs** (`src/queue/job_queue.py`): a third Redis list,
+  `superclipbot:clip_jobs:ahead`, drained after `:priority` and before the
+  plain one (`_KEYS`); `queue_length` counts all three. This one matters
+  under a backlog: the clip processor drops a job that waited past Twitch's
+  capture window, so the back of the line is where clips are lost.
+- **Renders** (`autopilot/render._PrioritySlot`): the heap rank is 0 Studio,
+  1 Pro, 2 the rest (`_rank`). `True` still means the front in all three, so
+  nothing that passed the old yes/no changes.
+  `main.py`, `autopilot/runner.py` and `autopilot/auto_edit.py` now pass
+  `uid_priority_level`; a test fails if one goes back to the yes/no, which
+  would put Pro at the back of exactly these lines.
+
+**A flaw in the measured limit, found doing this and fixed with it.** As
+first pushed (3d57c09), the number the box was carrying let ANY channel in
+without asking while fewer than that were live. So when a channel left for
+good at 68% of the loop, whoever asked next took its place unmeasured: a
+free account's channel could walk into the place a Pro one left, and new
+channels were in effect measured against 75%, not 65%. It was bounded (never
+more than had just been live) but it defeated the order. Now the carried
+number applies only to a channel that held a slot in the last 3 minutes or
+is listed in the restart file.
+
+**What the site says:**
+- Landing pricing, the Tutorial's table and llms-full.txt gained a row above
+  "Front of the line": "Ahead of Free when busy" No / Yes / Yes (from the
+  `ahead` flag, read across like the rest).
+- Paywall: Pro's card lists "Ahead of Free accounts when the server is busy".
+- `/me.plan_limits.ahead`. The stream card's hover note on a `queued`
+  channel adds "Channels on Pro and Studio go first." for an account that is
+  not ahead. (A hover note only: it does not show on a phone. The visible
+  label is still "waiting for a slot".)
+- **Not changed:** the Terms (they say Studio has priority at capacity,
+  which is still true, and promise Free nothing about order), the FAQ,
+  /compare, Settings' "Go Studio" row.
+
+**Verified:** `tests/test_pro_priority.py` (28) and `tests/test_headroom.py`
+(now 56); four older tests that pin the row next to "Front of the line" on
+the landing were updated; full suite 4732 passed; JSX parsed. Landing
+pricing and the paywall read in a browser at desktop and phone widths.
+**Not verified on production**, and what share of live channels belongs to
+free accounts there is not known, so how often this actually changes who
+gets in has not been seen.

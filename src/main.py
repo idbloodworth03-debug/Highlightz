@@ -847,9 +847,10 @@ async def main() -> None:
         log.error("site_restarted_unresponsive",
                   **{k: restarted.get(k) for k in ("at", "fails", "open_files") if k in restarted})
 
-    # Studio's clips go to the front (plans.uid_has_priority).
-    from src.billing.plans import uid_has_priority
-    _queue = JobQueue(priority_of=uid_has_priority)
+    # Studio's clips are cut first, then Pro's, then everybody else's
+    # (plans.uid_priority_level).
+    from src.billing.plans import uid_priority_level
+    _queue = JobQueue(priority_of=uid_priority_level)
     await _queue.connect()
 
     redis = await redis_from_url(settings.redis_url, decode_responses=True)
@@ -971,7 +972,7 @@ async def main() -> None:
         # processors, memory. With LIVE_AUTO_BASE set the live limit follows
         # it (src/ingestion/headroom.py); either way the admin page shows it
         # and the owner is emailed if the loop stays overloaded. Never raises.
-        asyncio.create_task(_headroom.run(dashboard_api.live_stream_count),
+        asyncio.create_task(_headroom.run(lambda: list(dashboard_api._live_slots)),
                             name="headroom"),
     ]
 

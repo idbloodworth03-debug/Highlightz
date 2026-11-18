@@ -167,7 +167,18 @@ _PRIORITY = "priority"
 _KEEP_FILES = "keep_files"
 _NO_CAMPAIGN_FEE = "no_campaign_fee"
 _SUPPORT = "direct_support"
-_STANDARD = {_PRIORITY: False, _KEEP_FILES: False, _NO_CAMPAIGN_FEE: False, _SUPPORT: False}
+# PRO GOES AHEAD TOO (owner, 2026-11-18: "can we make pro get priority now
+# too"). When the server is busy there is one order everywhere a line forms
+# (a live slot, a clip being cut, a render): Studio, then Pro, then everybody
+# else. `priority` above stays Studio's alone, so "front of the line" is
+# still true of exactly the plan it is sold on; `ahead` is true of every plan
+# that goes before the accounts that are not paying for it, Studio included.
+# uid_priority_level() turns the two into the number the code compares.
+# Starter is not sold and keeps what it was sold with.
+_AHEAD = "ahead"
+LEVEL_NONE, LEVEL_AHEAD, LEVEL_FRONT = 0, 1, 2
+_STANDARD = {_PRIORITY: False, _KEEP_FILES: False, _NO_CAMPAIGN_FEE: False, _SUPPORT: False,
+             _AHEAD: False}
 
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
@@ -194,12 +205,13 @@ PLAN_LIMITS: dict[str, dict] = {
     "pro":     {"label": "Pro", "price": 25, "max_streams": 10,
                 "max_pending": 200, _SUGGESTED: 75, _LIB_WEEK: UNLIMITED_PENDING,
                 "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False,
-                **_STANDARD},
+                **{**_STANDARD, _AHEAD: True}},
     # Everything in Pro and more of it, plus the four above.
     "studio":  {"label": "Studio", "price": 250, "max_streams": 30,
                 "max_pending": 1000, _SUGGESTED: 200, _LIB_WEEK: UNLIMITED_PENDING,
                 "vod": True, "uploads": True, _HL_PRIORITY: False, _IDLE_PAUSE: False,
-                _PRIORITY: True, _KEEP_FILES: True, _NO_CAMPAIGN_FEE: True, _SUPPORT: True},
+                _PRIORITY: True, _KEEP_FILES: True, _NO_CAMPAIGN_FEE: True, _SUPPORT: True,
+                _AHEAD: True},
 }
 
 # Every tier somebody may be PAYING for, sold or not: what entitlement, MRR and
@@ -224,6 +236,23 @@ def uid_has_priority(uid: str) -> bool:
         return bool(limits_for(user_store.get_by_id(uid)).get(_PRIORITY))
     except Exception:
         return False
+
+
+def uid_priority_level(uid: str) -> int:
+    """This account's place in the line when the server is busy: 2 Studio
+    (the front), 1 Pro (ahead of everybody who is not paying for it), 0
+    everyone else. Trials, staff and admin grants resolve to a plan like
+    everything else, so they stand where that plan stands. Never raises; a
+    lookup failure is simply the back of the line."""
+    if not uid:
+        return LEVEL_NONE
+    if uid_has_priority(uid):
+        return LEVEL_FRONT
+    try:
+        from src.auth import users as user_store
+        return LEVEL_AHEAD if limits_for(user_store.get_by_id(uid)).get(_AHEAD) else LEVEL_NONE
+    except Exception:
+        return LEVEL_NONE
 
 
 def next_plan(plan: str) -> str | None:

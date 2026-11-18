@@ -239,7 +239,7 @@ def test_the_landing_page_sells_autopilot_now_it_is_open(tiktok_only):
     page never named it."""
     t = tiktok_only["LANDING"]
     # Studio's rows follow Autopilot since 2026-11-03, then the button.
-    assert "Scheduler Yes Autopilot Yes Front of the line No" in t
+    assert "Scheduler Yes Autopilot Yes Ahead of Free when busy Yes Front of the line No" in t
     assert "Direct support No Get Pro" in t
     assert "Switch on Autopilot and every clip you approve is reframed" in t
     assert "Autopilot, also Pro" in t

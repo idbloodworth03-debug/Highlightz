@@ -118,27 +118,40 @@ def build_command(src: Path, dst: Path, template: str, *, title: str = "",
             str(dst)]
 
 
+def _rank(priority) -> int:
+    """Where a waiting render stands: 0 Studio, 1 Pro, 2 everybody else.
+    `priority` is plans.uid_priority_level (2, 1, 0); True still means the
+    front, as it did when this was a yes/no."""
+    if priority is True:
+        return 0
+    try:
+        return max(0, 2 - int(priority or 0))
+    except (TypeError, ValueError):
+        return 2
+
+
 class _PrioritySlot:
-    """One render at a time, with Studio's renders served before anybody
-    else's waiting (2026-11-03). `async with _slot:` works as the Semaphore it
-    replaced did; `async with slot_for(True):` joins the queue at the front
-    (first-come among the priority ones). Futures are made on the running
-    loop at wait time, so nothing is bound to a loop at import."""
+    """One render at a time, with Studio's renders served before Pro's and
+    Pro's before anybody else's waiting (2026-11-03; Pro 2026-11-18).
+    `async with _slot:` works as the Semaphore it replaced did;
+    `async with slot_for(2):` joins the queue at the front (first-come within
+    each place in the line). Futures are made on the running loop at wait
+    time, so nothing is bound to a loop at import."""
 
     def __init__(self) -> None:
         import heapq
         self._heapq = heapq
         self._busy = False
-        self._waiters: list = []         # (0 priority | 1 normal, order, future)
+        self._waiters: list = []         # (0 Studio | 1 Pro | 2 the rest, order, future)
         self._n = 0
 
-    async def acquire(self, priority: bool = False) -> None:
+    async def acquire(self, priority=False) -> None:
         if not self._busy and not self._waiters:
             self._busy = True
             return
         fut = asyncio.get_running_loop().create_future()
         self._n += 1
-        self._heapq.heappush(self._waiters, (0 if priority else 1, self._n, fut))
+        self._heapq.heappush(self._waiters, (_rank(priority), self._n, fut))
         try:
             await fut
         except asyncio.CancelledError:
@@ -156,7 +169,7 @@ class _PrioritySlot:
                 return
         self._busy = False
 
-    def hold(self, priority: bool = False):
+    def hold(self, priority=False):
         slot = self
 
         class _Hold:
@@ -179,14 +192,15 @@ class _PrioritySlot:
 _slot = _PrioritySlot()
 
 
-def slot_for(priority: bool):
-    """The render slot, entered at the front of the line when `priority`."""
+def slot_for(priority):
+    """The render slot, joined at this account's place in the line
+    (plans.uid_priority_level: 2 Studio, 1 Pro, 0 the rest)."""
     return _slot.hold(priority)
 
 
 async def render(src: Path, dst: Path, template: str, *, title: str = "",
                  captions: list | None = None, duration: float = 0.0,
-                 priority: bool = False) -> Path:
+                 priority=False) -> Path:
     font = font_path()
     if (title or captions) and not font:
         log.warning("autopilot_font_missing", path=settings.autopilot_font,

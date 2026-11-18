@@ -37,6 +37,8 @@ def _clean(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "_live_slots", set())
     monkeypatch.setattr(api, "_streams", {})
     monkeypatch.setattr("src.billing.plans.uid_has_priority", lambda uid: uid == "studio")
+    monkeypatch.setattr("src.billing.plans.uid_priority_level",
+                        lambda uid: {"studio": 2, "pro": 1}.get(uid, 0))
     yield
     hr.forget()
 
@@ -249,16 +251,34 @@ def test_the_refusal_says_what_ran_out(monkeypatch):
 # ── a restart is not new load ───────────────────────────────────────────────
 
 def test_what_was_carried_well_is_let_straight_back_in(monkeypatch):
-    """80 live inside the lines, noted. Everybody drops and asks again (a
-    deploy, or Twitch hiccuping): all 80 are back at once, and the 81st is
-    asked."""
+    """80 live inside the lines, noted. Every feed drops and asks again
+    (Twitch hiccuping): all 80 are back at once, and an 81st, which was not
+    running, is asked."""
     _auto(monkeypatch, base=10, cap=200)
     t = time.monotonic()
+    _fill(80)
     _measured(loop=50.0, cpu=40.0, now=t)
     assert hr.note_carried(80, t) == 80
-    assert hr.floor(t) == 80
+    for i in range(80):
+        api.release_live_slot(f"u:c{i}")
+    assert api.live_stream_count() == 0
+    assert hr.floor("u:c5") == 80 and hr.floor("u:c80") == 10
     assert all(api.acquire_live_slot(f"u:c{i}") for i in range(80))
     assert api.acquire_live_slot("u:c80") is False
+
+
+def test_a_new_channel_cannot_walk_into_a_place_somebody_left(monkeypatch):
+    """80 live at 68%: over the line for a new channel. One leaves for good.
+    The place it held is for a channel that was running, not for whoever
+    asks next: the newcomer is measured, and waits."""
+    _auto(monkeypatch, base=10, cap=200)
+    t = time.monotonic()
+    _fill(80)
+    _measured(loop=68.0, cpu=40.0, now=t)
+    hr.note_carried(80, t)
+    api.release_live_slot("u:c3")
+    assert api.live_stream_count() == 79
+    assert api.acquire_live_slot("u:brand-new") is False
 
 
 def test_a_feed_that_drops_for_a_moment_does_not_lose_its_place(monkeypatch):
@@ -310,8 +330,9 @@ def test_the_note_goes_stale(monkeypatch):
     _auto(monkeypatch, base=10, cap=200)
     _measured(loop=50.0, now=1000.0)
     hr.note_carried(80, 1000.0)
-    assert hr.floor(1000.0 + hr.CARRY_FOR_S - 1) == 80
-    assert hr.floor(1000.0 + hr.CARRY_FOR_S + 1) == 10
+    hr.note_released("u:x", 1000.0)
+    assert hr.floor("u:x", 1000.0 + hr.CARRY_FOR_S - 1) == 80
+    assert hr.floor("u:x", 1000.0 + hr.CARRY_FOR_S + 1) == 10
 
 
 def test_an_overload_is_never_carried(monkeypatch):
@@ -337,12 +358,25 @@ def test_unmeasured_channels_are_not_carried():
 
 def test_a_restart_reads_the_note_back(monkeypatch, tmp_path):
     _auto(monkeypatch, base=10, cap=200)
-    hr._write_carry(72)
-    assert json.loads((tmp_path / hr.CARRY_FILE).read_text())["live"] == 72
+    hr._write_carry(72, ["u:b", "u:a"])
+    note = json.loads((tmp_path / hr.CARRY_FILE).read_text())
+    assert note["live"] == 72 and note["keys"] == ["u:a", "u:b"]
     hr.forget()                                       # the new process knows nothing
     assert hr.load_carry(500.0) == 72
-    assert hr.floor(500.0) == 72
-    assert hr.floor(500.0 + hr.CARRY_FOR_S + 1) == 10
+    assert hr.floor("u:a", 500.0) == 72               # it was running: straight back in
+    assert hr.floor("u:stranger", 500.0) == 10        # it was not: measured like anybody
+    assert hr.floor("u:a", 500.0 + hr.CARRY_FOR_S + 1) == 10
+
+
+def test_a_note_from_before_it_listed_channels_still_counts(monkeypatch, tmp_path):
+    """The first version wrote only the number. Read once, on the deploy that
+    replaces it: everybody asking in the first minutes is taken as returning,
+    which is what that version did for every restart."""
+    _auto(monkeypatch, base=10, cap=200)
+    (tmp_path / hr.CARRY_FILE).write_text(json.dumps({"live": 60, "at": time.time()}))
+    assert hr.load_carry(500.0) == 60
+    assert hr.floor("u:anyone", 500.0) == 60
+    assert hr.floor("u:anyone", 500.0 + hr.CARRY_FOR_S + 1) == 10
 
 
 @pytest.mark.parametrize("content", [
@@ -355,12 +389,12 @@ def test_a_bad_or_old_note_carries_nothing(monkeypatch, tmp_path, content):
     _auto(monkeypatch, base=10, cap=200)
     (tmp_path / hr.CARRY_FILE).write_text(content)
     assert hr.load_carry(500.0) == 0
-    assert hr.floor(500.0) == 10
+    assert hr.floor("u:c1", 500.0) == 10
 
 
 def test_no_note_at_all_carries_nothing(monkeypatch):
     _auto(monkeypatch, base=10, cap=200)
-    assert hr.load_carry(500.0) == 0 and hr.floor(500.0) == 10
+    assert hr.load_carry(500.0) == 0 and hr.floor("u:c1", 500.0) == 10
 
 
 # ── the readings themselves ─────────────────────────────────────────────────
@@ -386,7 +420,7 @@ def test_the_task_measures_a_busy_loop():
     """A loop kept half busy for a second and a half reads as busy, not idle
     (the trap scripts/loop_profile.py fell into first)."""
     async def go():
-        task = asyncio.create_task(hr.run(lambda: 0, every=0.1))
+        task = asyncio.create_task(hr.run(lambda: [], every=0.1))
         end = time.monotonic() + 1.5
         while time.monotonic() < end:
             t = time.perf_counter()
@@ -419,7 +453,7 @@ def test_the_task_never_raises(monkeypatch):
     monkeypatch.setattr(hr.asyncio, "sleep", quick)
 
     async def go():
-        task = asyncio.create_task(hr.run(lambda: 0, every=0.01))
+        task = asyncio.create_task(hr.run(lambda: [], every=0.01))
         for _ in range(50):
             await real_sleep(0)
         assert not task.done()
@@ -436,7 +470,7 @@ def test_the_task_writes_the_note_a_restart_reads(monkeypatch, tmp_path):
     monkeypatch.setattr(hr, "CARRY_EVERY_S", 0.2)
 
     async def go():
-        task = asyncio.create_task(hr.run(lambda: 33, every=0.05))
+        task = asyncio.create_task(hr.run(lambda: [f"u:c{i}" for i in range(33)], every=0.05))
         for _ in range(60):
             await asyncio.sleep(0.05)
             if (tmp_path / hr.CARRY_FILE).exists():
@@ -445,7 +479,8 @@ def test_the_task_writes_the_note_a_restart_reads(monkeypatch, tmp_path):
         with pytest.raises(asyncio.CancelledError):
             await task
     asyncio.run(go())
-    assert json.loads((tmp_path / hr.CARRY_FILE).read_text())["live"] == 33
+    note = json.loads((tmp_path / hr.CARRY_FILE).read_text())
+    assert note["live"] == 33 and len(note["keys"]) == 33 and "u:c7" in note["keys"]
 
 
 def test_off_means_no_note_is_written(monkeypatch, tmp_path):
@@ -453,7 +488,7 @@ def test_off_means_no_note_is_written(monkeypatch, tmp_path):
     monkeypatch.setattr(hr, "CARRY_EVERY_S", 0.05)
 
     async def go():
-        task = asyncio.create_task(hr.run(lambda: 33, every=0.02))
+        task = asyncio.create_task(hr.run(lambda: ["u:c1"], every=0.02))
         await asyncio.sleep(0.4)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -521,7 +556,7 @@ def test_the_overview_carries_them():
 
 def test_main_runs_the_meter():
     src = pathlib.Path("src/main.py").read_text()
-    assert "asyncio.create_task(_headroom.run(dashboard_api.live_stream_count)," in src
+    assert "asyncio.create_task(_headroom.run(lambda: list(dashboard_api._live_slots))," in src
 
 
 # ── the listed ceiling and Twitch's budget ──────────────────────────────────

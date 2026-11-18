@@ -1768,6 +1768,11 @@ async def me(request: Request):
                                 # support row; without them here a Studio
                                 # subscriber's screen looks like Pro.
                                 "priority": bool(limits.get("priority")),
+                                # Pro and Studio go before the accounts that
+                                # are not paying for it when the server is
+                                # busy (2026-11-18). The dashboard uses it to
+                                # tell a waiting channel what it is behind.
+                                "ahead": bool(limits.get("ahead")),
                                 "keep_files": bool(limits.get("keep_files")),
                                 "no_campaign_fee": bool(limits.get("no_campaign_fee")),
                                 "direct_support": bool(limits.get("direct_support")),
@@ -5155,21 +5160,53 @@ def _priority_waiting() -> int:
     return n
 
 
+def _ahead_queued() -> int:
+    """Pro channels that are live on their platform right now and were turned
+    away for want of a slot ("queued"): the ones an account that is not
+    paying must not get in front of. Not every Pro channel that is merely
+    listed: nearly all of those are offline, and holding slots for them would
+    keep the box emptier for nobody's benefit."""
+    from src.billing.plans import uid_priority_level, LEVEL_AHEAD
+    seen: dict[str, int] = {}
+    n = 0
+    for key, rec in list(_streams.items()):
+        if rec.get("status") != "queued" or key in _live_slots:
+            continue
+        uid = str(rec.get("user_id") or (key.split(":", 1)[0] if ":" in key else ""))
+        if uid not in seen:
+            seen[uid] = uid_priority_level(uid)
+        if seen[uid] == LEVEL_AHEAD:
+            n += 1
+    return n
+
+
 def acquire_live_slot(stream_key: str) -> bool:
     """Take a slot for a channel that just went live. False means wait.
-    A priority (Studio) channel may take any slot; everyone else leaves the
-    reserve free while a priority channel could still need it."""
+
+    ONE ORDER WHEN THE BOX IS FULL: Studio, then Pro, then everybody else
+    (plans.uid_priority_level; Pro since 2026-11-18, owner: "can we make pro
+    get priority now too"). Nobody already live is put out for anybody.
+      Studio   may take any slot, and up to two are held back for its
+               channels that are listed and not yet live.
+      Pro      leaves Studio's reserve alone, and when one of its channels
+               is waiting for a slot, the next one to free up is its: a
+               channel on a plan that is not paying for this is refused it.
+      the rest take what is left.
+    With the measured limit on (LIVE_AUTO_BASE) the same order is three sets
+    of lines in src/ingestion/headroom.py."""
     if stream_key in _live_slots:
         return True                       # already holding one; re-entrant
-    from src.billing.plans import uid_has_priority
+    from src.billing.plans import uid_priority_level, LEVEL_AHEAD, LEVEL_FRONT
     from src.ingestion import headroom
     cap = max(1, settings.max_concurrent_streams)
     uid = stream_key.split(":", 1)[0] if ":" in stream_key else ""
-    priority = uid_has_priority(uid)
-    if priority:
+    priority = uid_priority_level(uid)
+    if priority >= LEVEL_FRONT:
         room = cap
     else:
         reserve = min(PRIORITY_RESERVED_SLOTS, _priority_waiting(), cap - 1)
+        if priority < LEVEL_AHEAD:
+            reserve = min(cap - 1, reserve + _ahead_queued())
         room = cap - max(0, reserve)
     held = len(_live_slots)
     if held >= room:
@@ -5182,9 +5219,11 @@ def acquire_live_slot(stream_key: str) -> bool:
     # up a channel gets in only while the server measures room for one more
     # (src/ingestion/headroom.py). It can only say no: nothing below the base
     # or above the cap is decided here, and with LIVE_AUTO_BASE unset it is
-    # never asked. A Studio channel is held to wider lines, which is its
-    # reserved room when the limit is a measurement rather than a count.
-    if headroom.enabled() and held >= headroom.floor():
+    # never asked. Pro and Studio channels are held to wider lines, which is
+    # their reserved room when the limit is a measurement rather than a
+    # count. A channel that was running a moment ago gets its place back
+    # (floor(key)); a new one is always measured.
+    if headroom.enabled() and held >= headroom.floor(stream_key):
         ok, why = headroom.allow(held, priority=priority)
         if not ok:
             log.warning("live_slots_full", held=held, cap=cap, room=held,
@@ -11771,6 +11810,7 @@ async def llms_full_txt():
     w(f"| Autopilot | {_released('uploads', f)} | {_released('uploads', pro)} | {_released('uploads', sd)} |")
     if _posts_to_shorts():
         w(f"| Posts to {_rel_products()} for you | {yn(f, 'uploads')} | {yn(pro, 'uploads')} | {yn(sd, 'uploads')} |")
+    w(f"| Ahead of Free accounts when the server is busy | {yn(f, 'ahead')} | {yn(pro, 'ahead')} | {yn(sd, 'ahead')} |")
     w(f"| Front of the line when the server is busy | {yn(f, 'priority')} | {yn(pro, 'priority')} | {yn(sd, 'priority')} |")
     w(f"| Clip videos kept {settings.clip_file_max_age_days} days | {yn(f, 'keep_files')} | {yn(pro, 'keep_files')} | {yn(sd, 'keep_files')} |")
     w(f"| No fee on campaigns you run | {yn(f, 'no_campaign_fee')} | {yn(pro, 'no_campaign_fee')} | {yn(sd, 'no_campaign_fee')} |")
@@ -14876,6 +14916,9 @@ def _pricing() -> str:
               if _posts_to_shorts() else []),
             # Studio's four (2026-11-03), on every column so the difference
             # is read across, not described.
+            # Pro's since 2026-11-18. Above Studio's row, so the three
+            # columns read No, Yes, Yes and then No, No, Yes.
+            ("Ahead of Free when busy", "Yes" if limits.get("ahead") else "No"),
             ("Front of the line", "Yes" if limits.get("priority") else "No"),
             (f"Clip videos kept {settings.clip_file_max_age_days} days", "Yes" if limits.get("keep_files") else "No"),
             ("Fee on your campaigns", fee(limits)),
@@ -15593,7 +15636,10 @@ def _paywall_plans() -> str:
     return ('<div class="plan-row">'
             + card(pro, "pro", "pro", "",
                    ["VOD Scanner included", "Clip Editor included",
-                    "Scheduler included"], POPULAR_PLAN == "pro")
+                    "Scheduler included",
+                    # Pro's since 2026-11-18 (plans `ahead`).
+                    "Ahead of Free accounts when the server is busy"],
+                   POPULAR_PLAN == "pro")
             + card(studio, "studio", "studio", "ghost",
                    ["Everything in Pro",
                     "Front of the line when the server is busy",

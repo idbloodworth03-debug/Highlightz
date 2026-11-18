@@ -160,9 +160,10 @@ async def build_plan(clip: dict, src: Path, *, captions: bool,
     return plan, meta
 
 
-async def render_plan(plan: P.EditPlan, dst: Path, priority: bool = False) -> Path:
-    """One ffmpeg run for a plan, under the shared one-render slot (entered at
-    the front of the line for Studio, `priority`)."""
+async def render_plan(plan: P.EditPlan, dst: Path, priority=False) -> Path:
+    """One ffmpeg run for a plan, under the shared one-render slot (joined at
+    the account's place in the line, `priority`: Studio, then Pro, then the
+    rest)."""
     sfx_paths = await S.ensure()
     font = ap_render.font_path()
     cmd = G.build_command(plan, dst, sfx_paths, font=font)
@@ -235,6 +236,6 @@ async def make_from(src: Path, rec: dict, dst: Path, *, captions: bool,
              template=template, source=meta.get("source"))
     if on_stage:
         await on_stage("render")
-    from src.billing.plans import uid_has_priority
-    await render_plan(plan, dst, priority=uid_has_priority(str(clip.get("user_id") or "")))
+    from src.billing.plans import uid_priority_level
+    await render_plan(plan, dst, priority=uid_priority_level(str(clip.get("user_id") or "")))
     return plan

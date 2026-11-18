@@ -2908,7 +2908,7 @@ function RdScoreChart({ data, threshold = 0, marks = [] }) {
   );
 }
 
-function RdStream({ s, scoreData, profile, onRemove, onForce }) {
+function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
   const rawScore = scoreData ? (scoreData.score||0) : 0;
   const breakdown = scoreData ? (scoreData.breakdown||{}) : {};
 
@@ -2970,7 +2970,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce }) {
             <span className="rd-chip" style={s.platform==='kick'?{background:'rgba(83,252,24,.12)',color:'#53fc18',border:'1px solid rgba(83,252,24,.3)'}:{}}>{s.platform}</span>
             <span className="rd-chip">{s.preset}</span>
             <span style={{color:statusColor,fontWeight:600}}
-                  title={s.status==='queued'?'This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.':''}>{statusLabel}</span>
+                  title={s.status==='queued'?('This channel is live. Every monitoring slot on the server is busy, so it starts as soon as one frees up.'+(ahead?'':' Channels on Pro and Studio go first.')):''}>{statusLabel}</span>
             {calibrating && s.status==='live' &&
               <span className="rd-chip cal" title="Learning this channel's normal before it will clip anything">calibrating</span>}
           </div>
@@ -4472,7 +4472,8 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
                   <div key={s.channel} onClick={()=>onSelect&&onSelect(s.channel)}
                     className={onSelect?'rd-streampick'+(s.channel===selected?' on':''):''}>
                     <RdStream s={s} scoreData={scores[s.channel]} profile={profiles[s.channel]}
-                      onRemove={onRemove} onForce={onForce}/>
+                      onRemove={onRemove} onForce={onForce}
+                      ahead={!!(me && me.plan_limits && me.plan_limits.ahead)}/>
                   </div>))}
           </div>
         </div>

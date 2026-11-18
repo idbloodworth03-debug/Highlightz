@@ -158,13 +158,13 @@ def test_the_private_sentence_is_beside_every_promise_until_the_audit(live, audi
 def test_the_announcements_are_there_only_while_it_is_true(live):
     assert 'class="proof-new" href="#post"' in live["PILL"]
     assert "now posts to YouTube Shorts" in live["PILL"]
-    assert "Autopilot Yes Posts to YouTube Shorts for you Yes Front of the line No" in live["LANDING"]
+    assert "Autopilot Yes Posts to YouTube Shorts for you Yes Ahead of Free when busy Yes Front of the line No" in live["LANDING"]
     assert "| Posts to YouTube Shorts for you | No | Yes | Yes |" in live["FULL"]
     held = _surfaces("tiktok")
     assert held["PILL"] == ""
     assert "Posts to YouTube Shorts for you" not in held["LANDING"] + held["FULL"]
     # And the TikTok-only pages are the pages they were.
-    assert "Scheduler Yes Autopilot Yes Front of the line No" in held["LANDING"]
+    assert "Scheduler Yes Autopilot Yes Ahead of Free when busy Yes Front of the line No" in held["LANDING"]
     assert "Posting to YouTube and Instagram is coming soon" in held["LANDING"]
     assert release.YOUTUBE_PRIVATE_NOTE not in held["LANDING"] + held["LLMS"] + held["FULL"]
 
@@ -214,7 +214,7 @@ def test_with_x_open_every_page_names_it_and_still_not_instagram(with_x):
     assert "to the YouTube and X accounts you connect" in s["LLMS"]
     assert "post it to YouTube, TikTok and X for you" in s["PAYWALL"]
     assert "now posts to YouTube Shorts and X" in s["PILL"]
-    assert "Autopilot Yes Posts to YouTube Shorts and X for you Yes Front of the line No" in s["LANDING"]
+    assert "Autopilot Yes Posts to YouTube Shorts and X for you Yes Ahead of Free when busy Yes Front of the line No" in s["LANDING"]
     assert "| Posts to YouTube Shorts and X for you | No | Yes | Yes |" in s["FULL"]
     for name in ("LANDING", "LLMS", "FULL"):
         assert "Posting to Instagram is coming soon." in s[name], name

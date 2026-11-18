@@ -469,6 +469,8 @@ def _plan_rows() -> tuple[tuple[str, ...], ...]:
         # The sentinel is a number; printed raw it would read "1000000000".
         ("Clips kept per week",    _week(free), _week(pro), _week(studio)),
         ("VOD Scanner",            yn(free, "vod"), yn(pro, "vod"), yn(studio, "vod")),
+        ("Ahead of Free when busy", yn(free, "ahead"), yn(pro, "ahead"),
+         yn(studio, "ahead")),
         ("Front of the line",      yn(free, "priority"), yn(pro, "priority"),
          yn(studio, "priority")),
         ("No campaign fee",        yn(free, "no_campaign_fee"), yn(pro, "no_campaign_fee"),

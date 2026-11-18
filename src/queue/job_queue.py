@@ -22,6 +22,14 @@ QUEUE_KEY = "superclipbot:clip_jobs"
 # jobs stay first-in-first-out among themselves; BLPOP takes from the first
 # non-empty key in the order given, so this one is always drained first.
 PRIORITY_KEY = "superclipbot:clip_jobs:priority"
+# Pro's (owner, 2026-11-18: "can we make pro get priority now too"), cut
+# after Studio's and ahead of everybody else's. A third list for the same
+# reason there is a second. The clip processor drops a job that has waited
+# past Twitch's capture window, so under a backlog the back of the line is
+# where clips are lost: this is what keeps a paying account's out of it.
+AHEAD_KEY = "superclipbot:clip_jobs:ahead"
+# The order they are drained in.
+_KEYS = (PRIORITY_KEY, AHEAD_KEY, QUEUE_KEY)
 PROCESSING_KEY = "superclipbot:processing"
 
 _CHANNEL_RE_Q = _re.compile(r'^[A-Za-z0-9_\-]{1,64}$')
@@ -73,8 +81,10 @@ class ClipJob:
 class JobQueue:
     def __init__(self, priority_of=None) -> None:
         self._redis: Redis | None = None
-        # user id -> bool, injected by main.py (plans.uid_has_priority), so
-        # this module needs to know nothing about plans or accounts.
+        # user id -> place in the line, injected by main.py
+        # (plans.uid_priority_level: 2 Studio, 1 Pro, 0 the rest; True still
+        # means the front), so this module needs to know nothing about plans
+        # or accounts.
         self._priority_of = priority_of
 
     async def connect(self) -> None:
@@ -96,17 +106,20 @@ class JobQueue:
         key = QUEUE_KEY
         if self._priority_of and job.user_id:
             try:
-                if self._priority_of(job.user_id):
+                level = self._priority_of(job.user_id)
+                if level is True or int(level or 0) >= 2:
                     key = PRIORITY_KEY
+                elif int(level or 0) == 1:
+                    key = AHEAD_KEY
             except Exception:                 # never lose a job over a lookup
                 key = QUEUE_KEY
         await self._redis.rpush(key, job.to_json())
         log.info("job_enqueued", clip_id=job.clip_id, channel=job.channel,
-                 priority=key == PRIORITY_KEY)
+                 priority=key == PRIORITY_KEY, ahead=key == AHEAD_KEY)
 
     async def pop(self, timeout: int = 5) -> ClipJob | None:
         self._require_redis()
-        result = await self._redis.blpop([PRIORITY_KEY, QUEUE_KEY], timeout=timeout)
+        result = await self._redis.blpop(list(_KEYS), timeout=timeout)
         if result is None:
             return None
         _, raw = result
@@ -148,4 +161,4 @@ class JobQueue:
 
     async def queue_length(self) -> int:
         self._require_redis()
-        return (await self._redis.llen(QUEUE_KEY)) + (await self._redis.llen(PRIORITY_KEY))
+        return sum([await self._redis.llen(k) for k in _KEYS])

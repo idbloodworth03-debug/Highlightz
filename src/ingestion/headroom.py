@@ -47,11 +47,15 @@ restarts the service, and a hiccup at Twitch drops every feed at once; either
 way every channel that was live asks for its slot again inside half a minute.
 Climbing back up a few at a time would leave channels the box was carrying a
 minute ago waiting for minutes, several times a day. So twice a minute the
-number of channels the readings say the box is carrying is noted, and that
-many are let straight back in for the next few minutes without asking. The
-note is also written to a small file (`headroom.json` in the data folder) so a
+number of channels the readings say the box is carrying is noted, and a
+channel that HELD A SLOT in the last few minutes is let straight back in, up
+to that many, without asking. The note is also written to a small file
+(`headroom.json` in the data folder) with which channels they were, so a
 restart reads it back. It is only ever a number the box was measured
 carrying, it goes stale in ten minutes, and it never passes the hard maximum.
+It is for the channels that were running and for nobody else: a NEW channel
+is always measured against its own plan's line, or a free account's channel
+could walk into the place a paying one left.
 What was running comes back up to the WIDER lines (75% of the loop, 85% of
 the box): between those and the lines for new channels nothing new gets in,
 but a channel whose feed dropped for a moment does not lose its place to a
@@ -60,8 +64,11 @@ what is let back in is never an overload.
 
 THE LINES are the ones stream_cost.py prints, a little inside them: the loop
 65% of its core (the script warns at 70), the box 75% of all cores, and a
-tenth of memory (1.5 GB at least) kept back. Studio accounts ("front of the
-line") are held to wider ones, which is their reserved room.
+tenth of memory (1.5 GB at least) kept back. A paying plan is held to wider
+ones, which is its reserved room: Pro 70% and 80%, Studio ("front of the
+line") 75% and 85%. So when the server is full for a free account there is
+still room for a Pro channel, and when it is full for Pro there is still
+room for Studio (plans.uid_priority_level).
 
 `enabled()` is false until LIVE_AUTO_BASE is set, and until then nothing here
 is consulted at all: the limit is the fixed number, as before. The readings
@@ -88,8 +95,12 @@ SMOOTH_S = 15.0              # the readings are averages over about this long
 STALE_S = 12.0               # older than this is "not measured"
 PENDING_S = 45.0             # a channel let in this recently has not shown its cost yet
 
-LOOP_LINE, LOOP_LINE_PRIORITY = 65.0, 75.0       # % of the one core the loop can use
-CPU_LINE, CPU_LINE_PRIORITY = 75.0, 85.0         # % of every core
+# % of the one core the loop can use, and % of every core: for everybody,
+# for Pro (ahead), and for Studio (the front of the line).
+LOOP_LINE, LOOP_LINE_AHEAD, LOOP_LINE_PRIORITY = 65.0, 70.0, 75.0
+CPU_LINE, CPU_LINE_AHEAD, CPU_LINE_PRIORITY = 75.0, 80.0, 85.0
+_LINES = {0: (LOOP_LINE, CPU_LINE), 1: (LOOP_LINE_AHEAD, CPU_LINE_AHEAD),
+          2: (LOOP_LINE_PRIORITY, CPU_LINE_PRIORITY)}
 MEM_RESERVE_MB = 1536.0                          # kept back: the OS, captions, a VOD scan
 MEM_RESERVE_FRAC = 0.10                          # ...or this much of the box, if that is more
 LAG_LINE_S = 0.25                                # the loop waking this late is the loop blocked
@@ -127,6 +138,9 @@ _state = {"at": 0.0, "loop": 0.0, "cpu": 0.0, "mem_mb": 0.0, "lag": 0.0, "sample
 _carried: collections.deque = collections.deque(maxlen=64)     # (when, how many)
 _admitted: collections.deque = collections.deque(maxlen=1024)  # (when, is it new)
 _released: dict[str, float] = {}                               # channel -> when it let go
+# Who held a slot just before this process started (from the file), and until
+# when that counts. `any` is a file written before it listed them.
+_before = {"keys": frozenset(), "any": False, "until": 0.0}
 _last_no = {"why": "", "at": 0.0}
 _over = {"since": None, "told": None}       # None, not 0: the clock is seconds since boot
 
@@ -137,6 +151,7 @@ def forget() -> None:
     _carried.clear()
     _admitted.clear()
     _released.clear()
+    _before.update(keys=frozenset(), any=False, until=0.0)
     _last_no.update(why="", at=0.0)
     _over.update(since=None, told=None)
 
@@ -149,12 +164,34 @@ def base() -> int:
     return max(0, int(getattr(settings, "live_auto_base", 0) or 0))
 
 
-def floor(now: float | None = None) -> int:
-    """Let in without asking the readings: the base, or what the box was
-    measured carrying well in the last few minutes (or just before a
-    restart), whichever is more."""
+def floor(key: str = "", now: float | None = None) -> int:
+    """How many may be live before THIS channel is measured: the base, for
+    anybody; and for a channel that was running a moment ago (or just before
+    a restart), what the box was measured carrying then."""
     now = time.monotonic() if now is None else now
-    return max(base(), _carried_now(now))
+    return max(base(), _carried_now(now) if returning(key, now) else 0)
+
+
+def returning(key: str, now: float | None = None) -> bool:
+    """Did this channel hold a live slot in the last few minutes?"""
+    if not key:
+        return False
+    now = time.monotonic() if now is None else now
+    let_go = _released.get(key)
+    if let_go is not None and now - let_go <= RETURNING_S:
+        return True
+    return now < _before["until"] and (_before["any"] or key in _before["keys"])
+
+
+def _level(priority) -> int:
+    """plans.uid_priority_level (2 Studio, 1 Pro, 0 the rest). True still
+    means Studio, as it did when this was a yes/no."""
+    if priority is True:
+        return 2
+    try:
+        return max(0, min(2, int(priority or 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _carried_now(now: float) -> int:
@@ -252,10 +289,11 @@ def _pending_new(now: float) -> int:
     return sum(1 for _, new in _admitted if new)
 
 
-def allow(live: int, priority: bool = False, now: float | None = None) -> tuple[bool, str]:
+def allow(live: int, priority=0, now: float | None = None) -> tuple[bool, str]:
     """May one more channel go live? (yes/no, and why not, in plain words.)
 
-    `live` is how many hold a slot now. Only asked above the base.
+    `live` is how many hold a slot now; `priority` is the account's place in
+    the line (2 Studio, 1 Pro, 0 the rest). Only asked above the floor.
     """
     now = time.monotonic() if now is None else now
     if not _fresh(now):
@@ -265,15 +303,15 @@ def allow(live: int, priority: bool = False, now: float | None = None) -> tuple[
         return _no("channels that just went live are still being measured", now)
     per_loop, per_cpu = _per_channel(live, pending)
     more = pending + 1
-    loop_line = LOOP_LINE_PRIORITY if priority else LOOP_LINE
-    cpu_line = CPU_LINE_PRIORITY if priority else CPU_LINE
+    level = _level(priority)
+    loop_line, cpu_line = _LINES[level]
     if _state["loop"] + more * per_loop > loop_line:
         return _no(f"the app's main thread is at {_state['loop']:.0f}% of the one core it can use", now)
     if _state["cpu"] + more * per_cpu > cpu_line:
         return _no(f"the server's processors are {_state['cpu']:.0f}% busy", now)
     if _state["mem_mb"] - more * PER_MEM_MB < _reserve_mb():
         return _no(f"only {_state['mem_mb'] / 1024:.1f} GB of memory is free", now)
-    if _state["lag"] > LAG_LINE_S and not priority:
+    if _state["lag"] > LAG_LINE_S and level < 2:
         return _no("the app's main thread is being held up", now)
     return True, ""
 
@@ -302,7 +340,7 @@ def room(live: int, now: float | None = None) -> int:
     """About how many MORE channels would be let in right now. For the admin
     page; 0 when nothing recent has been measured."""
     now = time.monotonic() if now is None else now
-    under_floor = max(0, floor(now) - live)
+    under_floor = max(0, base() - live)
     if not _fresh(now):
         return under_floor
     pending = _pending(now)
@@ -373,11 +411,11 @@ def note_carried(live: int, now: float | None = None) -> int:
     return _carried_now(now)
 
 
-def _write_carry(n: int) -> None:
+def _write_carry(n: int, keys=()) -> None:
     path = _carry_path()
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"live": int(n), "at": time.time()}, f)
+        json.dump({"live": int(n), "at": time.time(), "keys": sorted(str(k) for k in keys)}, f)
     os.replace(tmp, path)
 
 
@@ -390,22 +428,26 @@ def load_carry(now: float | None = None) -> int:
             got = json.load(f)
         age = time.time() - float(got["at"])
         n = int(got["live"])
-    except (OSError, ValueError, TypeError, KeyError):
+        keys = got.get("keys")
+        if keys is not None:
+            keys = frozenset(str(k) for k in keys)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return 0
     if n <= 0 or not 0 <= age <= CARRY_MAX_AGE_S:
         return 0
     _carried.append((now, n))
+    _before.update(keys=keys or frozenset(), any=keys is None, until=now + CARRY_FOR_S)
     return n
 
 
-async def run(live=lambda: 0, every: float = EVERY_S) -> None:
+async def run(live_keys=lambda: (), every: float = EVERY_S) -> None:
     """Keep the readings current. NEVER RAISES: it is one of the tasks main()
     gathers, and an exception out of any of those stops the whole product.
     A reading that fails is simply not recorded, and after STALE_S of that
     `allow` says no past the base.
 
-    `live` returns how many channels hold a live slot, for the note a restart
-    reads back."""
+    `live_keys` returns the channels holding a live slot, for the note a
+    restart reads back."""
     try:
         carried = load_carry()
         if enabled():
@@ -437,9 +479,10 @@ async def run(live=lambda: 0, every: float = EVERY_S) -> None:
             _watch_overload(wall)
             if enabled() and wall - last_carry >= CARRY_EVERY_S:
                 last_carry = wall
-                n = note_carried(int(live()), wall)
+                keys = list(live_keys())
+                n = note_carried(len(keys), wall)
                 if n > 0:
-                    await asyncio.to_thread(_write_carry, n)
+                    await asyncio.to_thread(_write_carry, n, keys)
         except asyncio.CancelledError:
             raise
         except Exception:
