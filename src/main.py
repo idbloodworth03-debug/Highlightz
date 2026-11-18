@@ -18,6 +18,7 @@ from redis.asyncio import from_url as redis_from_url
 from config.settings import settings
 from src.dashboard import api as dashboard_api
 from src.autopilot import runner as _autopilot_runner
+from src.maintenance import loop_profile as _loop_profile
 from src.dashboard.api import app as dashboard_app
 from src.ingestion.stream_worker import StreamWorker, WorkerConfig
 from src.ingestion.platform.twitch import TwitchPlatform
@@ -959,6 +960,12 @@ async def main() -> None:
         # Tell Bing and the other IndexNow engines about new and changed
         # public pages (src/dashboard/indexnow.py). Never raises.
         asyncio.create_task(dashboard_api.indexnow_task(), name="indexnow"),
+        # Answers scripts/loop_profile.py: "what is the one loop busy with?"
+        # (src/maintenance/loop_profile.py). One look a second. Never raises.
+        asyncio.create_task(_loop_profile.watch_task(
+            lambda: sum(1 for s in list(dashboard_api._streams.values())
+                        if s.get("status") == "live")),
+            name="loop-profile-watch"),
     ]
 
     # Restore streams that were running before the last shutdown

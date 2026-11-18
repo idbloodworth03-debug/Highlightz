@@ -9180,3 +9180,89 @@ suite 4617 passed. Seen in a browser at 1440 and 390 px with three threads:
 the drawer for a paying account, Escape returning focus to the name, the
 deleted account, Message them picking the person, and Manage this account
 landing on the admin page with their drawer open.
+
+## "Two servers": the reading, what it means, and a tool to time the loop (2026-11-18)
+
+Owner: "I need to upgrade the server asap we are getting a lot of action how
+can I make it so I have two servers working together basically".
+
+**The first real busy-hour reading** (`scripts/stream_cost.py --sample=20`,
+pasted by the owner, 2026-11-18 12:01 UTC, prod):
+- 4 cores, 15.62 GB, 10.99 GB available (70% free), no swap, load 0.53 per
+  core. **Disk is 192.69 GB** (51.88 used): the resize did grow it from 77.
+- **33 live of 36 allowed** (pinned), 75 listed of 144.
+- Highlightz used 85.8% of the box's 400% (about 21%). Per live channel: about
+  160 MB and 1.3% of a core in its own processes.
+- **The app's one loop: 43.6% of the one core it can use, about 1.3% per live
+  channel.** Room by memory ~93 live, by CPU ~115, **by the loop ~52**. The
+  script's verdict: RAISING IT LOOKS SUPPORTED, 36 -> 52, in one step.
+- Cut clips on disk: **28.41 GB of 30.00 GB**. On a 192 GB disk the derived
+  budget would be about 77 GB (40%), so `CLIP_FILE_MAX_TOTAL_MB` is pinned in
+  prod `.env` (not read; inferred from the round 30.00). At that fill the
+  store evicts clip videos early, free accounts' pending ones first.
+
+**What the owner was told.**
+1. A bigger server buys nothing today, and two servers cannot "work together"
+   as the code stands. It is ONE process (`src/main.py`: uvicorn, the stream
+   workers, the clip processor and every background task on one asyncio loop)
+   with its state in memory and in JSON files on that disk, and the workers
+   call the dashboard's objects directly (`dashboard_api._streams`,
+   `broadcast`, `notify_clip_ready`, `SHARED_BUFFERS`). A second copy would be
+   a second, separate site.
+2. The limit is that one loop, at about 52 live on a server of ANY size.
+3. Given (not confirmed run): one command that sets `MAX_CONCURRENT_STREAMS=44`
+   (a step, not the computed 52: the limit has to hold on a heavy-chat night)
+   and removes the `CLIP_FILE_MAX_TOTAL_MB` pin so the clip store follows the
+   disk. Re-measure with 40+ live before going to about 50.
+4. Past about 50 live the work is taking load OFF that loop. Whether that is a
+   cheap fix or the big split depends on what the 44% is, which nobody knew.
+
+**So: `scripts/loop_profile.py`, a tool that says what the loop is busy
+with** (`src/maintenance/loop_profile.py`). For N seconds it wraps asyncio's
+`Handle._run`, the one method every step of the loop goes through, and times
+each step under what it belongs to: a named task by its kind
+("worker-<user>:<channel>" is "worker"), an unnamed task by the function it
+runs, anything else by the callback's name. The report: busy share of the one
+core, each activity's share / steps a second / average / longest, the steps
+that held the loop 50 ms or more, and the thread's own CPU (well below busy =
+the loop was BLOCKED on a disk or a call, not computing). Names only: no
+values, arguments or command lines, safe to paste.
+- **Asked for with a file, not a signal**: the script drops
+  `loop_profile.request` in the data folder and `watch_task` (one `exists()`
+  a second, started in `main()`, never raises) answers it. A signal sent to a
+  service still running older code would kill it; an unanswered file does
+  nothing, and the script says "run the deploy command".
+- Stdlib only (a deploy never runs pip). About a microsecond per step while
+  the window is open; the wrapper comes off first thing when it closes, also
+  when the report cannot be written.
+- **The first version sampled the main thread from a second thread and was
+  WRONG**: a second thread only looks when the main one lets go of the
+  interpreter lock, which a loop of sub-millisecond steps does exactly as it
+  goes back to waiting, so a task burning half a core read as 0.4% busy. A
+  test with a known load caught it before it shipped. Do not "simplify" this
+  back to sampling.
+- It does not see INSIDE a step. All web requests appear together as
+  starlette's middleware coroutine and uvicorn's `run_asgi`. The next
+  question is asked of the one activity this names.
+
+Run it while channels are live:
+`cd /opt/highlightz && venv/bin/python scripts/loop_profile.py`
+
+**What to do with its output (next session):** read the top two or three
+rows. If the workers dominate, read what a worker does per chat message and
+per audio block on the loop (parsing, scoring, the RMS of raw PCM in Python)
+and move or batch it; halving 1.3% per channel doubles the ceiling without
+touching the architecture. If web requests or sockets dominate, look at what
+is polled and what is broadcast. If long steps show under "held the loop",
+those are synchronous file writes or calls on the loop and move to a thread.
+Only if none of that is enough is the answer the real split: workers in their
+own processes (then their own server), talking to the site over Redis instead
+of calling into it, with the clip files on storage both can reach.
+
+Tests: `tests/test_loop_profile.py` (16: names never carry an account or a
+channel, a half-busy loop reads as half busy, a blocking step is seen as
+blocking, the wrapper always comes off, the bookkeeping cannot raise into the
+loop, one window at a time, the request file, the watcher surviving anything,
+no signals and nothing to install, the report). Full suite 4633 passed. Run
+against the real app locally (`python -m src.main` with Redis, requests coming
+in): the request was picked up and the report named the real activities.
