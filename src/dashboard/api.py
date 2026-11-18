@@ -15957,6 +15957,75 @@ COOKIES_HTML = COOKIES_HTML.replace("<!--SOCIAL_COOKIES-->", _social_head(
     "The one cookie Highlightz sets, the two browser preferences it stores, and "
     "the third-party cookies it does not control."), 1)
 
+# The account drawer's styles, in one place because TWO pages draw it: the
+# admin page (the full drawer, with its controls) and the Feedback page (the
+# same facts, read-only, opened from a name in a thread; 2026-11-18). Two
+# hand-typed copies would drift the first time one was restyled.
+_ADMIN_DRAWER_STYLE = """  /* ── User drawer. A drawer, not a centred modal: it holds the identity, the
+     billing facts and the rare/destructive actions, so it is a place you read
+     top to bottom rather than a dialog you dismiss. ── */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;opacity:0;
+    pointer-events:none;transition:opacity var(--dur-fast)}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:101;
+    background:var(--bone);border-left:1px solid var(--hair-2);
+    display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;
+    transition:transform var(--dur-slow) var(--ease),visibility var(--dur-slow)}
+  .drawer.open{transform:none;visibility:visible}
+  .drawer-head{display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--hair)}
+  .drawer-head h3{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff;overflow-wrap:anywhere}
+  .drawer-head .s{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.04em}
+  .x{margin-left:auto;width:32px;height:32px;border-radius:3px;background:transparent;
+    border:1px solid var(--hair-2);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0;
+    transition:color var(--dur-fast),border-color var(--dur-fast)}
+  .x:hover{color:#fff;border-color:var(--ember)}
+  .drawer-body{overflow-y:auto;padding:var(--s-5) var(--s-5) var(--s-6);display:flex;flex-direction:column;gap:var(--s-6)}
+  .dh{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-3);padding-bottom:var(--s-2);border-bottom:1px solid var(--hair-2);margin-bottom:var(--s-3)}
+  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:var(--s-2) var(--s-3);font-size:14px}
+  .kv dt{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:var(--s-1)}
+  .kv dd{color:var(--ink-2);overflow-wrap:anywhere}
+  .kv dd b{color:#fff;font-weight:600}
+  /* Lifetime clip decisions. Five small readouts on one row so the shape of
+     someone's usage is one glance, not five lines of prose. Wraps rather than
+     scrolls: the drawer is narrow on a phone and a number you have to swipe
+     to reach is a number nobody reads. */
+  .stat-row{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+  .sbox{flex:1 1 84px;min-width:0;padding:var(--s-2) var(--s-3);border-radius:3px;
+    border:1px solid var(--hair);background:rgba(242,234,247,.02)}
+  .sbox b{display:block;font-family:var(--sans);font-weight:800;font-size:24px;letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;line-height:1.1;color:#fff}
+  .sbox span{display:block;margin-top:var(--s-1);font-family:var(--mono);font-size:12px;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .sbox.good b{color:var(--good)}
+  .sbox.bad b{color:var(--bad)}
+  .srow{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) 0;border-bottom:1px solid var(--hair);font-size:14px}
+  .srow:last-child{border-bottom:none}
+  .srow b{color:#fff}
+  .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
+  .dot-offline{background:var(--ink-3)}
+  .dot-starting{background:var(--ember);box-shadow:0 0 7px rgba(247,167,69,.6)}
+  /* Approved clips are the ones that mattered, so they lead the list and are
+     marked. Colour alone would not be enough — the status word carries the same
+     information for anyone who cannot see the difference between the rules. */
+  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:var(--s-3);align-items:center;
+    padding:var(--s-2) 0 var(--s-2) var(--s-3);border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
+    font-size:14px}
+  .crow:last-child{border-bottom:none}
+  .crow.ok{border-left-color:var(--good);
+    background:linear-gradient(90deg,rgba(74,222,128,.06),transparent 45%)}
+  .crow .st{font-family:var(--mono);font-size:12px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .crow.ok .st{color:var(--good)}
+  .crow.ok b{color:#fff}
+  .ct{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
+  .danger{border:1px solid rgba(255,122,138,.25);border-radius:3px;padding:var(--s-4) var(--s-4)}
+  .danger .dh{border-bottom-color:rgba(255,122,138,.25);color:var(--bad)}
+  .danger p{font-size:14px;color:var(--ink-3);margin-bottom:var(--s-3);line-height:1.5}
+"""
+
 ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16226,70 +16295,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .toast.ok{border-color:rgba(74,222,128,.5);color:var(--good)}
   .toast.err{border-color:rgba(255,122,138,.5);color:var(--bad)}
 
-  /* ── User drawer. A drawer, not a centred modal: it holds the identity, the
-     billing facts and the rare/destructive actions, so it is a place you read
-     top to bottom rather than a dialog you dismiss. ── */
-  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;opacity:0;
-    pointer-events:none;transition:opacity var(--dur-fast)}
-  .scrim.open{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);z-index:101;
-    background:var(--bone);border-left:1px solid var(--hair-2);
-    display:flex;flex-direction:column;transform:translateX(100%);visibility:hidden;
-    transition:transform var(--dur-slow) var(--ease),visibility var(--dur-slow)}
-  .drawer.open{transform:none;visibility:visible}
-  .drawer-head{display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--hair)}
-  .drawer-head h3{font-family:var(--sans);font-weight:800;letter-spacing:-.03em;font-size:24px;color:#fff;overflow-wrap:anywhere}
-  .drawer-head .s{font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);letter-spacing:.04em}
-  .x{margin-left:auto;width:32px;height:32px;border-radius:3px;background:transparent;
-    border:1px solid var(--hair-2);color:var(--ink-2);font-size:14px;cursor:pointer;flex-shrink:0;
-    transition:color var(--dur-fast),border-color var(--dur-fast)}
-  .x:hover{color:#fff;border-color:var(--ember)}
-  .drawer-body{overflow-y:auto;padding:var(--s-5) var(--s-5) var(--s-6);display:flex;flex-direction:column;gap:var(--s-6)}
-  .dh{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--ink-3);padding-bottom:var(--s-2);border-bottom:1px solid var(--hair-2);margin-bottom:var(--s-3)}
-  .kv{display:grid;grid-template-columns:132px minmax(0,1fr);gap:var(--s-2) var(--s-3);font-size:14px}
-  .kv dt{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-top:var(--s-1)}
-  .kv dd{color:var(--ink-2);overflow-wrap:anywhere}
-  .kv dd b{color:#fff;font-weight:600}
-  /* Lifetime clip decisions. Five small readouts on one row so the shape of
-     someone's usage is one glance, not five lines of prose. Wraps rather than
-     scrolls: the drawer is narrow on a phone and a number you have to swipe
-     to reach is a number nobody reads. */
-  .stat-row{display:flex;flex-wrap:wrap;gap:var(--s-2)}
-  .sbox{flex:1 1 84px;min-width:0;padding:var(--s-2) var(--s-3);border-radius:3px;
-    border:1px solid var(--hair);background:rgba(242,234,247,.02)}
-  .sbox b{display:block;font-family:var(--sans);font-weight:800;font-size:24px;letter-spacing:-.03em;
-    font-variant-numeric:tabular-nums;line-height:1.1;color:#fff}
-  .sbox span{display:block;margin-top:var(--s-1);font-family:var(--mono);font-size:12px;
-    letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
-  .sbox.good b{color:var(--good)}
-  .sbox.bad b{color:var(--bad)}
-  .srow{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) 0;border-bottom:1px solid var(--hair);font-size:14px}
-  .srow:last-child{border-bottom:none}
-  .srow b{color:#fff}
-  .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-  .dot-live{background:var(--good);box-shadow:0 0 7px rgba(74,222,128,.7)}
-  .dot-offline{background:var(--ink-3)}
-  .dot-starting{background:var(--ember);box-shadow:0 0 7px rgba(247,167,69,.6)}
-  /* Approved clips are the ones that mattered, so they lead the list and are
-     marked. Colour alone would not be enough — the status word carries the same
-     information for anyone who cannot see the difference between the rules. */
-  .crow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:var(--s-3);align-items:center;
-    padding:var(--s-2) 0 var(--s-2) var(--s-3);border-bottom:1px solid var(--hair);border-left:2px solid var(--hair);
-    font-size:14px}
-  .crow:last-child{border-bottom:none}
-  .crow.ok{border-left-color:var(--good);
-    background:linear-gradient(90deg,rgba(74,222,128,.06),transparent 45%)}
-  .crow .st{font-family:var(--mono);font-size:12px;letter-spacing:.12em;
-    text-transform:uppercase;color:var(--ink-3)}
-  .crow.ok .st{color:var(--good)}
-  .crow.ok b{color:#fff}
-  .ct{display:block;font-family:var(--mono);font-size:12px;color:var(--ink-3);margin-top:var(--s-1);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em}
-  .danger{border:1px solid rgba(255,122,138,.25);border-radius:3px;padding:var(--s-4) var(--s-4)}
-  .danger .dh{border-bottom-color:rgba(255,122,138,.25);color:var(--bad)}
-  .danger p{font-size:14px;color:var(--ink-3);margin-bottom:var(--s-3);line-height:1.5}
-
+""" + _ADMIN_DRAWER_STYLE + """
   @media(max-width:980px){
     .rail,#rail{grid-template-columns:repeat(3,minmax(0,1fr))}
     .cell:nth-child(4){padding-left:0;border-left:none}
@@ -19619,7 +19625,13 @@ fetch('/admin/feedback').then(r => r.json()).then(fb => {
   if(el && unread > 0) el.innerHTML = 'Feedback <span class="n">(' + unread + ')</span>';
 }).catch(() => {});
 
-refresh();
+// Arriving from a name on the Feedback page (/admin?user=<id>): that account's
+// drawer opens as soon as the accounts have been read.
+refresh().then(function(){
+  const want = new URLSearchParams(location.search).get('user');
+  const u = want ? USERS.find(function(x){ return x.id === want; }) : null;
+  if(u) openUser(u);
+});
 loadAffiliates();
 loadReferrals();
 loadInvites();
@@ -19907,7 +19919,16 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Feedback — Highlightz Admin</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
-<style>""" + _ADMIN_SUB_STYLE + """
+<style>""" + _ADMIN_SUB_STYLE + _ADMIN_DRAWER_STYLE + """
+  /* A name in a thread is a button: it opens that account's details in the
+     drawer. Underlined so it reads as something to press. */
+  .fb-who{background:none;border:none;padding:0;cursor:pointer;text-align:left;
+    text-decoration:underline;text-decoration-color:var(--hair-2);text-underline-offset:3px;
+    transition:text-decoration-color var(--dur-fast)}
+  .fb-who:hover{text-decoration-color:var(--ember)}
+  .dr-acts{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-top:var(--s-4)}
+  /* Something a person typed is never cut off with an ellipsis. */
+  .ct.words{white-space:normal;overflow:visible}
   /* ── Compose: starting a thread with somebody who has not written in ── */
   .compose{border:1px solid var(--hair-2);border-radius:3px;padding:var(--s-5);margin:var(--s-6) 0 var(--s-7);
     max-width:820px}
@@ -19976,6 +19997,9 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     .fb-replybox textarea{flex-basis:100%}
     .cmp-person{flex-wrap:wrap}
     .cmp-meta{margin-left:0;flex-basis:100%;text-align:left;padding-left:var(--s-5)}
+    .kv{grid-template-columns:minmax(0,1fr);gap:var(--s-1) 0}
+    .kv dd{margin-bottom:var(--s-2)}
+    .crow{grid-template-columns:minmax(0,1fr) auto}
   }
 </style>
 </head>
@@ -20021,6 +20045,17 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 <div class="block-head"><h2>Threads</h2><span class="mono dim" id="fb-c"></span></div>
 <div class="fb-list" id="list"><p class="empty">Loading…</p></div>
 </div>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-name">
+  <div class="drawer-head">
+    <div>
+      <h3 id="dr-name">Account</h3>
+      <div class="s" id="dr-sub"></div>
+    </div>
+    <button class="x" id="dr-close" aria-label="Close">&#x2715;</button>
+  </div>
+  <div class="drawer-body" id="dr-body"><div class="loading">Loading&hellip;</div></div>
+</aside>
 <div class="toast" id="toast"></div>
 <script>
   let items=[];
@@ -20039,7 +20074,9 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
       <div class="fb-item${f.read?'':' unread'}" id="fb-${f.id}">
         <div class="fb-meta">
           ${f.read?'':'<span class="new-dot"></span>'}
-          <span class="fb-user">${esc(f.username||f.user_id)}</span>
+          ${f.user_id
+            ? `<button class="fb-user fb-who" data-uid="${esc(f.user_id)}" title="See this account">${esc(f.username||f.user_id)}</button>`
+            : `<span class="fb-user">${esc(f.username||'Unknown')}</span>`}
           ${f.from_admin_start
             ? '<span class="fb-started">You started this</span>'
             : `<span class="fb-cat">${esc(f.category||'general')}</span>`}
@@ -20218,7 +20255,158 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     }
     renderPeople();
   }
-  loadPeople();
+  // Kept, so a name pressed before the accounts have arrived waits for them
+  // instead of saying the account does not exist.
+  const PEOPLE_READY = loadPeople();
+
+  // ── Who wrote this? ────────────────────────────────────────────────────────
+  // A name in a thread opens that account here, beside the thread (owner,
+  // 2026-11-18: "click someones name in the feedback page and see the details
+  // about them"): the plan, when they were last here, how they found us, what
+  // they watch and what they have clipped. READ-ONLY on purpose. Everything
+  // that changes an account lives on the admin page, where the controls and
+  // their confirmations already are; "Manage this account" opens its drawer.
+  const FU_LABELS = <!--FU_LABELS-->;
+  const CX_LABELS = <!--CX_LABELS-->;
+  let DR_UID = '', DR_FROM = null;
+  function ago(ts){
+    const s = Math.max(0, Date.now()/1000 - ts);
+    if(s < 90) return 'just now';
+    if(s < 3600) return Math.round(s/60) + ' minutes ago';
+    if(s < 172800) return Math.round(s/3600) + ' hours ago';
+    return Math.round(s/86400) + ' days ago';
+  }
+  function day(ts){ return ts ? new Date(ts*1000).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) : ''; }
+  function seen(ts, never){
+    return ts ? esc(ago(ts)) + ' <span class="dim mono">(' + day(ts) + ')</span>'
+              : '<span class="dim">' + never + '</span>';
+  }
+  function closeWho(){
+    document.getElementById('drawer').classList.remove('open');
+    document.getElementById('scrim').classList.remove('open');
+    DR_UID = '';
+    if(DR_FROM && document.contains(DR_FROM)) DR_FROM.focus();
+    DR_FROM = null;
+  }
+  async function openWho(uid, name){
+    DR_UID = uid;
+    const body = document.getElementById('dr-body');
+    document.getElementById('dr-name').textContent = name || 'Account';
+    document.getElementById('dr-sub').textContent = '';
+    body.innerHTML = '<div class="loading">Loading…</div>';
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('scrim').classList.add('open');
+    document.getElementById('dr-close').focus();
+    await PEOPLE_READY;
+    if(DR_UID !== uid) return;             // another name was pressed meanwhile
+    const u = PEOPLE.find(x => x.id === uid);
+    if(!u){
+      body.innerHTML = '<p class="dim">This account no longer exists. It was deleted after this was written, so there is nothing more to show.</p>';
+      return;
+    }
+    document.getElementById('dr-name').textContent = u.username || name || uid;
+    document.getElementById('dr-sub').textContent =
+      (u.twitch_login ? '@' + u.twitch_login + ' · ' : '') + (u.plan_label || u.plan || '');
+    const found = u.found_via
+      ? '<b>' + esc(FU_LABELS[u.found_via] || u.found_via) + '</b>'
+        + (u.found_via_detail ? ' · “' + esc(u.found_via_detail) + '”' : '')
+      : '<span class="dim">' + (u.found_via_asked_at ? 'not answered yet' : 'joined before we asked') + '</span>';
+    const role = u.is_admin ? 'Admin' : u.is_labeler ? 'Trainer' : '';
+    let html = '<div><div class="dh">Account</div><dl class="kv">'
+      + '<dt>Plan</dt><dd><b>' + esc(u.plan_label || u.plan || '') + '</b>'
+      + (u.funnel_label ? ' · ' + esc(u.funnel_label) : '')
+      + (u.is_paying ? ' · $' + esc(u.plan_price) + ' a month' : '') + '</dd>'
+      + '<dt>Status</dt><dd>' + esc(u.subscription_status || 'none') + '</dd>'
+      + (role ? '<dt>Role</dt><dd>' + role + '</dd>' : '')
+      + '<dt>Last seen</dt><dd>' + seen(u.last_active_at, 'not since we started counting') + '</dd>'
+      + '<dt>Last sign-in</dt><dd>' + seen(u.last_login_at, 'not since we started recording it') + '</dd>'
+      + '<dt>Joined</dt><dd>' + (day(u.created_at) || '—') + '</dd>'
+      + '<dt>Email</dt><dd>' + (u.email ? esc(u.email) : '<span class="dim">none on file</span>') + '</dd>'
+      + '<dt>Found us via</dt><dd>' + found + '</dd>'
+      + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
+      + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
+      + '</dl>'
+      + '<div class="dr-acts">'
+      + '<a class="btn btn-key" href="/admin?user=' + encodeURIComponent(u.id) + '">Manage this account</a>'
+      + '<button class="btn" id="dr-msg">Message them</button>'
+      + '</div></div>';
+
+    // Why they cancelled, when they have said (the survey of 2026-11-18).
+    const why = (u.cancel_surveys || []).slice().reverse();
+    if(why.length || u.cancel_survey_due){
+      html += '<div><div class="dh">Cancellation</div>';
+      if(u.cancel_survey_due) html += '<div class="dim">Cancelled, and has not answered why yet.</div>';
+      html += why.map(a => '<div class="srow"><span style="flex:1;min-width:0"><b>'
+        + esc(CX_LABELS[a.reason] || a.reason) + '</b>'
+        + '<span class="ct">' + (a.plan ? esc(a.plan) + ' · ' : '') + day(a.at) + '</span>'
+        + (a.detail ? '<span class="ct words">“' + esc(a.detail) + '”</span>' : '')
+        + '</span></div>').join('');
+      html += '</div>';
+    }
+
+    const caught = u.clips_caught||0, ok = u.clips_approved||0, no = u.clips_rejected||0;
+    if(caught){
+      html += '<div><div class="dh">Clip decisions (all time)</div><div class="stat-row">'
+        + '<div class="sbox"><b>' + caught + '</b><span>caught</span></div>'
+        + '<div class="sbox good"><b>' + ok + '</b><span>accepted</span></div>'
+        + '<div class="sbox bad"><b>' + no + '</b><span>rejected</span></div>'
+        + '<div class="sbox"><b>' + (u.clips_cleared||0) + '</b><span>cleared</span></div>'
+        + '<div class="sbox"><b>' + (u.clips_expired||0) + '</b><span>expired</span></div>'
+        + '</div></div>';
+    }
+    body.innerHTML = html + '<div class="loading" id="dr-more">Loading their channels and clips…</div>';
+
+    const [streams, clips] = await Promise.all([
+      api('/admin/users/' + encodeURIComponent(uid) + '/streams').catch(() => []),
+      api('/admin/users/' + encodeURIComponent(uid) + '/clips').catch(() => []),
+    ]);
+    if(DR_UID !== uid) return;
+    let more = '<div><div class="dh">Monitored channels (' + streams.length + ')</div>'
+      + (streams.length
+          ? streams.map(s => '<div class="srow"><span class="dot dot-'
+              + (s.status === 'live' ? 'live' : (s.status === 'starting' || s.status === 'reconnecting') ? 'starting' : 'offline')
+              + '"></span><span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
+              + '<span class="ct">' + esc(s.platform || '') + '</span></span>'
+              + '<span class="dim mono">' + esc(s.status || 'offline') + '</span></div>').join('')
+          : '<div class="dim">None right now.</div>')
+      + '</div>';
+    const SHOWN = 8;
+    more += '<div><div class="dh">Recent clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>'
+      + (clips.length
+          ? clips.slice(0, SHOWN).map(c => {
+              const kept = c.status === 'approved';
+              return '<div class="crow' + (kept ? ' ok' : '') + '"><span style="min-width:0"><b>' + esc(c.channel) + '</b>'
+                + '<span class="ct">' + esc(c.clip_title || c.stream_title || '') + ' · ' + day(c.created_at) + '</span></span>'
+                + '<span class="st">' + (kept ? 'Approved' : esc(c.status || 'pending')) + '</span></div>';
+            }).join('')
+            + (clips.length > SHOWN ? '<div class="dim" style="margin-top:8px">The rest are under Manage this account.</div>' : '')
+          : '<div class="dim">No clips yet.</div>')
+      + '</div>';
+    const slot = document.getElementById('dr-more');
+    if(slot) slot.outerHTML = more;
+  }
+
+  document.getElementById('list').addEventListener('click', e => {
+    const b = e.target.closest('.fb-who'); if(!b) return;
+    DR_FROM = b;
+    openWho(b.dataset.uid, b.textContent);
+  });
+  document.getElementById('dr-close').addEventListener('click', closeWho);
+  document.getElementById('scrim').addEventListener('click', closeWho);
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Escape' && document.getElementById('drawer').classList.contains('open')) closeWho();
+  });
+  // "Message them": the composer above, with this person already picked.
+  document.getElementById('dr-body').addEventListener('click', e => {
+    if(!e.target.closest('#dr-msg') || !DR_UID) return;
+    const uid = DR_UID;
+    DR_FROM = null; closeWho();
+    SEL.add(uid); CMP_F = 'selected';
+    document.querySelectorAll('#cmp-chips .cmp-chip').forEach(x => x.classList.toggle('on', x.dataset.f === 'selected'));
+    renderPeople();
+    document.querySelector('.compose').scrollIntoView({behavior:'smooth', block:'start'});
+    document.getElementById('cmp-msg').focus({preventScroll:true});
+  });
 </script>
 </body>
 </html>"""
@@ -20230,6 +20418,20 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
 _STALLED_JSON = json.dumps(list(_plans.FUNNEL_STALLED))
 ADMIN_HTML = ADMIN_HTML.replace("<!--STALLED-->", _STALLED_JSON, 1)
 _ADMIN_FEEDBACK_HTML = _ADMIN_FEEDBACK_HTML.replace("<!--STALLED-->", _STALLED_JSON, 1)
+
+
+def _admin_js_table(name: str) -> str:
+    """One of the admin page's own label tables (`const NAME = {...};`), as it
+    is written there, for the Feedback page's drawer to read the same words
+    from. Lifted, not retyped, so the two pages cannot disagree."""
+    import re as _re
+    m = _re.search(r"const " + name + r" = (\{.*?\});", ADMIN_HTML, _re.S)
+    return m.group(1) if m else "{}"
+
+
+_ADMIN_FEEDBACK_HTML = (_ADMIN_FEEDBACK_HTML
+                        .replace("<!--FU_LABELS-->", _admin_js_table("FU_LABELS"), 1)
+                        .replace("<!--CX_LABELS-->", _admin_js_table("CX_LABELS"), 1))
 
 _ADMIN_OPTOUT_HTML = """<!DOCTYPE html>
 <html lang="en">

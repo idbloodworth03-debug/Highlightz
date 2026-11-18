@@ -9135,3 +9135,48 @@ px): the question over the dashboard, Escape and a backdrop click leaving it
 there, "Something else" refusing to send with nothing typed, the answer
 saving and the question not returning after a reload, and the admin tab
 listing both answers with the words typed.
+
+## Feedback page: a name opens that account's details (2026-11-18)
+
+Owner: "make it so I can click someones name in the feedback page and see the
+details about them".
+
+On `/admin/feedback-page` the name at the top of each thread is now a button.
+Pressing it opens a drawer on the same page, beside the thread, so the reply
+box is still there: plan (with what they pay), status, last seen, last
+sign-in, joined, email, how they found us (and their words), referrer, promo;
+why they cancelled, if they have answered the survey; lifetime clip decisions;
+the channels they monitor; their eight most recent clips.
+
+- **Read-only on purpose.** It makes two GETs (`/admin/users/{id}/streams`,
+  `/clips`) and nothing else. Granting, revoking, offers, stopping channels and
+  deleting stay on the admin page, where the controls and their confirmations
+  already are. **Manage this account** goes to `/admin?user=<id>`, and the
+  admin page now opens the drawer for the account named in the address (its
+  boot `refresh()` gained a `.then`). **Message them** picks the person in
+  the composer above, the way arriving with `?to=` does.
+- **Drawn from what the page already had**: it loads every account for the
+  composer (`PEOPLE`, from `/admin/users`). A name pressed before that list
+  arrives waits for it (`PEOPLE_READY`); an account deleted since it wrote in
+  reads "This account no longer exists." A thread with no `user_id` keeps a
+  plain name.
+- **One source, not two copies.** The drawer's CSS moved out of `ADMIN_HTML`
+  into `_ADMIN_DRAWER_STYLE`, which both pages include (the admin page's HTML
+  was hashed before and after: identical apart from the boot lines). The
+  found-us and cancellation labels are lifted from the admin page's own tables
+  at import (`_admin_js_table`, filled after both literals close like
+  `<!--STALLED-->`).
+- Closes with the X, Escape, or a click outside; focus returns to the name.
+  On a phone the drawer is the full width, so the X is the way out.
+- The composer's own list of people was left alone: a name there ticks the
+  person, which is what that list is for.
+
+No realtime change: the admin pages have no socket and nothing a user sees
+moved. Tests: `tests/test_feedback_who.py` (11: the button, read-only, every
+typed field escaped, labels and styles from one source, the deep link, both
+scripts through `node --check` with no backslashes, the deleted account); four
+mutations each failed one. `test_found_us` updated for the boot line. Full
+suite 4617 passed. Seen in a browser at 1440 and 390 px with three threads:
+the drawer for a paying account, Escape returning focus to the name, the
+deleted account, Message them picking the person, and Manage this account
+landing on the admin page with their drawer open.

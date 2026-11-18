@@ -446,6 +446,9 @@ def test_the_admin_page_keeps_the_answers_current():
     assert "setInterval(function(){ if(usersOpen()) loadUsers(); }, 60000);" in js
     users_open = _fn(js, "function usersOpen(){")
     assert "a.closest('#u-wrap')" in users_open, "a poll would close an open Grant picker"
-    boot = js[js.index("refresh();\nloadAffiliates();"):]
+    # The boot lines. refresh() also opens the account named in the address
+    # since 2026-11-18 (a name pressed on the Feedback page), hence the .then.
+    boot = js[js.index("refresh().then(function(){"):]
+    assert "loadAffiliates();" in boot
     assert "loadOnboarding();" in boot, "the Onboarding tab's count is not read at boot"
     assert "document.getElementById('tc-onboarding').textContent" in js
