@@ -206,11 +206,15 @@ def test_the_plans_are_set_side_by_side(store, capsys):
     assert "Starter" in plans and "Legacy" in plans and "Studio" not in plans
 
 
-def test_an_assumed_bill_is_called_assumed_and_a_given_one_is_not(store, capsys):
+def test_the_bill_it_was_not_given_is_said_to_be_the_owners_and_from_when(store, capsys):
+    """It cannot read the invoice. The default is the figure the owner gave
+    (2026-11-18), and the output says so and when, because it goes stale the
+    day the server is resized."""
     out = _report(store, capsys)
-    assert "$112.00 a month   <- ASSUMED" in out and "tell me the figure" in out
+    assert "$112.00 a month   <- your DigitalOcean bill as you gave it on 2026-11-18." in out
+    assert "If the server has been resized since, tell me the new figure." in out
     out = _report(store, capsys, "--server=96", "--other=24")
-    assert "ASSUMED" not in out and "$96.00 a month" in out and "other monthly costs    : $24.00" in out
+    assert "as you gave it" not in out and "$96.00 a month" in out and "other monthly costs    : $24.00" in out
     assert "server and other costs            : -$120.00" in out
 
 

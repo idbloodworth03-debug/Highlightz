@@ -9893,7 +9893,8 @@ read-only script the owner runs there:
 `--stripe-pct=`, `--stripe-fixed=`, `--days=`).
 
 **THE FIRST REAL READING (owner's paste, 2026-11-18, a busy hour, 59 live;
-server bill still the ASSUMED $112, other costs 0):**
+server bill $112, which the owner then CONFIRMED: "112$ bill digital ocean";
+other monthly costs counted as 0, the owner named none):**
 - 345 accounts: **18 paying, all Pro at $25** (MRR $450; nobody on Starter,
   Studio or the old price), 312 free, 7 on trial, 2 gifted, 1 card failing,
   5 staff.
@@ -9920,7 +9921,10 @@ server bill still the ASSUMED $112, other costs 0):**
   the check. It also means `theburntpeanut`, added to an admin account
   earlier that day for the split's trial, was no longer listed (or paused).
 - All 7 trials had no channel listed.
-- Still unknown: the real server invoice and any other monthly cost.
+- The server bill is confirmed ($112, DigitalOcean, 2026-11-18). Still not
+  known: whether anything else is paid monthly (backups, email, the domain),
+  and the card fees as Stripe actually charged them (3.6% + $0.30 is from
+  Stripe's list rates).
 
 **The model, and why.** The costs are one server and the card processor. The
 server exists to watch live channels (memory, processors and the loop all
@@ -9949,13 +9953,12 @@ channel's cost at today's load; what each plan would cost if an account used
 every channel it allows all month; and the eight accounts costing the most,
 by NAME only (never an address, an id or a Stripe id).
 
-**ASSUMED, and printed as assumed:**
-- The server bill, $112 a month by default: the list price found for
-  DigitalOcean's 8 vCPU / 16 GB / 320 GB Premium droplet (an official 2023
-  table gives the Intel plan at $112; a third-party listing gives the AMD one
-  the same). Not confirmed against the owner's invoice, and it does not
-  include backups (DigitalOcean charges extra for those) or anything else:
-  `--other=` is 0 until the owner says.
+**Told to it rather than read, and printed with where it came from:**
+- The server bill, $112 a month by default: **the owner's DigitalOcean bill
+  as they gave it on 2026-11-18** (it is also the list price for the 8 vCPU /
+  16 GB / 320 GB Premium droplet). It goes stale the day the server is
+  resized: change `SERVER_DEFAULT` and its date together. It does not include
+  anything else paid monthly: `--other=` is 0 until the owner names something.
 - The processor: 2.9% + 30 cents (Stripe's domestic card rate) plus 0.7%
   (Stripe Billing), so 3.6% + $0.30. International cards cost 1.5% more.
 

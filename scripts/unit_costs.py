@@ -25,10 +25,12 @@ the same ones the site runs on:
   * clips caught in the last 30 days (the ledger) and video held (the clip
     files), shown beside it as a second opinion on the same split.
 
-WHAT IS ASSUMED, and printed at the top every time:
+WHAT IT IS TOLD RATHER THAN READS, printed at the top every time:
   * the server bill. This cannot be read from the machine. The default is
-    DigitalOcean's list price for the hardware production reported on
-    2026-11-18 (8 vCPU Premium AMD, 16 GB, 320 GB). `--server=` sets it;
+    what the owner said DigitalOcean bills them on 2026-11-18 ("112$ bill
+    digital ocean"; it is also the list price for that hardware: 8 vCPU
+    Premium AMD, 16 GB, 320 GB). It goes stale the day the server is resized:
+    `--server=` sets it, and the output always says where the figure is from;
   * `--other=`: anything else paid monthly to run the site (backups, email,
     the domain). Default 0. It is shared out the same way as the server;
   * the card processor's cut: 2.9% + 30 cents a charge, plus Stripe Billing's
@@ -53,7 +55,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 GB = 1073741824
-SERVER_DEFAULT = 112.0          # see the docstring: an assumption, said so in the output
+SERVER_DEFAULT = 112.0          # the owner's DigitalOcean bill as given on 2026-11-18
+SERVER_DEFAULT_AS_OF = "2026-11-18"
 STRIPE_PCT_DEFAULT = 3.6        # 2.9% card + 0.7% Stripe Billing
 STRIPE_FIXED_DEFAULT = 0.30
 SNAPSHOT_MAX_AGE_S = 600.0      # the live note is written every 30 s
@@ -234,9 +237,10 @@ def report(data: dict, *, server: float, other: float, pct: float, fixed: float,
     pay, free = groups["paying"], groups["free"]
     out = ["=" * 74, "WHAT THIS IS WORKED OUT FROM", "=" * 74]
     out.append(f"  server bill            : {money(server)} a month"
-               + ("" if server_given else "   <- ASSUMED: the list price for this size of"))
+               + ("" if server_given else
+                  f"   <- your DigitalOcean bill as you gave it on {SERVER_DEFAULT_AS_OF}."))
     if not server_given:
-        out.append("                           server. If your invoice says otherwise, tell me the figure.")
+        out.append("                           If the server has been resized since, tell me the new figure.")
     out.append(f"  other monthly costs    : {money(other)}"
                + ("" if other else "   <- none given (backups, email, the domain would go here)"))
     out.append(f"  card processing        : {pct:g}% + {money(fixed)} of each charge")
