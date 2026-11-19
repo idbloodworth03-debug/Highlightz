@@ -10133,6 +10133,49 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## How fast sign-ups are growing, and where that leads: `scripts/growth.py` (2026-11-19)
+
+**Owner:** "we grew so much in the past few days if we grow at this rate how
+big can we get in a few weeks. Take into account the fact that we grew more
+and more each day". A first answer was worked out from the one screenshot of
+the Users tile in the conversation, and the owner's reply was: "i got more
+then this use accurate numbers". **The lesson: a figure read off a screenshot
+hours old is not the figure; the accounts file on the server is.** So:
+
+    cd /opt/highlightz && venv/bin/python scripts/growth.py
+
+Read-only, counts only (never a name, an address or free text). It prints:
+- sign-ups for each of the last 21 days in the owner's time zone
+  (`OWNER_TZ`, America/New_York; `--tz=` changes it), counted as the admin
+  page counts them: staff left out, a day is 12:00 AM to 12:00 AM;
+- today against yesterday BY THE SAME TIME OF DAY (the only fair comparison
+  before the day is over), and an estimate of today's total from yesterday's
+  shape; before 6 AM it says today is too early to read and starts from
+  yesterday instead;
+- this week against the week before, and the fitted multiple of each day
+  over the one before, for the last 7 full days and the last 3;
+- **three paths to 7, 14 and 21 days**, each one line read at three points:
+  A, it holds at today's level; B, it keeps growing for one more week by
+  less each day (from the 7-day multiple, running out evenly) and then
+  holds; C, the 7-day multiple every day to the end. **C is arithmetic, not
+  a forecast**, and the output says so when it passes a million;
+- where the last three days' accounts say they came from against the three
+  before (the fixed answers of the sign-up question only);
+- channels live now against accounts, and at how many accounts the live
+  limit is reached if that share holds.
+
+**What to keep saying when asked this again:** a few days of a spike cannot
+tell holding from compounding; the server's live limit arrives before any of
+the big numbers do; and the next two or three days of this output answer it
+better than any projection. The figures themselves are the owner's to paste
+into the chat, not for this file (the repository is public).
+
+Tests: `tests/test_growth.py` (16: the owner's day not UTC's, staff and
+broken records, the same-time comparison, the multiple, the three paths
+checked by hand, the whole report on a made-up spike, nothing private
+printed, the early-morning case, a falling week). Run here against a made-up
+accounts file; not run on production.
+
 ## What security is in place: an inventory, and `scripts/security_check.py` (2026-11-18)
 
 **Owner:** "what security measures do i have in place currently on my server,
