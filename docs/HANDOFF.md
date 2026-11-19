@@ -10133,6 +10133,51 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## Instagram is off for ordinary accounts, and the poster now asks (2026-11-19)
+
+**Owner:** "make sure instagram is off for users since it is not complete".
+
+**How it is held (unchanged, and already there):** `PUBLIC_PLATFORMS` in
+`.env` (default `tiktok`; `src/publish/release.py`). A platform not named
+there is "coming soon" for an ordinary account: no Connect
+(`publish_connect` answers 403), not choosable for "Post now"
+(`publish_post_now`, 403), and every public page and plan pitch names only
+what is open. Staff and accounts marked `early_access` are open to every
+configured platform ON PURPOSE: that is how it is tested and how Meta's
+reviewer gets in. Do not close that.
+
+**The gap that was found and closed:** the gate was at those two doors only.
+`poster.auto_platforms`, which is the one function the due-time worker,
+Autopilot's queue, a retry and "Post" on a queue card all come through, asked
+only "chosen, connected, not posted yet". So an ordinary account that ALREADY
+held an Instagram connection (made while it was an early-access tester, or
+while the platform was briefly public) kept being posted to. It now also asks
+`release.open_for(platform, account)`; an account that cannot be looked up is
+treated as ordinary. Nothing else in the site calls a provider's `post()`
+(a test holds that), so that is every path.
+- Adding a held platform to a queue item is still allowed (it reads "soon" on
+  the card and is a reminder); it is never posted.
+- Two sentences named Instagram to everybody whatever was open (the Post
+  button's hint, the "Post a clip now" picker). They name no platform now.
+  The "coming soon" pages for the whole feature still describe it; those are
+  only shown while `UPLOADS_ENABLED` is off.
+
+**What production has is NOT known from here** (`.env` and which accounts are
+early access). `scripts/posting_check.py` reads it: the switch as the site
+reads it, whether the running site has the poster rule, how many staff and
+early-access accounts there are, which ordinary accounts hold a connection to
+a held platform (by name, the only names it prints) and how many queued posts
+name one. If it says Instagram is OPEN (the setting names it), closing it is a
+change to `.env`: write a command that validates first (CLAUDE.md), do not
+hand over an edit.
+
+Blast radius: an ordinary account is no longer posted to on a platform it
+could not connect today. An account on a public platform, staff and
+early-access accounts are unchanged; ten older tests that posted to YouTube
+or Instagram without saying the platform was open now say so. Tests:
+`tests/test_posting_gate.py` (13; six fail on the old poster). Full suite
+5146. The check was run here against a made-up store. Not run on production.
+
 ## Autopilot is named in Clip Review and in the Clip Editor (2026-11-19)
 
 **Owner:** "i need the autopilot to be labeled in the clip review tab and the

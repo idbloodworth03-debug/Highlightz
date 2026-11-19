@@ -36,11 +36,38 @@ Notify = Callable[[dict, str | None], Awaitable[None]]      # user id, or None f
 _inflight: set[str] = set()
 
 
+def _open_to(user_id: str) -> Callable[[str], bool]:
+    """Is this platform open to this account? (src/publish/release.py:
+    PUBLIC_PLATFORMS for ordinary accounts, every configured one for staff
+    and early-access accounts.) An account that cannot be looked up is
+    treated as an ordinary one."""
+    from src.publish import release
+    try:
+        from src.auth import users as user_store
+        user = user_store.get_by_id(user_id)
+    except Exception as exc:
+        log.warning("poster_account_lookup_failed", error=str(exc)[:120])
+        user = None
+    return lambda platform: release.open_for(platform, user)
+
+
 def auto_platforms(item: sched.Item) -> list[str]:
     """The platforms this item will be posted to by the server: chosen on
-    the card AND connected AND not already posted."""
+    the card AND connected AND open to this account AND not already posted.
+
+    OPEN TO THIS ACCOUNT (owner, 2026-11-19: "make sure instagram is off for
+    users since it is not complete"). Connecting a platform that is not
+    public yet was always refused, and so was "Post now". But the gate was at
+    those two doors only. An account that ALREADY held a connection (made
+    while it was an early-access tester, or while the platform was briefly
+    public) kept being posted to by everything that comes through here: the
+    due-time worker, Autopilot's queue, a retry, "Post" on a queue card. This
+    is the one place all of those ask, so this is where it is closed. Staff
+    and early-access accounts are open to everything configured, as
+    everywhere, so testing and the platforms' own app reviews keep working."""
     connected = connections.connected_platforms(item.user_id)
     done = item.posted_on()
+    is_open = _open_to(item.user_id)
     # TIKTOK IS NEVER AUTOMATIC. Its Direct Post rules put the choices — who can
     # view, comments/duets/stitches, commercial-content disclosure, the
     # music-usage agreement — on the person, each time. An item carries
@@ -48,7 +75,7 @@ def auto_platforms(item: sched.Item) -> list[str]:
     # so without it TikTok is skipped here: not by the due-time worker, not by a
     # retry, not by Autopilot, not by a "Post now" on a queue card.
     return [p for p in item.platforms
-            if p in connected and p not in done
+            if p in connected and p not in done and is_open(p)
             and (p != "tiktok" or item.options.get("tiktok"))]
 
 

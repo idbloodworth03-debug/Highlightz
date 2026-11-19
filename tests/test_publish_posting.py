@@ -45,6 +45,11 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(lib, "_INDEX", tmp_path / "uploads.json")
     lib.load()
     poster._inflight.clear()
+    # The poster only posts to a platform that is OPEN to the account
+    # (PUBLIC_PLATFORMS; tests/test_posting_gate.py). These tests are about
+    # what it does once it may post, so every platform is open here.
+    from config.settings import settings as _settings
+    monkeypatch.setattr(_settings, "public_platforms", "youtube,tiktok,instagram")
     yield
     connections._conns.clear(); connections._loaded = False
     sched._items.clear(); sched._loaded = False

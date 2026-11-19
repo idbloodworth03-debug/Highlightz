@@ -248,6 +248,9 @@ def test_the_poster_records_the_entry_and_tells_every_board(monkeypatch):
     monkeypatch.setattr(upload_lib, "path_for", lambda up: f)
     monkeypatch.setattr(connections, "connected_platforms", lambda uid: {"youtube"})
     monkeypatch.setattr(connections, "get", lambda uid, p: object())
+    # YouTube is open to ordinary accounts here (the poster asks: PUBLIC_PLATFORMS).
+    from config.settings import settings as _settings
+    monkeypatch.setattr(_settings, "public_platforms", "tiktok,youtube")
 
     class Prov:
         async def post(self, *a, **k):

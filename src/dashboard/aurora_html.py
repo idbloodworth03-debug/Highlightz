@@ -3169,10 +3169,12 @@ function RdClip({ clip, onApprove, onReject, onDelete, onOpen, onEdit, onPost, l
     <button className="rd-btn sm" title="Edit this clip" style={{flex:'0 0 auto'}}
        onClick={e=>{e.stopPropagation();onEdit(clip)}}><Icon name="sliders" size={13}/></button>
   ) : null;
-  // Straight to TikTok / Instagram / YouTube, no queue first. `onPost` is only
-  // passed when the Scheduler is reachable for this account, like onEdit.
+  // Straight to a connected account, no queue first. `onPost` is only passed
+  // when the Scheduler is reachable for this account, like onEdit. The hint
+  // names no platform: which ones are open differs by account and by day
+  // (PUBLIC_PLATFORMS), and it used to promise Instagram to everybody.
   const postBtn = ((clip.has_file || clip.fetchable) && onPost) ? (
-    <button className="rd-btn sm grad" title="Post this clip to TikTok, Instagram or YouTube now"
+    <button className="rd-btn sm grad" title="Post this clip now"
        style={{flex:'0 0 auto'}} onClick={e=>{e.stopPropagation();onPost(clip)}}>
       <Icon name="upload" size={13}/>Post</button>
   ) : null;
@@ -9387,7 +9389,7 @@ function AddClipPicker({ clips, items, onClose, mode = 'add', onPick = null }) {
         <div>
           <h4>{mode === 'now' ? 'Post a clip now' : 'Add a clip'}</h4>
           <div className="wk-pick-sub">{mode === 'now'
-            ? 'Pick the clip, then choose TikTok, Instagram or YouTube.'
+            ? 'Pick the clip, then choose where it goes.'
             : 'Anything Highlightz caught for you. It does not need to go through the editor first.'}</div>
         </div>
         {all.length > 8 &&

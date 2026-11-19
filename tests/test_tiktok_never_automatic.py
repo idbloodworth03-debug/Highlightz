@@ -24,6 +24,11 @@ from src.publish import connections, poster, schedule as sched
 
 @pytest.fixture(autouse=True)
 def fresh(tmp_path, monkeypatch):
+    # The poster only posts to a platform that is OPEN to the account
+    # (PUBLIC_PLATFORMS; tests/test_posting_gate.py). These tests are about
+    # what it does once it may post, so every platform is open here.
+    from config.settings import settings as _settings
+    monkeypatch.setattr(_settings, "public_platforms", "youtube,tiktok,instagram")
     monkeypatch.setattr(connections, "_INDEX", tmp_path / "publish_connections.json")
     connections._conns.clear(); connections._loaded = False
     monkeypatch.setattr(sched, "_INDEX", tmp_path / "schedule.json")
