@@ -10178,6 +10178,39 @@ or Instagram without saying the platform was open now say so. Tests:
 `tests/test_posting_gate.py` (13; six fail on the old poster). Full suite
 5146. The check was run here against a made-up store. Not run on production.
 
+**"it looks like the post button in general is not working I need this
+fixed" (owner, straight after the deploy). OPEN: NOT REPRODUCED, cause on
+production not known.**
+- **Tried here, in a real browser against the running app**, as an ordinary
+  Pro account and as staff, each with approved clips that have video and with
+  connected accounts: Post on a Clip Library card opens the dialog; ticking
+  YouTube and pressing "Post now" sends `POST /publish/post-now`, which
+  answers 202; the poster runs and the platform's answer lands on the card
+  (here a refusal, because the test login is not real). No page error. So
+  the button, the dialog, the endpoint and the poster work on this code.
+- **The change made just before did not alter what Post does** for a platform
+  that is open: `publish_post_now` already refused a held platform with the
+  same question the poster now asks. It cannot have turned a working post
+  into a failing one for an account the platform is open to.
+- **One real fault was found and fixed while trying:** every picker asked
+  only "connected and healthy", so an account holding an old connection to a
+  held platform could still TICK it, and the post was then refused ("coming
+  soon"). `canPostTo(c)` (connected, not held, healthy) is now the one
+  question in the Post dialog, the Scheduler card, Autopilot's "where should
+  it post" and the connected-accounts row; a held platform reads "Soon".
+- **Where the answer is:** every attempt leaves its outcome on the queue item
+  (`results[platform]`: posted, or failed with the platform's own reason), and
+  a connection that a platform has rejected is marked `last_error` and cannot
+  be ticked until it is reconnected. `scripts/posting_check.py` now prints
+  both: posted and failed by platform for the last day and week, the
+  commonest reasons, the last twelve attempts, how many connected accounts
+  must reconnect first, and what the poster logged. **Read that before
+  changing anything else.** Likely shapes, none confirmed: connections
+  expired (TikTok and Google tokens do), TikTok's account lookup failing
+  (`/publish/tiktok/creator`, which the dialog needs before Post is enabled),
+  clips with no video (no Post button at all), or a platform's own refusal.
+  Also ask the owner WHICH Post button and what the screen says.
+
 ## Autopilot is named in Clip Review and in the Clip Editor (2026-11-19)
 
 **Owner:** "i need the autopilot to be labeled in the clip review tab and the

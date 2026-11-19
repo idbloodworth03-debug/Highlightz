@@ -9141,6 +9141,16 @@ const SC_LABEL = {posting:'Posting…', posted:'Posted', failed:'Needs attention
                   missed:'Missed', due:'Due now', pending:'Scheduled'};
 const scTime = ts => new Date(ts * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
 
+/* CAN THIS ACCOUNT POST THERE RIGHT NOW? Connected, healthy, and OPEN to it.
+   `held` is the server's word for "not open to this account yet"
+   (PUBLIC_PLATFORMS; Instagram until Meta approves). Every picker asked only
+   "connected and healthy", so an account holding a connection from before a
+   platform was closed could still tick it, and was then refused by the
+   server ("coming soon") or, in the queue and in Autopilot, silently not
+   posted. Found 2026-11-19 checking that Instagram is off. One function, so
+   the pickers cannot disagree with each other or with the server. */
+function canPostTo(c) { return !!(c && c.connected && !c.held && !c.last_error); }
+
 /* The three accounts a clip can be posted to, as one row of chips: connected
    (with the account name and a disconnect ×), broken (reconnect), not yet
    connected (Connect), or not set up by the operator (soon). */
@@ -9150,7 +9160,12 @@ function AccountChips({ me, connections = [] }) {
     <div>
       <div className="sc-top-row">
         {(connections||[]).map(c=>{
-          if (c.connected && !c.last_error) return (
+          // Held for this account: "soon", whatever it once connected.
+          if (c.held) return (
+            <span key={c.id} className="sc-acct off" title="Coming soon">
+              <i className="dot"/>{c.label} · soon
+            </span>);
+          if (canPostTo(c)) return (
             <span key={c.id} className="sc-acct on" title={'Highlightz posts to ' + (c.account_name||c.label) + ' for you'}>
               <i className="dot"/>{c.label} · {c.account_name || 'connected'}
               <button onClick={()=>disconnect(c.id)} aria-label={'Disconnect ' + c.label} title={'Disconnect ' + c.label}>
@@ -9473,8 +9488,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
                             || (item.status === 'pending' && Object.keys(results).length === 0)));
   const sent = !!itemId;
 
-  const ready = id => !!(conn[id] && conn[id].connected && !conn[id].last_error)
-                      && (!camp || camp.platforms.includes(id));
+  const ready = id => canPostTo(conn[id]) && (!camp || camp.platforms.includes(id));
   const toggle = id => {
     if (sent || !ready(id)) return;
     setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -9564,6 +9578,10 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
                 {on ? '✓ ' : ''}{pf.label}
                 {c.account_name && c.account_name !== c.label && <small>{c.account_name}</small>}
               </button>);
+            // Not open to this account yet: no Connect, no Reconnect, no tick.
+            if (c && c.held) return (
+              <span key={pf.id} className="sc-pchip" style={{opacity: .5, cursor: 'default'}}
+                title="Posting here is coming soon">{pf.label}<small>Soon</small></span>);
             if (c && c.connected) return (
               <a key={pf.id} className="sc-pchip" href={'/publish/connect/' + pf.id} title={c.last_error}
                 style={{textDecoration: 'none'}}>{pf.label}<small>Reconnect</small></a>);
@@ -9735,7 +9753,7 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
   // which the user still posts by hand. Same split the poster makes.
   // TikTok is never posted for them (see poster.auto_platforms), so it is never
   // "Auto" here: it is the one they post by hand from the clip's Post button.
-  const connected = new Set((connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok').map(c=>c.id));
+  const connected = new Set((connections||[]).filter(c=>canPostTo(c) && c.id !== 'tiktok').map(c=>c.id));
   // Neither YouTube nor Instagram can be connected by this account yet
   // (PUBLIC_PLATFORMS) — do not tell them to tick one.
   const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);
@@ -9974,7 +9992,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
   // TikTok is not offered: its rules need the person to choose who can view,
   // the interactions and the disclosure, and agree, for EACH post, so it is
   // always posted by hand from the clip's Post button.
-  const connected = (connections||[]).filter(c=>c.connected && !c.last_error && c.id !== 'tiktok');
+  const connected = (connections||[]).filter(c=>canPostTo(c) && c.id !== 'tiktok');
   const hasTiktok = (connections||[]).some(c=>c.id === 'tiktok' && c.connected);
   // Neither YouTube nor Instagram can be connected by this account yet.
   const autoHeld = (connections||[]).length > 0 && !(connections||[]).some(c=>c.id !== 'tiktok' && c.configured);

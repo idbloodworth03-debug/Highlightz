@@ -199,3 +199,97 @@ def test_the_check_says_when_the_running_site_does_not_have_the_rule_yet():
     assert C.DEPLOY in pathlib.Path("CLAUDE.md").read_text()
     assert "NOT in the code on disk" in _say(["tiktok"], has_rule=False)
     assert C.poster_has_the_rule() is True
+
+
+# ── "the post button in general is not working" (owner, the same day) ───────
+# Not reproduced: in a browser against the running app the button opens the
+# dialog and the post goes through to the platform. What WAS found: a held
+# platform could still be ticked by an account holding an old connection, and
+# the post was then refused. And the server check now reads what happened to
+# every post that was tried, because that is on the server and not here.
+
+def test_every_picker_asks_the_same_question_and_a_held_platform_cannot_be_ticked():
+    page = pathlib.Path("src/dashboard/aurora_html.py").read_text()
+    assert "function canPostTo(c) { return !!(c && c.connected && !c.held && !c.last_error); }" in page
+    assert "const ready = id => canPostTo(conn[id]) && (!camp || camp.platforms.includes(id));" in page
+    assert page.count("filter(c=>canPostTo(c) && c.id !== 'tiktok')") == 2          # the Scheduler and Autopilot
+    assert "if (canPostTo(c)) return (" in page                                      # the connected-accounts row
+    # No picker is left asking only "connected and healthy".
+    assert "c.connected && !c.last_error &&" not in page
+    assert "conn[id].connected && !conn[id].last_error" not in page
+    # In the dialog a held platform reads "Soon": no Connect, no Reconnect.
+    dialog = page[page.index("function PostNowDialog("):page.index("function PostNowDialog(") + 12000]
+    held = dialog.index("if (c && c.held) return (")
+    assert held < dialog.index("<small>Reconnect</small>") and "<small>Soon</small>" in dialog[held:held + 400]
+
+
+def test_the_server_tells_the_page_which_platforms_are_held_for_this_account():
+    from src.dashboard import api
+    src = inspect.getsource(api._connections_payload)
+    assert "held = not release.open_for(p.id, user)" in src and '"held": held,' in src
+
+
+NOW = 2_000_000_000.0
+TRIED = [
+    {"user_id": "a", "platforms": ["youtube"], "results": {
+        "youtube": {"status": "failed", "at": NOW - 600, "error": "Your YouTube connection has expired. Connect it again."}}},
+    {"user_id": "a", "platforms": ["tiktok"], "results": {
+        "tiktok": {"status": "failed", "at": NOW - 7200,
+                   "error": "TikTok refused: access_token act.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 is invalid " + "x" * 200}}},
+    {"user_id": "s", "platforms": ["youtube"], "results": {
+        "youtube": {"status": "posted", "at": NOW - 3 * 86400, "url": "https://youtu.be/x"}}},
+    {"user_id": "t", "platforms": ["instagram"], "results": {
+        "instagram": {"status": "failed", "at": NOW - 9 * 86400, "error": "old"},
+        "youtube": {"status": "posting", "at": NOW - 5}}},
+    {"user_id": "a", "platforms": ["youtube"]}, "junk",
+]
+LINKS = [{"user_id": "a", "platform": "youtube", "last_error": "Your YouTube connection has expired. Connect it again."},
+         {"user_id": "b", "platform": "youtube"}, {"user_id": "a", "platform": "tiktok"},
+         {"user_id": "deleted", "platform": "tiktok", "last_error": "x"}]
+
+
+def test_the_check_reads_what_happened_to_every_post_that_was_tried():
+    got = C.attempts(TRIED, LINKS, PEOPLE, NOW)
+    assert got["ever"] == 4                                   # the one in flight and the one never tried are not outcomes
+    assert got["counts"]["day"] == {"youtube": (0, 1), "tiktok": (0, 1)}
+    assert got["counts"]["week"] == {"youtube": (1, 1), "tiktok": (0, 1)}
+    assert got["why"]["youtube"] == [("Your YouTube connection has expired. Connect it again.", 1)]
+    assert [(r["platform"], r["ok"], r["who"]) for r in got["last"]] == [
+        ("youtube", False, "ordinary"), ("tiktok", False, "ordinary"),
+        ("youtube", True, "staff"), ("instagram", False, "early access")]
+    assert got["healthy"] == {"youtube": 1, "tiktok": 1} and got["broken_n"] == {"youtube": 1}
+
+
+def test_a_platforms_reason_is_printed_without_anything_shaped_like_a_key():
+    text = C.clean("TikTok refused: access_token act.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 is invalid\n  try again " + "y" * 300)
+    assert "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" not in text and "[...]" in text
+    assert len(text) <= 113 and "\n" not in text
+    assert C.clean(None) == ""
+
+
+def test_the_posts_section_says_it_in_words_and_names_nobody():
+    import collections
+    got = C.attempts(TRIED, LINKS, PEOPLE, NOW)
+    out = "\n".join(C.posts_report(got, NOW, collections.Counter({"post_failed": 2, "post_published": 0}), True, 3600.0))
+    assert "last 24 hours : TikTok 0 posted, 1 failed;  YouTube 0 posted, 1 failed" in out
+    assert "last 7 days   : TikTok 0 posted, 1 failed;  YouTube 1 posted, 1 failed" in out
+    assert "why YouTube failed (last 7 days):" in out
+    assert "       1 x  Your YouTube connection has expired. Connect it again." in out
+    assert "connected accounts that can post / must reconnect first:" in out
+    assert "    YouTube                        : 1 / 1" in out
+    assert "10 min ago    YouTube    FAILED: Your YouTube connection has expired. Connect it again.   (ordinary account)" in out
+    assert "         2  post_failed" in out and "post_published" not in out
+    for private in ("alice", "bob", "private.example", "AbCdEfGhIjKl", "youtu.be"):
+        assert private not in out
+    nothing = "\n".join(C.posts_report(C.attempts([], [], PEOPLE, NOW), NOW, collections.Counter(), True, 600.0))
+    assert "no queue item records an attempt" in nothing and "last 24 hours : nothing tried" in nothing
+    assert "nothing: no post went out and none failed in that time" in nothing
+    src = inspect.getsource(C.attempts)
+    assert "username" not in src
+
+
+def test_the_events_it_counts_are_ones_the_poster_logs():
+    logged = (pathlib.Path("src/publish/poster.py").read_text()
+              + pathlib.Path("src/publish/providers/tiktok.py").read_text())
+    for name in C.POST_EVENTS:
+        assert f'"{name}"' in logged, name
