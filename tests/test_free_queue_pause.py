@@ -739,3 +739,18 @@ def test_the_review_screen_does_not_call_a_paused_channel_live():
     assert "const heldN = streamsArr.filter(s=>s.status==='paused'&&s.hold==='queue_full').length;" in page
     assert "{watchedN} live" in page and "{heldN} paused · queue full" in page
     assert "{streamsArr.length} live" not in page
+
+
+def test_the_eight_hour_rule_logs_a_pause_only_when_it_pauses(scene, monkeypatch):
+    """Production, 2026-11-19: 985 "idle_stream_reaper_pausing" lines in three
+    hours, for two accounts this rule had paused. The line was written before
+    asking, on every pass, for every account already paused and idle."""
+    logged = []
+    monkeypatch.setattr(api.log, "info", lambda event, **kw: logged.append(event))
+    scene.person("free1", last=NOW - 9 * 3600, pending=3)
+    scene.tick()
+    assert scene.rec("free1")["status"] == "paused"
+    assert logged.count("idle_stream_reaper_pausing") == 1
+    scene.tick()
+    scene.tick()
+    assert logged.count("idle_stream_reaper_pausing") == 1, "an account already paused was 'paused' again"

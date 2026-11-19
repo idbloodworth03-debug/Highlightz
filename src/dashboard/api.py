@@ -6987,12 +6987,18 @@ async def idle_stream_reaper() -> None:
                                 if s.get("user_id") == uid), default=now) or now
                 last_active = _user_last_active.get(uid, fallback)
                 if now - last_active > _IDLE_STREAM_TIMEOUT:
-                    log.info("idle_stream_reaper_pausing", user=uid,
-                             idle_minutes=round((now - last_active) / 60))
                     # PAUSE, never delete. See _pause_user_streams for what
                     # deleting here cost. Already-paused users pause nothing
                     # and get no second toast.
                     if await _pause_user_streams(uid):
+                        # Logged only when something WAS paused. It used to be
+                        # logged before asking, so every account already
+                        # paused and idle was "pausing" again on every pass:
+                        # 985 lines in three hours on production (2026-11-19)
+                        # for two accounts actually paused by this rule, which
+                        # read as 985 pauses to anybody counting them.
+                        log.info("idle_stream_reaper_pausing", user=uid,
+                                 idle_minutes=round((now - last_active) / 60))
                         await broadcast({"event": "streams_paused_idle"}, user_id=uid)
             # Persist the clock on the reaper's own tick, so a restart resumes
             # where it left off instead of granting everyone a fresh 8 hours.

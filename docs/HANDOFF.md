@@ -10176,6 +10176,26 @@ one. The 8-hour check allows for the last-request clock being saved only
 every five minutes. After a restart nobody is late for 15 minutes, as in the
 rule itself.
 
+**FIRST RUN ON PRODUCTION (owner's paste, 2026-11-19): it was the first
+explanation.** The server was still on the commit from before the 15-minute
+rule (the fetch in that very command moved it forward five commits), running
+for about five hours. What the paste showed, without the figures (public
+repository): most Free accounts with a channel were already paused for a full
+queue by the rule that WAS running (away, five minutes); a handful were full,
+undecided and still live for hours, which is exactly the tab-open case the
+old code exempts; nobody was late for the 8-hour rule; and no rule had logged
+an error. So nothing was broken: the new rule had never been started. The fix
+was the deploy command.
+**One thing in that paste was misleading and is fixed:** hundreds of
+`idle_stream_reaper_pausing` lines for a couple of accounts actually paused
+by the 8-hour rule. The line was written BEFORE asking, on every five-minute
+pass, for every account already paused and idle. It is now written only when
+something was paused (a test reproduces the repeat), so the count in this
+script means pauses.
+**Also learned:** Free accounts held under a quarter of the live channels at
+that moment; paying and staff accounts held the rest. Worth remembering when
+the question is what Free costs.
+
 **Verified here:** `tests/test_reaper_check.py` (18). And the real,
 unmodified app (`python -m src.main`, real constants, nothing shortened) was
 started with a Free account whose queue had been full for an hour and no tab
