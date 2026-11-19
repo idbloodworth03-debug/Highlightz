@@ -335,6 +335,11 @@ button{font-family:inherit;cursor:pointer}
   display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid var(--hair);transition:var(--dur-fast);white-space:nowrap}
 .rd-btn:hover{background:rgba(255,255,255,.1)}
+/* A SWITCHED-OFF BUTTON LOOKS SWITCHED OFF. There was no rule for it at all:
+   a disabled .rd-btn kept its full colour and its pointer, so it read as a
+   live button that did nothing when pressed (owner, 2026-11-19: "the post
+   button is literally doing nothing when I press it"). */
+.rd-btn:disabled{opacity:.5;cursor:default}
 a.rd-btn{text-decoration:none}
 .kick-theme{--acc:#53fc18;--acc-2:#39b515;--grad:linear-gradient(135deg,#53fc18 0%,#39b515 100%);--grad-soft:linear-gradient(135deg,rgba(83,252,24,.14),rgba(57,181,21,.10));--glow:0 0 0 1px rgba(83,252,24,.3),0 8px 30px -6px rgba(57,181,21,.4)}
 .kick-theme .rd-btn.grad{box-shadow:0 6px 18px -6px rgba(83,252,24,.5)}
@@ -9445,13 +9450,30 @@ function AddClipPicker({ clips, items, onClose, mode = 'add', onPick = null }) {
    item over the socket (the `queue` prop is the App's live state), so the
    result appears here without a refresh and the Scheduler shows the same
    card. Closing it does not stop the upload. */
+/* A clip that is ALREADY IN THE QUEUE (an export, or one Autopilot made), in
+   the shape the dialog takes. The Scheduler's own "Post now" opens the dialog
+   with this whenever the server has nothing it can post by itself, which for
+   a TikTok clip is always: TikTok's choices are the person's, every time, and
+   this dialog is where they are made. `upload_id` is what the server is sent
+   in place of a clip id; the caption and the accounts already ticked on the
+   card come with it. `queued` is what the dialog goes by, never the mere
+   presence of a field a caught clip might one day also carry. */
+function queuedAsClip(item, caption) {
+  return {queued: true, id: '', upload_id: item.upload_id, channel: '', clip_title: item.filename || 'Your clip',
+          caption: caption != null ? caption : (item.caption || ''), picked: item.platforms || [],
+          duration_seconds: item.duration_s || 0, ratio: item.ratio || '', fmt: item.fmt || '',
+          file: '/uploads/' + item.upload_id + '/file'};
+}
 function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onClose,
                         campaigns = [], initialCampaign = '' }) {
   const ORDER = ['tiktok', 'instagram', 'youtube', 'x'];
   const specs = [...(platforms || [])].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
   const conn = {}; (connections || []).forEach(c => { conn[c.id] = c; });
-  const [picked, setPicked] = useState(() => new Set());
-  const [cap, setCap] = useState(() => String(clip.clip_title || clip.stream_title || '').slice(0, 150));
+  // Nothing is pre-ticked for a clip. A QUEUED clip arrives with the accounts
+  // its owner already ticked on its card; those they can post to stay ticked.
+  const [picked, setPicked] = useState(() => new Set((clip.queued ? clip.picked || [] : []).filter(id => canPostTo(conn[id]))));
+  const [cap, setCap] = useState(() => clip.queued ? String(clip.caption || '')
+    : String(clip.clip_title || clip.stream_title || '').slice(0, 150));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [itemId, setItemId] = useState('');
@@ -9494,7 +9516,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
     setPicked(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
   const chosen = specs.filter(pf => picked.has(pf.id));
-  const issues = chosen.map(pf => fitIssues(pf, clip.duration_seconds || 0, '16:9', cap, 'mp4')[0]).filter(Boolean);
+  const issues = chosen.map(pf => fitIssues(pf, clip.duration_seconds || 0, clip.ratio || '16:9', cap, clip.fmt || 'mp4')[0]).filter(Boolean);
 
   // TikTok: read the ACCOUNT once, the first time TikTok is ticked.
   const tiktokOn = picked.has('tiktok');
@@ -9529,7 +9551,8 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
       branded_content: ttDisc && ttBranded, consent: true}} : {};
     try {
       const r = await fetch('/publish/post-now', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({clip_id: clip.id, platforms: [...picked], caption: cap, options,
+        body: JSON.stringify({...(clip.queued ? {upload_id: clip.upload_id} : {clip_id: clip.id}),
+                              platforms: [...picked], caption: cap, options,
                               campaign_id: camp ? camp.id : undefined})});
       let d = {};
       try { d = await r.json(); } catch (e) {}
@@ -9546,7 +9569,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
       <div className={'wk-pick' + (tiktokOn ? ' wide' : '')} role="dialog" aria-label="Post this clip now">
         <div>
           <h4>Post now</h4>
-          <div className="wk-pick-sub">{clip.channel} &middot; {clip.clip_title || clip.stream_title || 'Highlight'}</div>
+          <div className="wk-pick-sub">{clip.channel ? clip.channel + ' \u00b7 ' : ''}{clip.clip_title || clip.stream_title || 'Highlight'}</div>
         </div>
 
         {campaigns.length > 0 && <div className="pn-camp">
@@ -9609,7 +9632,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
               {td.avatar_url ? <img src={td.avatar_url} alt=""/> : null}
               <span>Posting as <b>{td.nickname || td.username || 'your TikTok account'}</b>{td.username && td.nickname ? ' (@' + td.username + ')' : ''}</span>
             </div>
-            <video className="tt-vid" src={'/clips/' + clip.id + '/file'} controls playsInline preload="metadata"/>
+            <video className="tt-vid" src={clip.queued ? clip.file : ('/clips/' + clip.id + '/file')} controls playsInline preload="metadata"/>
             <div className="tt-f">
               <label htmlFor="tt-priv" className="tt-l">Who can view this video</label>
               <select id="tt-priv" className="ed-in" value={ttPriv} disabled={sent}
@@ -9655,7 +9678,7 @@ function PostNowDialog({ clip, platforms = [], connections = [], queue = [], onC
             </div>
           </>}
         </div>}
-        {!sent && <div className="sc-sub">Posts the clip as Highlightz caught it (widescreen). For a vertical
+        {!sent && !clip.queued && <div className="sc-sub">Posts the clip as Highlightz caught it (widescreen). For a vertical
           9:16 version, close this and use Edit first.</div>}
 
         {err && <div className="ed-warn">{err}</div>}
@@ -9724,7 +9747,7 @@ function SlotPicker({ at, items, onPick, onClose }) {
 /* One clip, in a drawer: caption, where it goes, when, and what happened.
    Everything saves as you go (PATCH on blur/change), and the drawer follows
    the item over the socket, so a post in progress updates in place. */
-function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) {
+function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop, onPostNow = null }) {
   const [cap, setCap]     = useState(item.caption || '');
   const [when, setWhen]   = useState(item.due_at ? toLocalInput(item.due_at) : '');
   const [picked, setPicked] = useState(new Set(item.platforms || []));
@@ -9791,6 +9814,17 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
       if(!r.ok){ let d='Could not start posting'; try{ d=(await r.json()).detail||d; }catch{} setBusyErr(d); }
     } catch { setBusyErr('Could not reach the server'); }
   };
+  // NOTHING THE SERVER CAN POST BY ITSELF (nothing ticked, or only TikTok,
+  // which is never automatic): the button used to be switched off here, while
+  // looking exactly as it does when it works. For every account whose only
+  // open platform is TikTok that was every clip in the queue. It now opens
+  // the Post dialog for THIS clip: where it goes, TikTok's own choices, Post.
+  const choosePost = () => {
+    setBusyErr('');
+    if (!onPostNow) { setBusyErr('Posting is not available on this account yet.'); return; }
+    onPostNow(queuedAsClip(item, cap));
+    onClose();
+  };
 
   const share = async () => {
     setBusyErr('');
@@ -9850,9 +9884,9 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
           {issues.map((t,i)=><div key={i} className="pub-warn">{t}</div>)}
           {!posting && !done && auto.length === 0 && (autoHeld
             // YouTube/Instagram not open to this account yet: only TikTok.
-            ? <div className="sc-sub">Post it to TikTok with the clip's <b>Post</b> button in the Clip Library. Automatic posting to YouTube and Instagram is coming soon.</div>
-            : <div className="sc-sub">To post now, tick {ap.or} above (connect it in <b>Settings</b>).
-              TikTok is posted by you from the clip's <b>Post</b> button in the Clip Library.</div>)}
+            ? <div className="sc-sub">Press <b>Post now</b> below to post it to TikTok. Automatic posting to YouTube and Instagram is coming soon.</div>
+            : <div className="sc-sub">To have it posted for you at its time, tick {ap.or} above (connect it in <b>Settings</b>).
+              To post it yourself now, TikTok included, press <b>Post now</b> below.</div>)}
           <div className="sc-sub">
             Connected {ap.and} accounts are posted to for you at this time; TikTok and the rest get a reminder and one-tap share.{ap.note ? ' ' + ap.note : ''}
             {manual.length > 0 && <> Open: {manual.map((p,i)=>(
@@ -9889,8 +9923,8 @@ function ScheduleDrawer({ item, platforms, connections = [], onClose, onDrop }) 
               had no Post now at all (owner, 2026-09-28: "I have no post now
               button"). With nothing to post to it is disabled and says why. */}
           {!posting && !done &&
-            <button className="rd-btn sm grad" onClick={postNow} disabled={auto.length === 0}
-              title={auto.length === 0 ? 'Choose ' + ap.or + ' above (and connect it in Settings) to post now. TikTok is posted from the Post button on a clip.' : ''}>
+            <button className="rd-btn sm grad" onClick={auto.length ? postNow : choosePost}
+              title={auto.length ? '' : 'Choose where it goes, then post it'}>
               <Icon name="upload" size={13}/>&nbsp;{st === 'failed' ? 'Retry' : 'Post now'}
             </button>}
           {shareable && manual.length > 0 && <button className="rd-btn sm" onClick={share}>
@@ -10439,7 +10473,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
       {postingNow && <AddClipPicker clips={clips} items={items} mode="now"
         onPick={c=>{ setPostingNow(false); onPostNow && onPostNow(c); }} onClose={()=>setPostingNow(false)}/>}
       {openItem && <ScheduleDrawer item={openItem} platforms={platforms} connections={connections}
-        onClose={()=>setOpenId(null)} onDrop={drop}/>}
+        onClose={()=>setOpenId(null)} onDrop={drop} onPostNow={onPostNow}/>}
     </div>
   );
 }

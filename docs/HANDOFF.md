@@ -10178,9 +10178,40 @@ or Instagram without saying the platform was open now say so. Tests:
 `tests/test_posting_gate.py` (13; six fail on the old poster). Full suite
 5146. The check was run here against a made-up store. Not run on production.
 
-**"it looks like the post button in general is not working I need this
-fixed" (owner, straight after the deploy). OPEN: NOT REPRODUCED, cause on
-production not known.**
+**FOUND AND FIXED (the owner's next message: "no like the post button is
+literally doing nothing when I press it"). It was the Scheduler's "Post now",
+and it was never a server fault.**
+- A queued clip's drawer (`ScheduleDrawer`) had `disabled={auto.length === 0}`
+  on "Post now": switched off whenever no ticked account is one the server
+  posts to by itself. TikTok is never one (its choices are the person's,
+  every post). **So for every account whose only open platform is TikTok,
+  which is every ordinary account, that button was dead on every clip in the
+  queue**, Autopilot's included.
+- And it did not look dead. There was no style at all for a disabled
+  `.rd-btn`: full colour, pointer cursor. Pressing it sent nothing and changed
+  nothing (reproduced in a browser at 1440 and 390 px). The reason was a hover
+  tooltip, which also named Instagram.
+- **Now:** the button is never switched off. With something the server can
+  post it posts, as before; otherwise it opens the Post dialog for THAT clip
+  (`choosePost` -> `queuedAsClip(item, caption)` -> the App's `PostNowDialog`),
+  with the accounts already ticked on the card and its caption, and the dialog
+  sends `upload_id` in place of a clip id (`publish_post_now` always took one
+  and reuses that clip's card). An account that cannot post at all is told so
+  on the screen. `.rd-btn:disabled` is now dimmed with a default cursor,
+  everywhere.
+- Tests: `tests/test_post_button_never_dead.py` (7). **In a browser** against
+  the running app, as an ordinary Pro account at 1440 and 390 px and as staff:
+  the button is enabled, pressing it opens the dialog with TikTok ticked and
+  the caption carried over, TikTok's choices are made, and "Post now to
+  TikTok" sends `POST /publish/post-now` with the upload id (202). The post
+  itself then fails here only because the test login is not a real TikTok
+  account.
+- **Lesson for the next "X is not working":** ask what the screen does before
+  reading the server. Two rounds went to the posting path, which was fine.
+
+*(What was written before the cause was known, kept because the rest of it
+still stands:)* **"it looks like the post button in general is not working I
+need this fixed" (owner, straight after the deploy).**
 - **Tried here, in a real browser against the running app**, as an ordinary
   Pro account and as staff, each with approved clips that have video and with
   connected accounts: Post on a Clip Library card opens the dialog; ticking

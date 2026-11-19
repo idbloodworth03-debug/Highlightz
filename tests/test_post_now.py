@@ -209,13 +209,21 @@ def test_the_scheduler_has_post_now_and_it_is_always_visible():
     drawer = _fn(page, "ScheduleDrawer")
     # No longer hidden behind "an account is connected and picked".
     assert "auto.length > 0 && !posting && !done" not in drawer
-    assert "disabled={auto.length === 0}" in drawer
+    # And since 2026-11-19 never switched off either: with nothing the server
+    # can post by itself it opens the Post dialog for that clip, because a
+    # switched-off button was a dead button for every TikTok-only account
+    # (tests/test_post_button_never_dead.py).
+    assert "disabled={auto.length === 0}" not in drawer
+    assert "onClick={auto.length ? postNow : choosePost}" in drawer
 
 
 def test_the_dialog_offers_tiktok_and_instagram_and_ticks_nothing():
     dlg = _fn(_page(), "PostNowDialog")
     assert "['tiktok', 'instagram', 'youtube', 'x']" in dlg       # X joined 2026-11-18
-    assert "useState(() => new Set())" in dlg, "something is pre-ticked"
+    # Nothing is pre-ticked for a caught clip. Only a clip that is already in
+    # the queue arrives with the accounts ticked on its own card.
+    assert ("useState(() => new Set((clip.queued ? clip.picked || [] : []).filter(id => canPostTo(conn[id]))))"
+            in dlg), "something is pre-ticked"
     assert "fetch('/publish/post-now'" in dlg
     # Live: follows the App's queue state, not a poll of its own.
     assert "queue || []).find(" in dlg and "setInterval" not in dlg

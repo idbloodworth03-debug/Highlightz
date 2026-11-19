@@ -244,7 +244,7 @@ def test_the_dashboard_names_the_platforms_that_are_open():
     assert "function autoPosting(connections)" in h
     # The lines that used to type "YouTube and Instagram" read it instead.
     assert "Connected {autoPosting(connections).and} accounts are posted to for you; TikTok goes out" in h
-    assert "To post now, tick {ap.or} above" in h
+    assert "To have it posted for you at its time, tick {ap.or} above" in h
     assert "Connected {ap.and} accounts are posted to for you at this time" in h
     assert "Connect {autoPosting(connections).or} in Settings" in h
     # With neither open the old wording stands (the TikTok-only dashboard).
