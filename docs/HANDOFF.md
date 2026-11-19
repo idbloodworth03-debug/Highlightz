@@ -10133,6 +10133,58 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## Are the Free pause rules being applied on the server: `scripts/reaper_check.py` (2026-11-19)
+
+**Owner:** "can you double check that all of the reaper bot settings are
+working and kicking off free tier users for all the cases I mentioned earlier
+I do not see it working". An audit (CLAUDE.md: read-only until a finding is
+verified on the real target). The tests and the browser run say the rules
+work; neither says anything about production. So:
+
+    cd /opt/highlightz && venv/bin/python scripts/reaper_check.py
+
+Read-only. For every Free account with a channel it reads the files the site
+runs on (channels and whether each is paused, the queue and when its newest
+clip landed, the saved last-request clock, the last accept or reject in the
+ledger) and puts the account in one of: paused for a full queue; paused for
+8 hours; watched with room in its queue; watched and inside its 15 minutes;
+or **SHOULD BE PAUSED AND IS NOT**, with the rule and how late (the only
+accounts it names). Then one verdict, worst first.
+
+**THE FIRST THING IT RULES OUT, because it is the likeliest cause of "I do
+not see it working":** the running site being OLDER than the code on disk.
+Several commands handed over on 2026-11-18 and 19 updated the files without
+restarting the site (`git fetch && git reset --hard` followed by a script:
+`split_trial.py`, `growth.py`), on purpose, so that a look did not cost a
+restart. After one of those the 15-minute rule and "stays paused until there
+is room" are in the files and NOT in the process, and pause nobody. The
+script compares when the site's process started (`/proc`) with when
+`src/dashboard/api.py` and `src/main.py` were last written, says so first,
+and prints the deploy command. **Whether that is what happened on production
+is not known until the owner pastes the output.**
+
+**The second likeliest, and the script says it in so many words:** nothing is
+broken and the accounts the owner sees still live have ROOM in their queue.
+No rule stops those. Free is watched until its queue is full, or 8 hours pass
+without a visit; a quiet channel on a Free account never fills 20 clips. If
+those are the accounts the owner wants gone, that is a new rule to decide
+(for example the hours allowance discussed the same day), not a fault.
+
+What it cannot see is which accounts have a tab open (memory, not a file).
+It does not need to: a full queue is paused within 15 minutes with or without
+one. The 8-hour check allows for the last-request clock being saved only
+every five minutes. After a restart nobody is late for 15 minutes, as in the
+rule itself.
+
+**Verified here:** `tests/test_reaper_check.py` (18). And the real,
+unmodified app (`python -m src.main`, real constants, nothing shortened) was
+started with a Free account whose queue had been full for an hour and no tab
+open: it paused the channel by itself five minutes after starting (the grace,
+to the second), logged `queue_full_pause` with `reason: away`, the channel's
+worker stopped retrying, and the check then read "EVERY FREE ACCOUNT IS WHERE
+THE RULES PUT IT". The 15-minute rule with tabs open was seen in a browser the
+day before (the section on it). Not run on production.
+
 ## How fast sign-ups are growing, and where that leads: `scripts/growth.py` (2026-11-19)
 
 **Owner:** "we grew so much in the past few days if we grow at this rate how
