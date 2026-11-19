@@ -4724,6 +4724,11 @@ Tests: `tests/test_audit_fixes_oct.py`.
 
 ## RELEASED to Pro with TikTok only (2026-10-05)
 
+> **CORRECTED 2026-11-19: the Oct 5 approval was TikTok's APP REVIEW, not the
+> Direct Post audit.** Setting `TIKTOK_AUDITED=true` below was a mistake made
+> from the "Your app is approved!" email. See "TikTok: approved app, unaudited
+> posting" (2026-11-19) further down before touching TikTok.
+
 Owner: "we have been approved for TikTok lets get this rolled out ASAP".
 Chose "Release to Pro" and "keep youtube and instagram to coming soon".
 
@@ -10256,6 +10261,41 @@ px: meter, dialog, buying through the return route, running out with the tab
 open (card, button, toast arrived with no reload), the webhook paying and the
 card going to "starting" live, the admin Hours tab and MRR line; no page
 errors, no sideways scroll. Not run on production.
+
+## TikTok: approved app, unaudited posting (2026-11-19)
+
+**Owner:** "I am still seeing some posts failing". `scripts/posting_check.py`
+on production, then a read of every TikTok attempt on record:
+
+- **TikTok:** no public post has ever gone out. Every post since 2026-10-05 asked
+  for the visibility the person chose (`TIKTOK_AUDITED=true`) and every one was
+  refused with "Please review our integration guidelines", the same refusal as
+  2026-09-18 (an unaudited app asking for more than private). The posts that did
+  go out, before Oct 5, were private and from staff.
+- **Why:** TikTok has two checks. The 2026-10-05 email ("Your app is approved! You
+  can now integrate your app with TikTok API and SDK") was the APP REVIEW: real
+  accounts can connect. The **Direct Post audit** is separate and has not been
+  applied for: the developer portal (developers.tiktok.com → Manage apps → the
+  app → Content Posting API) shows Direct Post on with "Posted content will be
+  subject to restrictions ... To lift these restrictions, apply for an audit" and
+  an **Apply** link (owner's screenshot, 2026-11-19).
+- **What to do:** apply for the audit (answers and demo script:
+  `docs/tiktok-submission.md`, updated for it). Until it passes,
+  `TIKTOK_AUDITED=false`, so posts go out private ("only you") instead of
+  failing; the post screen and the FAQ already say so in that state, and the
+  demo video needs it (a refused post shows nothing). A validated command that
+  flips it was handed over in chat; whether it was run is not recorded here.
+  Set it back to `true` only on the audit's own approval email.
+- **The other failures in the same reading were not bugs:** YouTube's project
+  quota (10,000 units a day, 1,600 an upload: about six uploads a day for every
+  account together; the owner asks Google for more on the YouTube Data API v3
+  Quotas page), and one channel's own YouTube daily limit. Both retry every 15
+  minutes for 24 hours (`poster.RETRY_AFTER_S`, `schedule.GRACE_S`); the
+  poster's many `post_failed` log lines are those retries, not separate posts.
+
+No code changed. Not verified: whether TikTok accepts a private post for an
+ordinary (non-staff) account from the unaudited app; the first one after the
+switch says.
 
 ## The admin page says which channels are paused (2026-11-19)
 

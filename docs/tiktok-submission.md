@@ -1,4 +1,14 @@
-# TikTok app review: answers and demo script
+# TikTok app review and Direct Post audit: answers and demo script
+
+**Status (2026-11-19).** The APP REVIEW passed on 2026-10-05 ("Your app is
+approved!": real accounts can connect). The **Direct Post audit has NOT been
+applied for**: the developer portal's Content Posting API panel still says
+"Posted content will be subject to restrictions outlined in Direct Post API -
+Developer Guidelines. To lift these restrictions, apply for an audit", with an
+Apply link. Until that audit passes TikTok accepts only private posts, and
+`TIKTOK_AUDITED` must be `false` on the server (with it `true`, every post asks
+for the person's chosen visibility and TikTok refuses it with "Please review
+our integration guidelines"). The answers below serve the audit form too.
 
 App name: **Highlightz**. Web: https://highlightz.app. Terms: https://highlightz.app/tos.
 Privacy: https://highlightz.app/privacy. Login Kit redirect URI:
@@ -42,7 +52,10 @@ Highlightz catches Twitch and Kick stream highlights; you edit a clip and post i
    content and the disabled Post, then switch off), the music-usage line.
 4. Press **Post now**. Show the processing notice.
 5. Open TikTok on the same account and show the post arriving (private until audit).
+   Record this with `TIKTOK_AUDITED=false` on the server: with it `true` the post
+   asks for the chosen visibility and TikTok refuses it, so there is nothing to show.
 6. Say: there is no automatic or scheduled TikTok posting; each one is a press of Post.
 
-Note for reviewers: the public site lists Scheduler/posting as "coming soon" because
-posting is in private beta for approved accounts.
+Note for reviewers: posting is part of the paid plans (Pro and Studio). TikTok is
+never posted to automatically: Autopilot and the Scheduler post only to YouTube, and
+every TikTok post is the person pressing Post on the screen shown above.
