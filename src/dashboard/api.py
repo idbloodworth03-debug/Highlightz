@@ -9221,10 +9221,19 @@ async def admin_list_users(request: Request):
     # a few million steps on the app's one loop per request.
     import collections as _c
     stream_n = _c.Counter(s.get("user_id") for s in list(_streams.values()))
+    # Of those, the ones PAUSED (the idle reaper, a full Free queue, a failing
+    # card). A paused channel stays on its owner's list on purpose (so it comes
+    # back with them) and runs nothing. The table used to show only the total,
+    # so an account the reaper had paused read exactly like one being watched
+    # (owner, 2026-11-19: "it still doesn't look like the reaper is removing
+    # the channels").
+    paused_n = _c.Counter(s.get("user_id") for s in list(_streams.values())
+                          if s.get("status") == "paused")
     clip_n = _c.Counter(c.get("user_id") for c in list(_clips.values()))
     for u in users:
         uid = u["id"]
         u["stream_count"] = stream_n.get(uid, 0)
+        u["streams_paused"] = paused_n.get(uid, 0)
         # What is in their library RIGHT NOW — a different question from how
         # many they have ever approved, and both are worth seeing.
         u["clip_count"] = clip_n.get(uid, 0)
@@ -19663,7 +19672,7 @@ function renderUsers(){
       + '<td><span class="plan ' + planClass(u.plan) + '">' + esc(u.plan_label || u.plan) + '</span>'
         + '<div class="plan-note ' + note[1] + '">' + esc(note[0]) + '</div>'
         + stageNote(u) + '</td>'
-      + '<td class="num">' + (u.stream_count||0) + '</td>'
+      + streamsCell(u)
       + '<td class="num">' + (u.clip_count||0) + '</td>'
       + '<td class="num">' + (u.clips_approved||0) + '</td>'
       + '<td class="num">' + (u.clips_rejected||0) + '</td>'
@@ -19826,6 +19835,22 @@ function dotClass(s){
   if(s === 'starting' || s === 'reconnecting') return 'dot dot-starting';
   return 'dot dot-offline';
 }
+// WHY A CHANNEL IS PAUSED, in words. Paused channels stay on their owner's
+// list on purpose (they come back with them) and run nothing, so the admin
+// page has to say "paused" plainly or a paused account reads exactly like one
+// being watched (owner, 2026-11-19).
+function pausedWhy(rec){
+  if(rec.hold === 'queue_full') return 'paused · review queue full';
+  if(rec.hold === 'billing') return 'paused · card failing';
+  return 'paused · away 8 hours';
+}
+// The Streams cell of the users table: what is being WATCHED, and beneath it
+// how many are paused. The total is the two together.
+function streamsCell(u){
+  const all = u.stream_count || 0, paused = u.streams_paused || 0, on = all - paused;
+  return '<td class="num" title="' + (paused ? n0(on) + ' watched, ' + n0(paused) + ' paused (they stay on the list and run nothing)' : '') + '">'
+    + n0(on) + (paused ? '<div class="sub">' + n0(paused) + ' paused</div>' : '') + '</td>';
+}
 
 async function openUser(u){
   DR_USER = u;
@@ -19910,21 +19935,33 @@ async function openUser(u){
   ]);
   if(DR_USER !== u) return;              // drawer moved on while we were loading
 
+  // Watched first, then paused, and each paused one says why (pausedWhy).
+  // It said "Monitored streams" over the paused ones too, so an account the
+  // reaper had paused read like one being watched (owner, 2026-11-19).
+  const pausedN = streams.filter(s => s.status === 'paused').length;
+  const ordered = streams.filter(s => s.status !== 'paused').concat(streams.filter(s => s.status === 'paused'));
   html += '<div><div class="dh" style="display:flex;align-items:center;gap:10px">'
-    + '<span style="flex:1">Monitored streams (' + streams.length + ')</span>'
+    + '<span style="flex:1">Channels (' + streams.length + ')'
+    + (pausedN ? ' &middot; ' + n0(streams.length - pausedN) + ' watched, ' + n0(pausedN) + ' paused' : '') + '</span>'
     + (streams.length > 1
         ? '<button class="btn btn-bad dr-stopall">Stop all</button>' : '')
     + '</div>';
   // data-ch carries the channel rather than the button's position, so the
   // handler cannot act on the wrong stream after the list re-renders.
-  html += streams.length
-    ? streams.map(s => '<div class="srow"><span class="' + dotClass(s.status||'offline') + '"></span>'
+  html += ordered.length
+    ? ordered.map(s => '<div class="srow"><span class="' + dotClass(s.status||'offline') + '"></span>'
         + '<span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
         + '<span class="ct">' + esc(s.platform) + ' · preset ' + esc(s.preset || 'default') + '</span></span>'
-        + '<span class="dim mono" style="text-transform:capitalize">' + esc(s.status||'offline') + '</span>'
+        + (s.status === 'paused'
+            ? '<span class="dim mono">' + esc(pausedWhy(s)) + '</span>'
+            : '<span class="dim mono" style="text-transform:capitalize">' + esc(s.status||'offline') + '</span>')
         + '<button class="btn btn-bad dr-stopone" data-ch="' + esc(s.channel) + '">Stop</button>'
         + '</div>').join('')
     : '<div class="dim">No streams registered.</div>';
+  if (pausedN) html += '<div class="dim" style="margin-top:6px">A paused channel runs nothing and holds no slot. '
+    + 'It stays on their list and starts again when they are back'
+    + (streams.some(s => s.status === 'paused' && s.hold === 'queue_full') ? ' (a full review queue: once they accept or reject a clip)' : '')
+    + '.</div>';
   html += '</div>';
 
   // LIFETIME decisions, straight off the ledger. Above this the drawer shows
@@ -21294,14 +21331,23 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
       api('/admin/users/' + encodeURIComponent(uid) + '/clips').catch(() => []),
     ]);
     if(DR_UID !== uid) return;
-    let more = '<div><div class="dh">Monitored channels (' + streams.length + ')</div>'
-      + (streams.length
-          ? streams.map(s => '<div class="srow"><span class="dot dot-'
+    // Watched first, then paused, each saying which. (This page has none of
+    // the main admin page's helpers, so it is said inline.)
+    const pausedN = streams.filter(s => s.status === 'paused').length;
+    const ordered = streams.filter(s => s.status !== 'paused').concat(streams.filter(s => s.status === 'paused'));
+    const pausedSays = s => s.hold === 'queue_full' ? 'paused · review queue full'
+      : s.hold === 'billing' ? 'paused · card failing' : 'paused · away 8 hours';
+    let more = '<div><div class="dh">Channels (' + streams.length + ')'
+      + (pausedN ? ' &middot; ' + (streams.length - pausedN) + ' watched, ' + pausedN + ' paused' : '') + '</div>'
+      + (ordered.length
+          ? ordered.map(s => '<div class="srow"><span class="dot dot-'
               + (s.status === 'live' ? 'live' : (s.status === 'starting' || s.status === 'reconnecting') ? 'starting' : 'offline')
               + '"></span><span style="flex:1;min-width:0"><b>' + esc(s.channel) + '</b>'
               + '<span class="ct">' + esc(s.platform || '') + '</span></span>'
-              + '<span class="dim mono">' + esc(s.status || 'offline') + '</span></div>').join('')
+              + '<span class="dim mono">' + esc(s.status === 'paused' ? pausedSays(s) : (s.status || 'offline')) + '</span></div>').join('')
           : '<div class="dim">None right now.</div>')
+      + (pausedN ? '<div class="dim" style="margin-top:6px">A paused channel runs nothing and holds no slot. It stays on their list and starts again when they are back'
+          + (streams.some(s => s.hold === 'queue_full') ? ' (a full review queue: once they accept or reject a clip)' : '') + '.</div>' : '')
       + '</div>';
     const SHOWN = 8;
     more += '<div><div class="dh">Recent clips (' + clips.length + (clips.length === 100 ? '+' : '') + ')</div>'

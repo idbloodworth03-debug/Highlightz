@@ -10133,6 +10133,41 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## The admin page says which channels are paused (2026-11-19)
+
+**Owner:** "it still doesn't look like the reaper is removing the channels"
+(after `reaper_check.py` had read clean on production).
+
+**The reaper pauses, it never removes, on purpose.** A paused channel stays
+on its owner's list, runs nothing, holds no slot, and comes back with them
+(`_pause_user_streams`, whose docstring records what deleting cost before:
+people came back to an empty list). That is unchanged. Removing channels is
+the admin's **Clean up** tab, by hand. If the owner wants paused Free
+channels taken off the list automatically after some time, that is a new rule
+to decide with them, not a fix.
+
+**What made it look broken, fixed:** the admin page counted paused channels
+as if they were watched. The users table's Streams column was the total
+(`stream_count`), and the account drawer listed every channel under
+"Monitored streams". Now:
+- `/admin/users` rows carry `streams_paused`; the Streams cell
+  (`streamsCell`) shows the channels being watched with "N paused" beneath;
+- the drawer says "Channels (N) · X watched, Y paused", lists watched first,
+  and each paused one says why (`pausedWhy`: review queue full / card
+  failing / away 8 hours), with a line saying what paused means; Stop and
+  Stop all are still there;
+- the feedback page's copy of the drawer says the same in its own words (it
+  has none of the main page's helpers; a first draft reused a name that page
+  already declared and would have blanked it, so every admin page's script is
+  now parsed by a test);
+- the Live now tile already left paused channels out ("N paused").
+
+Blast radius: admin display only, plus one count in `/admin/users`. Tests:
+`tests/test_admin_paused_channels.py` (11). In a browser against the running
+app (1440 and 390 px): the table read "0 / 1 paused" for paused accounts and
+"1" for a watched one, the drawer named each paused channel's reason, no page
+errors, no sideways scroll.
+
 ## Instagram is off for ordinary accounts, and the poster now asks (2026-11-19)
 
 **Owner:** "make sure instagram is off for users since it is not complete".
