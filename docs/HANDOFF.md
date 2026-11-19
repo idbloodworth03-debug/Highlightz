@@ -10196,6 +10196,20 @@ script means pauses.
 that moment; paying and staff accounts held the rest. Worth remembering when
 the question is what Free costs.
 
+**SECOND RUN, 20 minutes after the deploy (owner's paste, same day):
+CONFIRMED ON PRODUCTION.** The site had been started with the rule; every
+account that had been full, undecided and still live was paused inside those
+20 minutes (the pauses are in the journal as `queue_full_pause`); nothing was
+late for either rule; no rule logged an error; and the verdict read "EVERY
+FREE ACCOUNT IS WHERE THE RULES PUT IT". Free's share of the live channels
+fell further. The accounts still watched all had room in their queue, which
+is the plan. So the 15-minute rule, "stays paused until there is room" and
+the away rule are live and seen working on real accounts; the 8-hour rule had
+nobody late in either run. **Do not re-audit this without a new symptom.** If
+the owner wants the accounts with room stopped as well (some had not made a
+request in hours), that is a new rule, and the hours allowance discussed the
+same day is the place it would come from.
+
 **Verified here:** `tests/test_reaper_check.py` (18). And the real,
 unmodified app (`python -m src.main`, real constants, nothing shortened) was
 started with a Free account whose queue had been full for an hour and no tab
