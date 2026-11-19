@@ -484,6 +484,23 @@ a.rd-btn{text-decoration:none}
    not rest on hue alone. */
 .rd-toolbar-meta.warn{color:var(--pending)}
 .rd-toolbar-meta.warn svg{color:var(--pending)}
+/* Autopilot, named where clips are decided (AutopilotChip). A pill in the
+   title line, never a row of its own: nothing may be added above the first
+   clip on this screen (tests/test_dashboard_density.py). "off" is the one
+   that asks for a press, so it is the one drawn in the accent. */
+.rd-apchip{display:inline-flex;align-items:center;gap:var(--s-1);font:inherit;font-size:12px;font-weight:600;
+  line-height:1;padding:var(--s-2) var(--s-3);border-radius:999px;cursor:pointer;white-space:nowrap;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:var(--fg-2)}
+.rd-apchip svg{color:var(--acc)}
+.rd-apchip:hover{border-color:var(--acc);color:var(--fg)}
+.rd-apchip.on{border-color:rgba(46,224,138,.4);background:var(--live-soft);color:var(--fg)}
+.rd-apchip.on svg{color:var(--live)}
+.rd-apchip.off{border-color:var(--acc);background:var(--grad-soft);color:var(--fg)}
+.rd-apstrip{margin:var(--s-3) 0 0;padding:var(--s-3) var(--s-4);border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);background:var(--grad-soft)}
+.rd-apstrip .sc-sub{flex:1;min-width:220px;color:var(--fg-2)}
+.rd-apstrip .sc-sub b{color:var(--fg)}
+.rd-apstrip > svg{color:var(--acc);flex-shrink:0}
 .rd-toolbar-acts{display:flex;gap:8px;align-items:center;margin-left:auto}
 /* The controls row: what you are LOOKING at, kept apart from the row above,
    which is what you can DESTROY. */
@@ -4729,7 +4746,66 @@ const REFUSAL_COPY = {
   },
 };
 
-function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, refusals, onDismissRefusal, onGoTutorial, activePlatform = 'twitch' }) {
+/* AUTOPILOT, NAMED WHERE CLIPS ARE DECIDED AND EDITED (owner, 2026-11-19: "i
+   need the autopilot to be labeled in the clip review tab and the editor so
+   people use it more"). It had one door, its own tab; somebody approving
+   clips or cutting one by hand was never told that the product does the edit
+   and the scheduling for them.
+
+   ONE reading of the state for both places, from what the App already holds
+   (`autopilot` is kept live by autopilot_changed and refetchAll, `me` by
+   refetchAll), so the label cannot say "off" beside a switch that is on:
+     null  : say nothing. The feature is held back (UPLOADS_ENABLED off, the
+             Autopilot tab says "coming soon"), or its settings have not
+             arrived yet. A label for something nobody can open is noise.
+     'pro' : the plan does not include it. Named anyway: this is the person a
+             label is most use to, and the Autopilot tab says what it costs.
+     'on' / 'off' : the switch.
+   Pressing it OPENS the Autopilot tab. It does not flip the switch: turning
+   Autopilot on starts it through every clip already approved, and that is a
+   decision for the screen that says so. */
+function autopilotState(me, ap, uploadsOn) {
+  if (!uploadsOn || !me) return null;
+  if (me.plan_limits && !me.plan_limits.uploads && !me.is_admin) return 'pro';
+  if (!ap || !ap.config) return null;
+  return ap.config.enabled ? 'on' : 'off';
+}
+const AP_LABEL = {
+  on:  {chip: 'Autopilot on', act: 'Open Autopilot',
+        tip: 'Autopilot is on: every clip you approve is edited for vertical and added to the Scheduler by itself.'},
+  off: {chip: 'Autopilot off · turn on', act: 'Turn on Autopilot',
+        tip: 'Autopilot is off. Turn it on and every clip you approve is edited for vertical and added to the Scheduler for you.'},
+  pro: {chip: 'Autopilot · Pro', act: 'See Autopilot',
+        tip: 'Autopilot edits every clip you approve and adds it to the Scheduler for you. It is included with Pro.'},
+};
+// Clip Review: a pill in the title line.
+function AutopilotChip({ me, ap, uploadsOn, onOpen }) {
+  const st = autopilotState(me, ap, uploadsOn);
+  if (!st) return null;
+  return (
+    <button type="button" className={'rd-apchip ' + st} onClick={onOpen||undefined}
+      title={AP_LABEL[st].tip} aria-label={AP_LABEL[st].tip}>
+      <Icon name="zap" size={12}/>{AP_LABEL[st].chip}
+    </button>);
+}
+// Clip Editor: a line under the header, where there is room to say what it does.
+function AutopilotStrip({ me, ap, uploadsOn, onOpen }) {
+  const st = autopilotState(me, ap, uploadsOn);
+  if (!st) return null;
+  return (
+    <div className="sc-addrow rd-apstrip">
+      <Icon name="zap" size={16}/>
+      <span className="sc-sub">
+        {st === 'on' && <><b>Autopilot is on.</b> Every clip you approve is edited for vertical and added to the Scheduler by itself. Edit one here when you want to do it by hand.</>}
+        {st === 'off' && <><b>Autopilot is off.</b> It can make this edit for you: every clip you approve is edited for vertical and added to the Scheduler.</>}
+        {st === 'pro' && <><b>Autopilot</b> edits every clip you approve and adds it to the Scheduler for you. It is included with Pro.</>}
+      </span>
+      {onOpen && <button type="button" className={'rd-btn sm' + (st === 'off' ? ' grad' : '')} onClick={onOpen}>
+        <Icon name="zap" size={13}/>{AP_LABEL[st].act}</button>}
+    </div>);
+}
+
+function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onEdit, lost, me, onDismissLost, refusals, onDismissRefusal, onGoTutorial, activePlatform = 'twitch', autopilot = null, uploadsOn = false, onOpenAutopilot = null }) {
   const [showCull, setShowCull] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
@@ -4918,6 +4994,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
               rather than straight to Pro (owner, 2026-09-30). */}
           {libCapped && libLeft <= 0 &&
             <a className="rd-toolbar-meta warn" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a>}
+          <AutopilotChip me={me} ap={autopilot} uploadsOn={uploadsOn} onOpen={onOpenAutopilot}/>
           <div className="rd-toolbar-acts">
             {clipsArr.length > 0 && (
               <div style={{position:'relative'}}>
@@ -10348,7 +10425,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
 }
 
 function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = false, platforms = [],
-                        openUpload = null, onOpened = null }) {
+                        openUpload = null, onOpened = null, autopilot = null, onOpenAutopilot = null }) {
   const [uploads, setUploads] = useState([]);
   const [quota, setQuota]     = useState(null);
   const [over, setOver]       = useState(false);
@@ -10530,6 +10607,10 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
               </button>}
           </div>
         </div>
+
+        {/* Autopilot does this screen's job by itself; say so where the work
+            is being done by hand (AutopilotStrip). */}
+        <AutopilotStrip me={me} ap={autopilot} uploadsOn={uploadsOn} onOpen={onOpenAutopilot}/>
 
         {/* Admins bypass the release flags to exercise features on prod. Say
             so plainly, and name the exact flag still off — previewing a hidden
@@ -13230,7 +13311,7 @@ function RdApp() {
   const kickOpen = true;
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
-  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial')}}/>;
+  else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial'),autopilot,uploadsOn,onOpenAutopilot:()=>setRoute('autopilot')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}
@@ -13247,7 +13328,8 @@ function RdApp() {
       uploadsOn={uploadsOn} captionsOn={captionsOn} onSaved={cfg=>setAutopilot(a=>({...(a||{}), config:cfg}))}
       onOpenScheduler={()=>setRoute('schedule')} queue={queue}/>;
   else if(view==='uploads') screen=<UploadScreen me={me} uploadsOn={uploadsOn} importOn={importOn} captionsOn={captionsOn} platforms={platforms}
-      openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}/>;
+      openUpload={editorTarget} onOpened={()=>setEditorTarget(null)}
+      autopilot={autopilot} onOpenAutopilot={()=>setRoute('autopilot')}/>;
   else if(view==='training') screen=<TrainingScreen/>;
   else if(view==='landing') screen=<LandingScreen clips={clips} featured={featured} onToggle={toggleFeature} onMove={moveFeature} onGrab={grabFeature} onPlace={setPlacement} myUrls={myClipUrls}/>;
   else if(view==='feedback') screen=<FeedbackScreen onSeen={loadFbUnread}/>;

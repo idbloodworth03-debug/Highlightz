@@ -10133,6 +10133,49 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## Autopilot is named in Clip Review and in the Clip Editor (2026-11-19)
+
+**Owner:** "i need the autopilot to be labeled in the clip review tab and the
+editor so people use it more". Autopilot had one door, its own tab. Somebody
+approving clips, or cutting one by hand, was never told the product does the
+edit and the scheduling for them.
+
+- **One reading of its state for both places** (`autopilotState(me, ap,
+  uploadsOn)` in `aurora_html.py`): nothing while the feature is held back
+  (`UPLOADS_ENABLED` off) or its settings have not arrived; `'pro'` when the
+  plan does not include it (named anyway: that is who a label is most use
+  to); otherwise `'on'` or `'off'`. Read from state the app already keeps
+  live (`autopilot`: `autopilot_changed` and refetchAll -> refetchPublishing;
+  `me`), so no new event and nothing new to fetch.
+- **Clip Review: a pill IN the title line** (`AutopilotChip`): "Autopilot on",
+  "Autopilot off · turn on", "Autopilot · Pro". NOT a row of its own: nothing
+  may be added above the first clip on that screen
+  (`tests/test_dashboard_density.py`, and the long comment in `ReviewScreen`).
+- **Clip Editor: a line under its header** (`AutopilotStrip`), where there is
+  room to say what it does, with a button.
+- **Pressing either OPENS the Autopilot tab. It never flips the switch.**
+  Switching Autopilot on starts it through every clip already approved
+  (`autopilot_put`), and that is a decision for the screen that says so. For
+  a Free account the tab is the "Autopilot is a Pro feature" card with the
+  upgrade button.
+- The wording promises what the Autopilot tab itself promises (edited for
+  vertical, added to the Scheduler) and no more: no captions, no "posted for
+  you".
+- Not done, and a possible next step if the label is not enough: saying it at
+  the moment of approving (a note on the Approve button or a one-off toast),
+  and a label inside the editing window itself rather than on the Clip
+  Editor tab.
+
+Blast radius: two small components and their styles; no endpoint, no event,
+no change to what approving does. Tests: `tests/test_autopilot_label.py` (16;
+the state function is run in Node for ten cases). **In a real browser**
+against the running app: a Pro account saw "Autopilot off · turn on" in the
+Clip Review title line with the first clip where it was; another tab switched
+Autopilot on and the pill read "Autopilot on" with no reload; pressing it
+opened the Autopilot tab; the Clip Editor line read on, then off, live, and
+its button opened the tab; a Free account saw "Autopilot · Pro" and landed on
+the Pro card; no page errors and no sideways scroll at 1440 or 390 px.
+
 ## Are the Free pause rules being applied on the server: `scripts/reaper_check.py` (2026-11-19)
 
 **Owner:** "can you double check that all of the reaper bot settings are
