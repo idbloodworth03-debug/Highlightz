@@ -193,7 +193,7 @@ def test_late_on_current_code_is_called_a_fault_and_names_who(sc):
     out = _report(sc, live=["id-stuck-one:stuck-onech"])
     assert "SHOULD BE PAUSED AND IS NOT       :     2" in out
     assert "stuck-one" in out and "queue full (20/20), nothing decided" in out and "live now" in out
-    assert "stuck-two" in out and "no visit in over 8 hours" in out
+    assert "stuck-two" in out and "no visit in over 2 hours" in out
     assert "2 ACCOUNT(S) SHOULD HAVE BEEN PAUSED AND WERE NOT, on a site running the" in out
     assert "fine" not in out.replace("fine.", ""), "an account that is where it should be was named"
 
@@ -207,13 +207,13 @@ def test_an_error_from_a_rule_outranks_everything_but_a_stale_site(sc):
 
 def test_all_in_place_says_so_and_says_who_is_still_watched_and_why(sc):
     for i in range(5):
-        sc.acct(f"r{i}", pending=i, seen_ago=600 + i * 4000)
+        sc.acct(f"r{i}", pending=i, seen_ago=600 + i * 1500)              # all inside the 2 hours
     sc.acct("held", pending=20, status="paused", hold="queue_full")
     out = _report(sc, events={"queue_full_pause": 1}, live=["id-r0:r0ch", "id-other:x"], live_total=2)
     assert "EVERY FREE ACCOUNT IS WHERE THE RULES PUT IT" in out
     assert "The 5 still watched have ROOM in their queue. No rule stops those" in out
     assert "that is a new rule to decide, not a" in out
-    assert "Of the 5 watched with room: 4 have not made a request in over an hour" in out   # 600 s, then 4,600 up
+    assert "Of the 5 watched with room: 3 have not made a request in over an hour" in out   # 3,600 s and up
     assert "Their queues hold 10 clips of the 100 they could; 1 of them hold none." in out
     assert "Live right now: 1 of the site's 2 live channels are Free accounts'." in out
     assert "SHOULD BE PAUSED AND IS NOT       :     0" in out

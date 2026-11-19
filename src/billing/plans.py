@@ -139,8 +139,9 @@ _HL_PRIORITY = "highlight_priority"
 
 # WHETHER CHANNELS PAUSE WHEN THE ACCOUNT GOES QUIET (owner, 2026-10-15).
 #
-# The idle reaper pauses an account's channels after eight hours without the
-# person using the site; the next visit resumes them. Free only. Somebody on
+# The idle reaper pauses an account's channels after two hours without the
+# person using the site (eight until 2026-11-19; api._IDLE_STREAM_TIMEOUT); the
+# next visit resumes them. Free only. Somebody on
 # Starter or Pro is paying for Highlightz to watch while they sleep — a Pro
 # customer's channels sat paused while the streamer they follow went live —
 # so a paid plan, trials and staff included (they resolve to one), keeps

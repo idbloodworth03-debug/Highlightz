@@ -200,7 +200,7 @@ def test_the_run_unattended_claim_matches_the_code():
 
     api_src = Path("src/dashboard/api.py").read_text()
     assert "idle_stream_reaper" in api_src
-    assert "8 hours" in api.LANDING_HTML
+    assert "2 hours" in api.LANDING_HTML and "8 hours" not in api.LANDING_HTML
 
 
 def test_seo_layer():
@@ -683,7 +683,7 @@ def test_the_faq_explains_highlight_clips_and_reads_its_numbers_from_the_plans()
         assert f'class="faq-q">{q}</summary>' in faq, f"missing: {q}"
     ch = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "pro", "studio"))
     assert "<b>%d</b> on Free, <b>%d</b> on Pro, <b>%d</b> on Studio" % tuple(ch) in faq
-    assert "every 30 seconds" in faq and "8 hours" in faq
+    assert "every 30 seconds" in faq and "2 hours" in faq
     # Native disclosure, no script: the answers open without JavaScript.
     assert faq.count("<details class=\"faq-item\">") == faq.count('class="faq-q"') >= 12
 

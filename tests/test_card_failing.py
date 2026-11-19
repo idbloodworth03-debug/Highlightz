@@ -288,7 +288,8 @@ def test_a_held_channel_says_why_it_is_paused():
     # Two places (the card, the detail head). Since 2026-11-18 a third reason
     # sits between them: a Free queue that filled with the tab closed.
     assert SRC.count("==='billing' ? 'paused · payment failed' : ") == 2
-    assert SRC.count("==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return'") == 2
+    # And since 2026-11-19 going quiet says how long (tests/test_idle_two_hours.py).
+    assert SRC.count("==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away'") == 2
 
 
 def test_no_new_event_went_out_without_a_handler():

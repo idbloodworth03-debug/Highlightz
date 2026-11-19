@@ -2217,8 +2217,10 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-user-chip .uc-name{display:none}
   .rd-user-chip{padding:4px;gap:0}
 
-  /* Toast: no bottom bar to sit above now */
-  .rd-toast{bottom:20px;font-size:12px;padding:8px 16px;max-width:90vw;text-align:center}
+  /* Toast: no bottom bar to sit above now. A rounded box, not a pill: a
+     pill radius on a message that wraps to several lines drew a circle
+     (seen 2026-11-19 with the pause notes). One line still reads as a pill. */
+  .rd-toast{bottom:20px;font-size:12px;padding:8px 16px;max-width:90vw;text-align:center;border-radius:var(--r-lg)}
 }
 /* ═══ Aurora v2 — pure-CSS visual layer. Appended last so it wins at equal
    specificity; NO markup/logic depends on it. Theme-aware: every accent is
@@ -2981,8 +2983,20 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
   const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
-  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : s.hold==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return') : s.status;
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : s.hold==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away') : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
+  // Paused for going quiet (no hold): the person may be right here, with the
+  // tab open and untouched (Free pauses after 2 hours without a request), so
+  // the card offers the way back instead of waiting for a click elsewhere.
+  // The server applies its own rules; the result arrives as stream_updated.
+  const idlePaused = s.status==='paused' && !s.hold;
+  const [resuming, setResuming] = useState(false);
+  const resume = async () => {
+    if (resuming) return;
+    setResuming(true);
+    try { await fetch('/streams/resume', {method:'POST'}); } catch (e) {}
+    finally { setResuming(false); }
+  };
   return (
     <div className="rd-stream">
       <div className="rd-stream-top">
@@ -3002,6 +3016,12 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
           <button className="rd-x" onClick={()=>onRemove(s.channel)} title="Remove"><Icon name="x" size={14}/></button>
         </div>
       </div>
+      {/* Its own line, under the name: in the top row it squeezed the
+          channel name to a few letters on the narrow card. */}
+      {idlePaused &&
+        <button className="rd-btn grad sm" onClick={resume} disabled={resuming}
+          title="Start watching this channel again" style={{width:'100%',marginTop:'var(--s-2)'}}>
+          <Icon name="radio" size={12}/>{resuming ? 'Starting…' : 'Resume watching'}</button>}
       {/* ABOVE THE SCORE, not under the stats (owner, 2026-09-19: "make this
           go to the top I need users to see this"). While a channel is
           calibrating the trigger score is pinned at 0 and the card is
@@ -5173,7 +5193,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
-  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : active.hold==='queue_full' ? 'paused · review queue full' : 'paused · resumes when you return') : active.status;
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : active.hold==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away') : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
@@ -12865,7 +12885,7 @@ function RdApp() {
         // _queue_pause_words) so the toast and the bell note cannot disagree;
         // the channels themselves arrive as stream_updated.
         else if(msg.event==='queue_pause'){if(msg.message)flash(msg.message);}
-        else if(msg.event==='streams_paused_idle'){flash('Your channels were paused after 8 hours away. They start again by themselves next time you open Highlightz. Paid plans keep watching while you are away.');}
+        else if(msg.event==='streams_paused_idle'){flash('Paused after 2 hours without you using Highlightz. Press Resume watching to start again. Paid plans keep watching while you are away.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is
         // indistinguishable from a bug to the person it happens to.

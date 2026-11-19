@@ -198,8 +198,9 @@ def test_paused_users_is_rebuilt_from_disk_so_a_restart_cannot_strand_anyone():
 
 def test_the_dashboard_says_paused_means_it_comes_back():
     from src.dashboard.aurora_html import DASHBOARD_HTML as h
-    assert h.count("'paused · resumes when you return'") == 2, \
+    # 2 hours since 2026-11-19 (tests/test_idle_two_hours.py).
+    assert h.count("'paused · 2 hours away'") == 2, \
         "both the card and the detail header must explain the state"
-    assert "They start again by themselves next time you open Highlightz." in h
+    assert "Press Resume watching to start again." in h
     assert "Restart them from the Live Streams tab" not in h, \
         "the toast still tells users to re-add channels by hand"

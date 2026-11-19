@@ -10133,6 +10133,49 @@ line for an `active` account with or without drift (tested), and
 `paying_since_of` reads a Stripe object by attribute as the rest of that
 function does.
 
+## Free pauses after 2 hours without using the site, not 8 (2026-11-19)
+
+**Owner:** "do 2 hours for free", after `reaper_check.py` on production
+showed every Free account where the rules put it, with a handful still
+watched because their queue had room and nobody had been there for hours.
+
+- `api._IDLE_STREAM_TIMEOUT = 7200` (`IDLE_PAUSE_HOURS = 2`). Still only plans
+  that pause (`plans.pauses_when_idle`: Free and locked); a paid plan, a trial
+  and staff return before the idle check, as before.
+- **"Using" is unchanged:** an authenticated request, or a tab connecting. The
+  tab's keepalive is NOT activity (deliberate: an abandoned open tab must go
+  idle). At 8 hours nobody noticed; at 2 a Free user with the tab open and
+  untouched may be right there when it pauses. So:
+  - the channel card shows **Resume watching** for a channel paused this way
+    (no `hold`), on its own line under the name (in the top row it squeezed
+    the name), calling the new **`POST /streams/resume`**, which runs
+    `_resume_user_streams` (every hold still applies: billing and a full
+    queue stay paused) and reaches the tab as `stream_updated`;
+  - the card and the detail head read "paused · 2 hours away"; the toast
+    "Paused after 2 hours without you using Highlightz. Press Resume watching
+    to start again. Paid plans keep watching while you are away.";
+  - on phones a toast that wraps is now a rounded box (`--r-lg`), not a pill
+    radius that drew a circle.
+- Said everywhere it is said: the landing sentence (which also said monitoring
+  stopped after 8 hours for everybody, wrong since paid plans stopped
+  pausing), the FAQ, llms.txt, both admin drawers ("paused · away 2 hours"),
+  `plans.py`, and `reaper_check.py` (its number and words now come from one
+  constant; a test holds it equal to the site's).
+- **On the first deploy:** `_user_last_active` is saved to disk, so about five
+  minutes after the restart every Free account that has not made a request in
+  2 hours is paused at once (`streams_paused_idle`). Tabs that reconnect after
+  the restart stamp activity on connect, so anyone with a tab open is given a
+  fresh 2 hours from the restart.
+
+Blast radius: Free and locked accounts only, the idle rule's number; the
+queue-full rules and the billing hold are untouched. Tests:
+`tests/test_idle_two_hours.py` (14), five older tests updated to the new
+words. **In a browser** against the running app, at 1440 and 390 px: the real
+idle pause fired while the tab was open, the toast and "paused · 2 hours away"
+arrived with no reload and no request from the page, Resume watching turned
+the card to "starting" within 100 ms, no page errors, no sideways scroll.
+Not run on production.
+
 ## The admin page says which channels are paused (2026-11-19)
 
 **Owner:** "it still doesn't look like the reaper is removing the channels"

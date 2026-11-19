@@ -13,10 +13,10 @@ channels are paused when:
      minutes);
   2. its review queue has been full for 15 minutes with nothing accepted or
      rejected, whatever tabs are open;
-  3. it has not opened the dashboard for 8 hours.
+  3. it has not used the dashboard for 2 hours (8 until 2026-11-19).
 A channel paused for a full queue stays paused until the queue has room.
 AND WHAT IS NOT A RULE: a Free account whose queue has room, and which has
-been at the dashboard in the last 8 hours, is watched. That is the plan.
+been at the dashboard in the last 2 hours, is watched. That is the plan.
 
 WHAT THIS DOES. For every Free account with a channel it reads the same
 files the site runs on (the channels and whether each is paused, the clips
@@ -34,7 +34,7 @@ WHAT IT CANNOT SEE, and how that is handled. Which accounts have a tab open
 is in the running site's memory, not in a file. It does not need it: a full
 queue is paused within 15 minutes with or without a tab, so anything full
 for longer and still watched is late by either rule. When an account last
-made a request is saved every five minutes, so the 8-hour check allows for
+made a request is saved every five minutes, so the 2-hour check allows for
 that.
 
 Read-only. Prints counts, and the NAME of an account only when it should
@@ -53,7 +53,8 @@ sys.path.insert(0, str(ROOT))
 
 UNIT = "highlightz"
 FULL_FOR = 900              # api._QUEUE_FULL_UNREVIEWED
-IDLE_FOR = 28800            # api._IDLE_STREAM_TIMEOUT
+IDLE_FOR = 7200             # api._IDLE_STREAM_TIMEOUT
+IDLE_WORDS = f"{IDLE_FOR // 3600} hours"
 QUEUE_SLACK = 180           # the rule is asked every minute; three is late
 IDLE_SLACK = 900            # asked every five minutes, the clock saved every five
 LIVE_NOTE_FRESH_S = 180.0
@@ -274,7 +275,7 @@ def report(rows: list[dict], *, now: float, started: float | None, changed: floa
     out.append(f"  paused, review queue full         : {kinds['held']:>5,}"
                + (f"   ({sum(1 for r in rows if r['kind'] == 'held' and r.get('room'))} have room again and restart on their next visit)"
                   if kinds["held"] else ""))
-    out.append(f"  paused, 8 hours without a visit   : {kinds['idle']:>5,}")
+    out.append(f"  paused, {IDLE_WORDS} without a visit   : {kinds['idle']:>5,}")
     if kinds["billing"]:
         out.append(f"  paused, card failing              : {kinds['billing']:>5,}")
     out.append(f"  watched, queue has room           : {kinds['room']:>5,}   <- the plan: Free is watched until its queue is full")
@@ -285,7 +286,7 @@ def report(rows: list[dict], *, now: float, started: float | None, changed: floa
         gone = sorted(r.get("away_s", 0.0) for r in roomy)
         hour = sum(1 for s in gone if s >= 3600)
         out.append(f"  Of the {len(roomy):,} watched with room: {hour:,} have not made a request in over an hour")
-        out.append(f"  (the longest {_ago(gone[-1])}); they are watched until the queue fills or 8 hours pass.")
+        out.append(f"  (the longest {_ago(gone[-1])}); they are watched until the queue fills or {IDLE_WORDS} pass.")
         out.append(f"  Their queues hold {sum(r['used'] for r in roomy):,} clips of the "
                    f"{sum(r['cap'] for r in roomy):,} they could; "
                    f"{sum(1 for r in roomy if r['used'] == 0):,} of them hold none.")
@@ -297,7 +298,7 @@ def report(rows: list[dict], *, now: float, started: float | None, changed: floa
         out += ["", "=" * 70, "SHOULD BE PAUSED AND IS NOT  (worst first)", "=" * 70]
         for r in sorted(late, key=lambda r: -r["late_s"])[:15]:
             why = (f"queue full ({r['used']}/{r['cap']}), nothing decided" if r["kind"] == "LATE_QUEUE"
-                   else "no visit in over 8 hours")
+                   else f"no visit in over {IDLE_WORDS}")
             out.append(f"  {r['name']:<28} {why:<40} {_ago(r['late_s'])} late"
                        + ("   live now" if r["live"] else ""))
         if len(late) > 15:
@@ -347,7 +348,7 @@ def report(rows: list[dict], *, now: float, started: float | None, changed: floa
                 "  is being watched."]
         if kinds["room"]:
             out += [f"  The {kinds['room']:,} still watched have ROOM in their queue. No rule stops those: Free",
-                    "  is watched until its queue is full, or 8 hours pass without a visit. If those",
+                    f"  is watched until its queue is full, or {IDLE_WORDS} pass without a visit. If those",
                     "  are the ones you expected to be gone, that is a new rule to decide, not a",
                     "  broken one."]
     return out

@@ -176,7 +176,7 @@ def test_the_faq_the_brief_and_the_toast_say_free_only():
     # closed and, after 15 minutes with nothing decided, with it open
     # (tests/test_free_queue_pause.py); the 8 hours still stand.
     assert "On Free it keeps watching, with the tab open or closed, until your review" in faq
-    assert "queue is full or 8 hours have passed without you opening the dashboard" in faq
+    assert "queue is full or 2 hours have passed without you using the dashboard" in faq
     assert "Monitoring stops after 8 hours without you opening the dashboard, so a" not in faq
     brief = TestClient(api.app).get("/llms.txt").text
     assert "Paid plans keep watching while you are away;" in brief

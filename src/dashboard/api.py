@@ -762,7 +762,15 @@ def _load_activity() -> dict[str, float]:
 
 
 _user_last_active: dict[str, float] = _load_activity()
-_IDLE_STREAM_TIMEOUT = 28800  # 8 hours
+# HOW LONG A FREE ACCOUNT MAY GO WITHOUT USING THE SITE before its channels
+# pause (plans.pauses_when_idle: Free and locked; a paid plan never pauses).
+# 8 hours until 2026-11-19, then 2 (owner: "do 2 hours for free"), after the
+# production check showed Free accounts with room in their queue watched for
+# hours with nobody there. "Using" is an authenticated request or a tab
+# connecting; the tab's keepalive is not, so a tab left open and untouched
+# counts as away. The channel card offers Resume for exactly that case.
+_IDLE_STREAM_TIMEOUT = 7200  # 2 hours
+IDLE_PAUSE_HOURS = _IDLE_STREAM_TIMEOUT // 3600
 
 # ── FREE WATCHES WHILE YOU ARE AWAY UNTIL THE QUEUE IS FULL ──────────────────
 # Owner, 2026-11-18: "Free tier users need to have their lives turned off
@@ -1991,10 +1999,10 @@ async def me(request: Request):
                                 # these to list them and to show the Direct
                                 # support row; without them here a Studio
                                 # subscriber's screen looks like Pro.
-                                # Free only: watching stops after 8 hours
-                                # away, and sooner if the review queue fills
-                                # with no tab open. The dashboard uses it to
-                                # say so BEFORE it happens.
+                                # Free only: watching pauses after
+                                # IDLE_PAUSE_HOURS away, and when the review
+                                # queue is full. The dashboard uses it to say
+                                # so BEFORE it happens.
                                 "pauses_when_idle": bool(limits.get("pauses_when_idle")),
                                 "priority": bool(limits.get("priority")),
                                 # Pro and Studio go before the accounts that
@@ -6977,7 +6985,8 @@ async def idle_stream_reaper() -> None:
                     if await _pause_if_queue_full(uid, db_user, now, queues.get(uid, (0, 0.0))):
                         continue
 
-                # Idle timeout — stop if no HTTP activity in 8 hours.
+                # Idle timeout — pause if no HTTP activity in _IDLE_STREAM_TIMEOUT
+                # (2 hours since 2026-11-19; Free only, paid returned above).
                 # A user with a registered stream and NO activity record has
                 # not been seen since before the record existed, so fall back
                 # to when the stream was added rather than to `now`. Defaulting
@@ -8889,6 +8898,22 @@ async def websocket_endpoint(ws: WebSocket):
             #   2. The user manually removes the stream
             #   3. The idle reaper fires after 8 hours of no HTTP activity
         log.info("ws_disconnected", user=uid)
+
+
+@app.post("/streams/resume")
+async def resume_streams(request: Request):
+    """Start this account's channels that paused because it went quiet.
+
+    Any authenticated request already does this (AuthMiddleware: "they are
+    back"). This is the button for the one case that is not a request: a tab
+    left open and untouched for IDLE_PAUSE_HOURS, whose card now says paused.
+    The same rules as every resume: a channel held for a failing card or for
+    a full review queue stays paused (_resume_user_streams), and going live
+    still asks the live-slot gate. Each restarted channel reaches the tab as
+    `stream_updated`."""
+    uid = _current_user_id(request)
+    _paused_users.discard(uid)
+    return {"resumed": await _resume_user_streams(uid)}
 
 
 @app.post("/streams/{channel}/force-clip")
@@ -12360,7 +12385,7 @@ comparison — is at https://highlightz.app/llms-full.txt.
   rechecked every 30 seconds. Paid plans keep watching while you are away;
   on Free, monitoring continues, with the dashboard open or closed, until the
   review queue is full (it resumes once a clip is accepted or rejected), and
-  pauses after 8 hours without the dashboard being opened and resumes on the
+  pauses after 2 hours without the dashboard being used and resumes on the
   next visit.
 - Scores each second from seven live signals against that channel's own
   threshold, so a small channel and a huge one are judged the same way:
@@ -14080,7 +14105,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <div class="watch-head">
       <h2 class="disp l-h" id="watch-h">Ten streams are live right now.</h2>
-      <p class="l-sub">Studio watches thirty channels at once, Pro ten, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is, and monitoring stops after 8 hours without you opening the dashboard.</p>
+      <p class="l-sub">Studio watches thirty channels at once, Pro ten, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is. On Free, monitoring pauses after 2 hours without you using the dashboard, and starts again when you are back.</p>
       <!-- Both platforms, stated once (owner, 2026-09-16: "market kick on
            the landing page"). Two tiles, not a section: the page keeps its
            eight. What differs is only what the clip IS on each platform. -->
@@ -15980,9 +16005,9 @@ def _faq() -> str:
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
          "until it is. On Pro and Studio it keeps watching for as long as the channel is in "
          "your list. On Free it keeps watching, with the tab open or closed, until your review "
-         "queue is full or 8 hours have passed without you opening the dashboard, whichever "
+         "queue is full or 2 hours have passed without you using the dashboard, whichever "
          "comes first. A full queue pauses the channel until you accept or reject a clip; the "
-         "8 hours end on your next visit."),
+         "2 hours end on your next visit, or press Resume watching on the channel."),
         ("How many channels can it watch at once?",
          f"<b>{free['max_streams']}</b> on Free, <b>{pro['max_streams']}</b> on Pro, "
          f"<b>{sd['max_streams']}</b> on Studio. At the same time, not in rotation, and each one "
@@ -19842,7 +19867,7 @@ function dotClass(s){
 function pausedWhy(rec){
   if(rec.hold === 'queue_full') return 'paused · review queue full';
   if(rec.hold === 'billing') return 'paused · card failing';
-  return 'paused · away 8 hours';
+  return 'paused · away 2 hours';
 }
 // The Streams cell of the users table: what is being WATCHED, and beneath it
 // how many are paused. The total is the two together.
@@ -21336,7 +21361,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     const pausedN = streams.filter(s => s.status === 'paused').length;
     const ordered = streams.filter(s => s.status !== 'paused').concat(streams.filter(s => s.status === 'paused'));
     const pausedSays = s => s.hold === 'queue_full' ? 'paused · review queue full'
-      : s.hold === 'billing' ? 'paused · card failing' : 'paused · away 8 hours';
+      : s.hold === 'billing' ? 'paused · card failing' : 'paused · away 2 hours';
     let more = '<div><div class="dh">Channels (' + streams.length + ')'
       + (pausedN ? ' &middot; ' + (streams.length - pausedN) + ' watched, ' + pausedN + ' paused' : '') + '</div>'
       + (ordered.length

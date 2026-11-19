@@ -72,7 +72,7 @@ def test_the_streams_cell_shows_what_is_watched_and_beneath_it_what_is_paused():
 @pytest.mark.parametrize("rec, said", [
     ({"status": "paused", "hold": "queue_full"}, "paused · review queue full"),
     ({"status": "paused", "hold": "billing"}, "paused · card failing"),
-    ({"status": "paused"}, "paused · away 8 hours"),
+    ({"status": "paused"}, "paused · away 2 hours"),
 ])
 def test_each_paused_channel_says_why(rec, said):
     import json
