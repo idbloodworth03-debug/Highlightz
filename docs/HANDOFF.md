@@ -10176,6 +10176,87 @@ arrived with no reload and no request from the page, Resume watching turned
 the card to "starting" within 100 ms, no page errors, no sideways scroll.
 Not run on production.
 
+## Free gets 5 hours of live watching a week; more is $1 an hour (2026-11-19)
+
+**Owner:** "lets get started with the free tiers only getting 5 hours a week
+and they can pay for more and lets have it be 1$ an hour. Also make sure we
+can track this in the admin page and see who buys it etc." (after asking for
+the pros and cons of exactly this). Decided with the owner; do not relitigate.
+
+**The rules** (`src/billing/watch_hours.py`, one module):
+- **What is counted:** time a channel holds a LIVE SLOT (`acquire_live_slot`
+  starts the clock in `api._watch_mark`, `release_live_slot` stops it,
+  `watch_hours_task` folds it in every 60 s, never more than 120 s at once so a
+  stalled loop is not hours of somebody's watching). Offline, paused, queued
+  or listed costs nothing and counts nothing. Two channels live count twice.
+- **The week:** Monday 00:00 UTC. Free hours first, then bought hours.
+  **Bought hours do not expire** and carry across weeks.
+- **Who:** plans with `meters_watching` (Free only). Pro, Studio, trials and
+  staff are never counted. `FREE_WATCH_HOURS_WEEK` in `.env` (default 5);
+  **0 switches all of it off** and every public page goes back to "no time
+  limit" by itself (the pages read `watch_hours.public_words`).
+- **The price:** `PRICE_CENTS = 100`, sold in `PACKS = (5, 10, 25)`. Not one
+  hour at a time: a $1 charge loses about a third to the card fee, and $1
+  checkouts are what card testers use. Every pack is still $1 an hour.
+- **Out of hours:** `acquire_live_slot` refuses a slot, and within the minute
+  `watch_hours_once` pauses the account's channels with **hold `"hours"`**,
+  broadcasts `watch_hours` (with a toast) and leaves one bell note a week.
+  A visit does NOT restart it (`_may_resume_now`, `_resume_user_streams`);
+  hours do: buying, the week turning over, or a paid plan. That restart is
+  live (`stream_updated` + `watch_hours`), within the minute.
+
+**Buying:** `POST /billing/hours/checkout` (Free only, a real pack, the
+server's price) → Stripe Checkout, `mode: payment`, metadata `kind:
+"watch_hours"`. Credited by the webhook (`checkout.session.completed`, the
+event campaigns already use) AND by the return route `GET /billing/hours/paid`
+(asks Stripe directly, only for the signed-in account's own session), exactly
+once per session id (the ledger `watch_hour_purchases.jsonl` is the check).
+A session whose amount is not hours × $1 credits nothing and logs
+`watch_hours_amount_mismatch`. **Unverified on production:** whether the
+Stripe webhook endpoint is subscribed to `checkout.session.completed`. If it
+is not, the return route still credits anyone who comes back from Stripe;
+somebody who closes the tab on Stripe's page is credited only by the webhook.
+
+**What people see:** a meter at the top of Monitored streams (free left,
+bought left, when it resets in their clock, Buy hours); a Buy hours dialog
+(5/10/25, with the Pro line under it); a paused card reads "paused · out of
+watching hours" with **Buy hours to keep watching**; the return from Stripe
+toasts. `/me` carries `watch_hours`; the socket event `watch_hours` keeps the
+meter moving for anyone live and lands every change (pause, purchase,
+restart) with no reload.
+
+**Admin:** a **Hours** tab (`GET /admin/hours`): totals this week / 7 days /
+all time, every purchase newest first with who, how many, what was paid,
+their running total and whether the webhook or the return confirmed it, and
+every Free account's week (used, left, bought, paused for it). The MRR card
+adds "+ $X in watching hours this week (N buyers)": one-off payments, shown
+beside MRR, never in it. The user drawer has a Watching row; paused channels
+read "paused · out of watching hours". `scripts/reaper_check.py` counts the
+new pause separately and knows its log lines.
+
+**Public copy, said everywhere:** landing (strap line, watch section, plan
+table row "Live watching", pricing lead, FAQ, meta and share cards), the
+sign-in note, the upgrade page (Pro: "Unlimited live watching"), /compare (it
+said nothing is metered; now "on Pro and Studio, nothing", with Free's hours
+in the same row), the tutorial, llms.txt and llms-full.txt, the Terms (a
+generated paragraph: what is counted, the week, packs, one-off, no expiry,
+refund terms apply) and the Privacy Policy (the weekly count, the balance and
+the purchase record; deleting an account deletes the balance, the purchase
+lines stay as the payment record).
+
+**On the first deploy:** every Free account starts this week with the full
+5 hours from the moment of the restart (nothing was counted before). The
+first `streams_paused_hours` lines appear 5 hours of live watching after that.
+
+Blast radius: Free accounts' live slots and the copy above. Paid plans never
+reach the meter (`metered()` is False before anything is counted). Tests:
+`tests/test_watch_hours.py` (39) and seven older copy tests moved to the
+helper's wording. **In a browser** against the running app at 1440 and 390
+px: meter, dialog, buying through the return route, running out with the tab
+open (card, button, toast arrived with no reload), the webhook paying and the
+card going to "starting" live, the admin Hours tab and MRR line; no page
+errors, no sideways scroll. Not run on production.
+
 ## The admin page says which channels are paused (2026-11-19)
 
 **Owner:** "it still doesn't look like the reaper is removing the channels"

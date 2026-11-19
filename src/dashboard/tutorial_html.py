@@ -32,6 +32,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
+from src.billing import watch_hours as _wh
 from src.dashboard import tutorial_content as C
 
 _MEDIA_DIR = Path(__file__).parent / "static" / "tutorial"
@@ -595,7 +596,7 @@ _DESC = ("Step-by-step guide to Highlightz: connect Twitch, monitor a live chann
          # cutover in the same spot, for the same reason. A meta description is
          # exactly where a stale promise hides: invisible on the page, and the
          # first thing a search result quotes.
-         "Free to start — no card, no time limit.")
+         "Free to start — no card, " + _wh.public_words("short") + ".")
 
 
 def _howto_schema() -> str:

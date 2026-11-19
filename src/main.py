@@ -1128,6 +1128,9 @@ async def main() -> None:
         # with nothing accepted or rejected even with the tab open. Asked
         # every minute so that fifteen means fifteen.
         asyncio.create_task(dashboard_api.queue_full_watch(), name="queue-full-watch"),
+        # Free's weekly watching hours: counted once a minute, paused at zero,
+        # started again when hours are bought or the week turns over.
+        asyncio.create_task(dashboard_api.watch_hours_task(), name="watch-hours"),
         asyncio.create_task(dashboard_api.schedule_due_task(), name="schedule-due"),
         # Campaigns go live, close and finish their grace period on the clock;
         # this tells every open marketplace when one does.

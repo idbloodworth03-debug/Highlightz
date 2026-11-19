@@ -1,7 +1,7 @@
 """
 Membership tiers.
 
-  free    — $0, no card, no time limit: 1 monitored stream, 20 pending clips,
+  free    — $0, no card, 5 live hours a week (FREE_WATCH_HOURS_WEEK) then $1/h: 1 monitored stream, 20 pending clips,
             5 suggested clips. No VOD scanner, no Clip Editor.
   starter — $10/month: 3 monitored streams, 50 pending clips. NO LONGER SOLD
             (owner, 2026-11-03: "remove the $10 tier from the site"). Existing
@@ -178,8 +178,14 @@ _SUPPORT = "direct_support"
 # Starter is not sold and keeps what it was sold with.
 _AHEAD = "ahead"
 LEVEL_NONE, LEVEL_AHEAD, LEVEL_FRONT = 0, 1, 2
+# WATCHING IS METERED ON FREE (owner, 2026-11-19: "the free tiers only
+# getting 5 hours a week and they can pay for more"). How many hours is the
+# setting FREE_WATCH_HOURS_WEEK; what is counted and how hours are bought is
+# src/billing/watch_hours.py. Every other plan watches without a meter.
+_METERED = "meters_watching"
+
 _STANDARD = {_PRIORITY: False, _KEEP_FILES: False, _NO_CAMPAIGN_FEE: False, _SUPPORT: False,
-             _AHEAD: False}
+             _AHEAD: False, _METERED: False}
 
 PLAN_LIMITS: dict[str, dict] = {
     # "Trial ended" was accurate while every account began with a free week.
@@ -195,7 +201,7 @@ PLAN_LIMITS: dict[str, dict] = {
     "free":    {"label": "Free", "price": 0, "max_streams": 1,
                 "max_pending": 20, _SUGGESTED: 5, _LIB_WEEK: 30,
                 "vod": False, "uploads": False, _HL_PRIORITY: True, _IDLE_PAUSE: True,
-                **_STANDARD},
+                **{**_STANDARD, _METERED: True}},
     # Not sold any more (SELLABLE_PLANS); kept whole for the subscribers on it.
     "starter": {"label": "Starter", "price": 10, "max_streams": 3,
                 "max_pending": 50, _SUGGESTED: 25, _LIB_WEEK: 100,

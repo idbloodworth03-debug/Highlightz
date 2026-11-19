@@ -165,6 +165,71 @@ def campaign_checkout_session(session_id: str) -> dict | None:
             "metadata": {k: _get(meta, k) for k in ("kind", "request_id", "user_id")}}
 
 
+def create_hours_checkout(user: dict, hours: int) -> tuple[str, str]:
+    """A one-time Stripe Checkout for watching hours on Free
+    (src/billing/watch_hours.py). One line, `hours` at $1 each, so the
+    receipt says what was bought. Returns (url, session id).
+
+    The amount is the server's: the browser says only how many hours, and
+    that must be one of watch_hours.PACKS. metadata names the account and the
+    hours on both the session and the PaymentIntent; the webhook and the
+    redirect back both read them, and the hours are credited once per session.
+    """
+    from src.billing import watch_hours
+    hours = watch_hours.valid_pack(hours)
+    if not hours:
+        raise ValueError("Choose one of the hour packs.")
+    meta = {"kind": "watch_hours", "user_id": user["id"], "hours": str(hours)}
+    base = "https://highlightz.app"
+    params: dict = {
+        "mode": "payment",
+        "payment_method_types": ["card"],
+        "line_items": [{"quantity": hours, "price_data": {
+            "currency": "usd", "unit_amount": watch_hours.PRICE_CENTS,
+            "product_data": {"name": "Highlightz watching hour",
+                             "description": "One hour of live channel watching on the Free plan. "
+                                            "Used after the week's free hours; does not expire."}}}],
+        "success_url": f"{base}/billing/hours/paid?session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{base}/?hours=cancelled",
+        "client_reference_id": user["id"],
+        "metadata": meta,
+        "payment_intent_data": {"metadata": meta,
+                                "description": f"Highlightz: {hours} watching hours"},
+    }
+    if user.get("stripe_customer_id"):
+        params["customer"] = user["stripe_customer_id"]
+    elif user.get("email"):
+        params["customer_email"] = user["email"]
+    try:
+        session = _client().v1.checkout.sessions.create(params=params)
+    except stripe.InvalidRequestError as exc:
+        # A customer id Stripe no longer has: buy as a guest instead.
+        if "customer" not in params or "customer" not in str(exc).lower():
+            raise
+        log.warning("hours_checkout_customer_dropped", user_id=user["id"], error=str(exc)[:200])
+        params.pop("customer")
+        if user.get("email"):
+            params["customer_email"] = user["email"]
+        session = _client().v1.checkout.sessions.create(params=params)
+    return _get(session, "url"), _get(session, "id")
+
+
+def hours_checkout_session(session_id: str) -> dict | None:
+    """An hours Checkout session as a plain dict (id, payment_status,
+    amount_total, metadata), or None when it cannot be read."""
+    if not (settings.stripe_secret_key and session_id):
+        return None
+    try:
+        s = _client().v1.checkout.sessions.retrieve(session_id)
+    except Exception as exc:
+        log.warning("hours_checkout_lookup_failed", session=session_id, error=str(exc))
+        return None
+    meta = _get(s, "metadata") or {}
+    return {"id": _get(s, "id"), "payment_status": _get(s, "payment_status"),
+            "amount_total": int(_get(s, "amount_total") or 0),
+            "metadata": {k: _get(meta, k) for k in ("kind", "user_id", "hours")}}
+
+
 def expire_checkout(session_id: str) -> None:
     """Close an unpaid Checkout session so it can no longer be paid. Best
     effort: a session already paid, expired or unknown is left to Stripe."""

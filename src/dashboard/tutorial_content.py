@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from config.settings import settings
+from src.billing import watch_hours as _wh
 from src.billing.plans import PLAN_LIMITS
 
 
@@ -406,8 +407,8 @@ FEATURES: tuple[Section, ...] = (
             # plan so this cannot advertise a cap the product does not enforce.
             "Your plan, your billing and your connected accounts. Every account "
             f"starts on the free plan — {PLAN_LIMITS['free']['max_streams']} channel, "
-            f"a {PLAN_LIMITS['free']['max_pending']}-clip queue, no card and no "
-            "time limit. When one channel stops being enough, Pro watches "
+            f"a {PLAN_LIMITS['free']['max_pending']}-clip queue, no card and "
+            + _wh.public_words("long") + ". When one channel stops being enough, Pro watches "
             f"{PLAN_LIMITS['pro']['max_streams']} and adds the VOD Scanner, and Studio "
             f"watches {PLAN_LIMITS['studio']['max_streams']} with the front of the line."
         ),
@@ -567,7 +568,7 @@ FAQ: tuple[tuple[str, str], ...] = (
 
 CTA_TITLE = "Start clipping"
 CTA_BODY = (
-    "Free to start — no card, no time limit. Add a channel and let it watch a "
+    "Free to start — no card, " + _wh.public_words("short") + ". Add a channel and let it watch a "
     "stream; that is the fastest way to see whether the detector works on your "
     "content."
 )

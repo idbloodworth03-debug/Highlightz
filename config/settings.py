@@ -514,6 +514,13 @@ class Settings(BaseSettings):
     # the box is known to carry and MAX_CONCURRENT_STREAMS to the most it
     # should ever be asked for.
     live_auto_base: int = 0
+    # FREE'S WEEKLY WATCHING (src/billing/watch_hours.py; owner, 2026-11-19:
+    # "the free tiers only getting 5 hours a week and they can pay for more
+    # and lets have it be 1$ an hour"). Hours a Free account's channels may
+    # hold a live slot each week (Monday 00:00 UTC to the next); bought hours
+    # come after. 0 switches the meter off for everybody: nothing is paused
+    # for it and the balances on disk are kept.
+    free_watch_hours_week: int = 5
     # THE SPLIT (docs/HANDOFF.md, "THE SPLIT"). 0 is the single process.
     # Above 0, stream workers run in this many processes of their own, each
     # with its own loop. Production's .env is not edited by hand for this:

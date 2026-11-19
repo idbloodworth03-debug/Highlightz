@@ -849,6 +849,60 @@ _queue_held: set[str] = {
 }
 _review_tasks: set = set()
 
+# ── FREE'S WEEKLY WATCHING HOURS (src/billing/watch_hours.py) ────────────────
+# Owner, 2026-11-19: "lets get started with the free tiers only getting 5
+# hours a week and they can pay for more and lets have it be 1$ an hour".
+# A metered account's live-slot time is counted (acquire_live_slot starts the
+# clock, release_live_slot and the minute pass fold it in); when nothing is
+# left its channels are paused with hold "hours", and they start again the
+# moment hours are bought or the week turns over (watch_hours_task). Like a
+# full queue, a request is NOT a way back: only hours are.
+_hours_held: set[str] = {
+    s.get("user_id", "") for s in _streams.values()
+    if s.get("status") == "paused" and s.get("hold") == "hours" and s.get("user_id")
+}
+_watch_mark: dict[str, float] = {}        # stream key -> counted up to here
+_WATCH_EVERY = 60
+_HOURS_NOTICE_TITLE = "You have used this week's free watching hours"
+
+
+def _fold_watching(stream_key: str, now: float, user: dict | None = None) -> None:
+    """Count a held slot's time since it was last counted. Never raises."""
+    since = _watch_mark.get(stream_key)
+    if since is None:
+        return
+    _watch_mark[stream_key] = now
+    uid = stream_key.split(":", 1)[0] if ":" in stream_key else ""
+    if not uid or now <= since:
+        return
+    try:
+        from src.billing import watch_hours
+        if user is None:
+            from src.auth import users as _wh_store
+            user = _wh_store.get_by_id(uid)
+        # Never more than two passes' worth at once: a stalled loop or a
+        # suspended box is not two hours of somebody's watching.
+        watch_hours.consume(uid, user, min(now - since, 2 * _WATCH_EVERY), now)
+    except Exception as exc:
+        log.warning("watch_hours_count_failed", error=str(exc)[:160])
+
+
+def _watch_hours_for_me(uid: str, user: dict | None) -> dict | None:
+    try:
+        from src.billing import watch_hours
+        return watch_hours.snapshot(uid, user)
+    except Exception as exc:
+        log.warning("watch_hours_snapshot_failed", error=str(exc)[:160])
+        return None
+
+
+def _hours_left_for(uid: str, user: dict | None = None) -> float:
+    from src.billing import watch_hours
+    if user is None:
+        from src.auth import users as _wh_store
+        user = _wh_store.get_by_id(uid)
+    return watch_hours.left_s(uid, user)
+
 
 def _queue_snapshot() -> dict[str, tuple[int, float]]:
     """{account: (clips waiting in its review queue, when the newest landed)}
@@ -898,17 +952,24 @@ def _may_resume_now(uid: str, now: float | None = None) -> bool:
 
     The room is counted at most once every _QUEUE_HOLD_RECHECK per account: a
     page load is twenty requests, and the count reads every clip."""
-    if uid not in _queue_held:
+    if uid not in _queue_held and uid not in _hours_held:
         return True
     now = time.time() if now is None else now
     if now - _queue_hold_checked.get(uid, 0.0) < _QUEUE_HOLD_RECHECK:
         return False
     _queue_hold_checked[uid] = now
-    if not any(rec.get("status") == "paused" and rec.get("hold") == "queue_full"
-               for key, rec in _streams.items() if key.startswith(f"{uid}:")):
+    holds = {rec.get("hold") for key, rec in _streams.items()
+             if key.startswith(f"{uid}:") and rec.get("status") == "paused"}
+    if "queue_full" not in holds:
         _queue_held.discard(uid)            # the held channel was removed
-        return True
-    return not _queue_still_full(uid)
+    if "hours" not in holds:
+        _hours_held.discard(uid)
+    # Out of watching hours: only hours start it again (watch_hours_task).
+    if "hours" in holds and _hours_left_for(uid) <= 0:
+        return False
+    if "queue_full" in holds:
+        return not _queue_still_full(uid)
+    return True
 
 
 def _reviewed(uid: str) -> None:
@@ -2024,6 +2085,10 @@ async def me(request: Request):
         # live case; this handles a tab opened after the milestone was crossed,
         # and a reconnect (refetchAll pulls /me).
         "review_prompt":       _review_prompt_due(uid),
+        # Free's weekly watching hours (src/billing/watch_hours.py): what is
+        # left, when it resets, the packs. None on a plan with no meter. Kept
+        # current by the `watch_hours` event; this is the reload/reconnect.
+        "watch_hours":         _watch_hours_for_me(uid, user),
         # Clips deleted by the pending cap in the last 24h. On /me rather
         # than only on the event so the notice survives a reload and a
         # reconnect — the event is the live nudge, this is the state.
@@ -2174,6 +2239,11 @@ async def delete_account(request: Request):
     # somebody took and when would not be an erasure.
     from src.stats import downloads as _dl_purge
     _dl_purge.delete_all_for_user(uid)
+    # The watching-hours balance goes; a purchase line stays as the payment
+    # record, like a paid campaign (Privacy Policy).
+    from src.billing import watch_hours as _wh_purge
+    _wh_purge.forget_user(uid)
+    _hours_held.discard(uid)
     # Campaign requests never paid go too, and their checkouts are closed so
     # nothing can be paid for an account that no longer exists. A paid one
     # stays: it is a payment record and prizes owed (Privacy Policy §4).
@@ -3746,6 +3816,13 @@ async def _process_stripe_event(event: dict, now: float, event_id: str):
                              "checkout.session.async_payment_succeeded") \
             and (session.get("metadata") or {}).get("kind") == "campaign_request":
         await _campaign_paid(session, via="webhook")
+        return {"received": True}
+    # Watching hours on Free (src/billing/watch_hours.py): the same kind of
+    # one-off payment. The redirect back credits them too; once per session.
+    if event.get("type") in ("checkout.session.completed",
+                             "checkout.session.async_payment_succeeded") \
+            and (session.get("metadata") or {}).get("kind") == "watch_hours":
+        await _hours_paid(session, via="webhook")
         return {"received": True}
 
     cust_id, user_id, status = sync_subscription_event(event)
@@ -5533,6 +5610,15 @@ def acquire_live_slot(stream_key: str) -> bool:
     from src.ingestion import headroom
     cap = max(1, settings.max_concurrent_streams)
     uid = stream_key.split(":", 1)[0] if ":" in stream_key else ""
+    # No watching hours left (Free): no slot. watch_hours_task pauses the
+    # channel within the minute and says why; this stops that minute being
+    # watched for free.
+    if uid:
+        try:
+            if _hours_left_for(uid) <= 0:
+                return False
+        except Exception as exc:
+            log.warning("watch_hours_gate_failed", error=str(exc)[:160])
     priority = uid_priority_level(uid)
     if priority >= LEVEL_FRONT:
         room = cap
@@ -5567,6 +5653,7 @@ def acquire_live_slot(stream_key: str) -> bool:
                         waiting=stream_key, measured=why)
             return False
     _live_slots.add(stream_key)
+    _watch_mark[stream_key] = time.time()    # the watching clock starts here
     # Every channel let in, under the base too: its cost has not reached the
     # readings yet, and the next decision has to count it as if it had.
     headroom.note_admitted(stream_key)
@@ -5610,6 +5697,8 @@ def release_live_slot(stream_key: str) -> None:
     on an error path is capacity this process never gets back until restart."""
     if stream_key in _live_slots:
         _live_slots.discard(stream_key)
+        _fold_watching(stream_key, time.time())     # the watching clock stops here
+        _watch_mark.pop(stream_key, None)
         # So the measured limit can tell this channel reconnecting in half a
         # minute from a new one (src/ingestion/headroom.py). Only for a slot
         # that was HELD: every waiting channel calls this every 30 seconds.
@@ -6359,8 +6448,10 @@ async def _pause_user_streams(uid: str, hold: str | None = None) -> int:
     _paused_users.add(uid)
     if hold == "queue_full":
         _queue_held.add(uid)
-    log.info("streams_paused_queue_full" if hold == "queue_full" else "streams_paused_idle",
-             user=uid, count=len(paused))
+    if hold == "hours":
+        _hours_held.add(uid)
+    log.info({"queue_full": "streams_paused_queue_full", "hours": "streams_paused_hours"}.get(
+        hold or "", "streams_paused_idle"), user=uid, count=len(paused))
     for rec in paused:
         if _publish_remove_stream:
             try:
@@ -6381,6 +6472,7 @@ async def _resume_user_streams(uid: str) -> int:
     """
     resuming = []
     still_full: bool | None = None          # counted once, and only if a channel is held for it
+    no_hours: bool | None = None            # the same, for a channel held for watching hours
     waiting = False
     async with _data_lock:
         for key, rec in _streams.items():
@@ -6397,6 +6489,14 @@ async def _resume_user_streams(uid: str) -> int:
                 if still_full:
                     waiting = True
                     continue
+            if rec.get("hold") == "hours":
+                # Out of watching hours: it waits for HOURS (bought, or the
+                # week turning over), not for a visit.
+                if no_hours is None:
+                    no_hours = _hours_left_for(uid) <= 0
+                if no_hours:
+                    waiting = True
+                    continue
             rec["status"] = "starting"
             rec.pop("paused_at", None)
             rec.pop("hold", None)   # "queue_full": there is room again, which is what it waited for
@@ -6408,6 +6508,7 @@ async def _resume_user_streams(uid: str) -> int:
     else:
         _paused_users.discard(uid)
         _queue_held.discard(uid)
+        _hours_held.discard(uid)
     if not resuming:
         return 0
     log.info("streams_resumed_on_return", user=uid, count=len(resuming))
@@ -6896,6 +6997,140 @@ async def queue_full_watch_once(now: float | None = None) -> int:
         except Exception as exc:
             log.error("queue_full_watch_error", user_id=uid, error=str(exc))
     return paused
+
+
+def _hours_words(channels: list[str], user: dict | None) -> dict:
+    """What a Free account is told when this week's watching hours are used:
+    the bell note and the toast. Says what happened, that nothing was lost,
+    the two ways back (the week turning over, or buying hours), and what Pro
+    does, as a fact with its price."""
+    from src.billing import watch_hours
+    from src.billing.plans import PLAN_LIMITS
+    who = _name_channels(channels)
+    were = "were" if len([c for c in channels if c]) > 1 else "was"
+    n = watch_hours.allowance_s() // 3600
+    price = watch_hours.PRICE_CENTS / 100
+    pro = PLAN_LIMITS["pro"]
+    return {
+        "title": _HOURS_NOTICE_TITLE,
+        "body": (f"Free includes {n} hours of live watching a week, and this week's are used, so {who} "
+                 f"{were} paused. Nothing you have caught was touched. It starts again by itself when the "
+                 f"week resets on Monday (00:00 UTC), or straight away if you buy more hours: ${price:g} an "
+                 "hour, from the Live Streams tab. Hours you buy do not expire. "
+                 f"{pro['label']} watches without a limit for ${pro['price']} a month."),
+        "toast": (f"This week's {n} free watching hours are used, so {who} {were} paused. Buy more hours "
+                  "to keep watching, or it starts again when the week resets."),
+    }
+
+
+async def watch_hours_once(now: float | None = None) -> dict:
+    """One pass of the watching meter. Returns what it did.
+
+    1. Count every held slot's time since the last pass (watch_hours.consume).
+    2. A metered account with nothing left and a channel not paused: pause
+       them all (hold "hours"), tell the tab, leave a bell note once a week.
+    3. An account held for hours that has hours again (bought, or the week
+       turned over, or it is no longer on Free): start them again.
+    4. Tell every metered account that is live what it has left, so the
+       meter on its screen moves.
+    Cheap by construction: one look at the slots, one at the stream records,
+    and an account is only looked up once."""
+    from src.billing import watch_hours
+    from src.auth import users as _wh_store
+    now = time.time() if now is None else now
+    cache: dict[str, dict | None] = {}
+
+    def user(uid):
+        if uid not in cache:
+            cache[uid] = _wh_store.get_by_id(uid)
+        return cache[uid]
+    for key in list(_live_slots):
+        if ":" in key:
+            _fold_watching(key, now, user(key.split(":", 1)[0]))
+    paused = resumed = 0
+    running = {key.split(":", 1)[0] for key, rec in _streams.items()
+               if ":" in key and rec.get("status") != "paused"}
+    for uid in running:
+        u = user(uid)
+        if not watch_hours.metered(u) or watch_hours.left_s(uid, u, now) > 0:
+            continue
+        waiting = [rec.get("channel", "") for key, rec in _streams.items()
+                   if key.startswith(f"{uid}:") and rec.get("status") != "paused"]
+        if not await _pause_user_streams(uid, hold="hours"):
+            continue
+        paused += 1
+        words = _hours_words(waiting, u)
+        try:
+            start = watch_hours.week_start(now)
+            told = any(isinstance(x, dict) and x.get("title") == _HOURS_NOTICE_TITLE
+                       and float(x.get("at") or 0) >= start for x in ((u or {}).get("notices") or []))
+            if not told:
+                _wh_store.add_notices({uid: {"title": words["title"], "body": words["body"]}})
+        except Exception as exc:
+            log.warning("watch_hours_notice_failed", user_id=uid, error=str(exc)[:160])
+        await broadcast({"event": "watch_hours", "hours": watch_hours.snapshot(uid, u, now),
+                         "message": words["toast"]}, user_id=uid)
+        await broadcast({"event": "inbox_changed"}, user_id=uid)
+    for uid in list(_hours_held):
+        u = user(uid)
+        if watch_hours.left_s(uid, u, now) > 0 and await _resume_user_streams(uid):
+            resumed += 1
+            await broadcast({"event": "watch_hours", "hours": watch_hours.snapshot(uid, u, now)}, user_id=uid)
+    for uid in {key.split(":", 1)[0] for key in list(_live_slots) if ":" in key}:
+        if uid in _ws_clients:
+            snap = watch_hours.snapshot(uid, user(uid), now)
+            if snap:
+                await broadcast({"event": "watch_hours", "hours": snap}, user_id=uid)
+    watch_hours.save_if_dirty()
+    if paused or resumed:
+        log.info("watch_hours_pass", paused=paused, resumed=resumed)
+    return {"paused": paused, "resumed": resumed}
+
+
+async def watch_hours_task() -> None:
+    """Background task: the watching meter, once a minute."""
+    while True:
+        await asyncio.sleep(_WATCH_EVERY)
+        try:
+            await watch_hours_once()
+        except Exception as exc:
+            log.error("watch_hours_error", error=str(exc)[:200])
+
+
+async def _hours_paid(session: dict, via: str) -> bool:
+    """A Checkout for watching hours was paid: credit it ONCE, start the
+    account's channels if they were waiting for hours, and tell its tabs.
+    `session` is Stripe's object (the webhook) or hours_checkout_session's
+    dict (the redirect back). True if hours were added now."""
+    from src.billing import watch_hours
+    from src.auth import users as _wh_store
+    meta = session.get("metadata") or {}
+    uid = str(meta.get("user_id") or "")
+    hours = watch_hours.valid_pack(meta.get("hours"))
+    sid = str(session.get("id") or "")
+    if meta.get("kind") != "watch_hours" or not uid or not hours or not sid:
+        return False
+    if session.get("payment_status") != "paid":
+        log.info("watch_hours_not_paid_yet", session=sid, status=session.get("payment_status"), via=via)
+        return False
+    amount = int(session.get("amount_total") or 0)
+    if amount != hours * watch_hours.PRICE_CENTS:
+        # Our sessions have no discounts, tax or currency choice. A mismatch
+        # is somebody else's session or a change on Stripe's side: say so,
+        # credit nothing, and let a person look.
+        log.error("watch_hours_amount_mismatch", session=sid, user_id=uid, hours=hours,
+                  amount=amount, via=via)
+        return False
+    if not watch_hours.credit(uid, hours, session_id=sid, amount_cents=amount, via=via):
+        return False
+    was_held = uid in _hours_held
+    restarted = was_held and await _resume_user_streams(uid)
+    u = _wh_store.get_by_id(uid)
+    await broadcast({"event": "watch_hours", "hours": watch_hours.snapshot(uid, u),
+                     "message": f"{hours} watching hours added."
+                                + (" Your channels are being watched again." if restarted else "")},
+                    user_id=uid)
+    return True
 
 
 async def queue_full_watch() -> None:
@@ -9259,6 +9494,8 @@ async def admin_list_users(request: Request):
         uid = u["id"]
         u["stream_count"] = stream_n.get(uid, 0)
         u["streams_paused"] = paused_n.get(uid, 0)
+        # Free's watching hours this week (None on a plan with no meter).
+        u["watch_hours"] = _watch_hours_for_me(uid, u)
         # What is in their library RIGHT NOW — a different question from how
         # many they have ever approved, and both are worth seeing.
         u["clip_count"] = clip_n.get(uid, 0)
@@ -10262,6 +10499,10 @@ async def admin_overview(request: Request, tz: str = ""):
         },
         "active": active,
         "mrr": round(mrr, 2),
+        # Watching hours sold to Free accounts (src/billing/watch_hours.py).
+        # One-off payments, so NOT in MRR: said beside it. The Hours tab has
+        # who and when.
+        "hours": _hours_overview(now),
         # Legacy ($15-era) subscribers: on the old price, or with no stored
         # tier. Counted in `mrr` at what they are charged. Kept under this
         # name so the panel's script needs no new key; it no longer means
@@ -11213,6 +11454,52 @@ async def _campaign_paid(sess: dict, via: str) -> dict | None:
     return r
 
 
+@app.post("/billing/hours/checkout")
+async def hours_checkout(request: Request):
+    """Start buying watching hours (Free only): one of watch_hours.PACKS, at
+    $1 an hour. Answers {url} for Stripe Checkout; the price is the server's."""
+    from src.billing import stripe_billing, watch_hours
+    from src.auth import users as user_store
+    uid = _current_user_id(request)
+    user = user_store.get_by_id(uid)
+    if not watch_hours.metered(user):
+        raise HTTPException(status_code=400, detail="Your plan watches without a limit, so there is nothing to buy.")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    hours = watch_hours.valid_pack((body or {}).get("hours") if isinstance(body, dict) else None)
+    if not hours:
+        raise HTTPException(status_code=400, detail="Choose one of the hour packs.")
+    if not settings.stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Payments are not set up on this server yet.")
+    try:
+        url, sid = await asyncio.to_thread(stripe_billing.create_hours_checkout, user, hours)
+    except Exception as exc:
+        log.error("hours_checkout_failed", user_id=uid, hours=hours, error=str(exc)[:200])
+        raise HTTPException(status_code=502, detail="Stripe could not start the payment. Try again in a minute.")
+    log.info("hours_checkout_started", user_id=uid, hours=hours, session=sid)
+    return {"url": url}
+
+
+@app.get("/billing/hours/paid")
+async def hours_paid_return(request: Request, session_id: str = ""):
+    """Where Stripe sends somebody back after buying hours. Asks Stripe
+    directly rather than waiting on the webhook, and only for this account's
+    own session (the id comes from a query string)."""
+    from src.billing import stripe_billing, watch_hours
+    uid = _current_user_id(request)
+    flag = "pending"
+    if session_id:
+        sess = await asyncio.to_thread(stripe_billing.hours_checkout_session, session_id)
+        meta = (sess or {}).get("metadata") or {}
+        if sess and meta.get("user_id") == uid and meta.get("kind") == "watch_hours":
+            await _hours_paid(sess, via="redirect")
+            if any(p.get("session_id") == session_id for p in watch_hours.purchases()):
+                flag = "bought"
+    return RedirectResponse(f"/?hours={flag}", status_code=302)
+
+
 @app.get("/campaign-requests/{request_id}/paid")
 async def campaign_request_paid(request: Request, request_id: str, session_id: str = ""):
     """Where Stripe sends the streamer back. Asks Stripe directly rather than
@@ -11246,6 +11533,75 @@ def _admin_request_row(r: dict) -> dict:
                  "email": u.get("email") or "", "plan": u.get("plan") or "",
                  "twitch_login": u.get("twitch_login") or "", "kick_slug": u.get("kick_slug") or ""}
     return d
+
+
+def _hours_overview(now: float) -> dict:
+    try:
+        from src.billing import watch_hours
+        start = watch_hours.week_start(now)
+        week = [p for p in watch_hours.purchases() if float(p.get("at") or 0) >= start]
+        return {"on": watch_hours.allowance_s() > 0,
+                "week_cents": sum(int(p.get("amount_cents") or 0) for p in week),
+                "week_hours": sum(int(p.get("hours") or 0) for p in week),
+                "week_buyers": len({p.get("user_id") for p in week}),
+                "held_now": len(_hours_held)}
+    except Exception as exc:
+        log.warning("hours_overview_failed", error=str(exc)[:160])
+        return {"on": False, "week_cents": 0, "week_hours": 0, "week_buyers": 0, "held_now": 0}
+
+
+@app.get("/admin/hours")
+async def admin_hours(request: Request):
+    """Free's watching hours, for the admin page's Hours tab: every purchase
+    (who, when, how many, what was paid), totals for this week, the last 7
+    days and all time, and every metered account's week (used, left, bought,
+    paused for it)."""
+    _require_admin(request)
+    from src.billing import watch_hours
+    from src.auth import users as user_store
+    now = time.time()
+    start = watch_hours.week_start(now)
+    users = {u["id"]: u for u in user_store.get_all() if u.get("id")}
+
+    def name(uid):
+        u = users.get(uid) or {}
+        return u.get("twitch_login") or u.get("kick_slug") or u.get("username") or uid[:8]
+    buys = sorted(watch_hours.purchases(), key=lambda p: -float(p.get("at") or 0))
+
+    def totals(since):
+        rows = [p for p in buys if float(p.get("at") or 0) >= since]
+        return {"purchases": len(rows), "buyers": len({p.get("user_id") for p in rows}),
+                "hours": sum(int(p.get("hours") or 0) for p in rows),
+                "cents": sum(int(p.get("amount_cents") or 0) for p in rows)}
+    per_buyer: dict = {}
+    for p in buys:
+        b = per_buyer.setdefault(p.get("user_id"), {"purchases": 0, "hours": 0, "cents": 0})
+        b["purchases"] += 1
+        b["hours"] += int(p.get("hours") or 0)
+        b["cents"] += int(p.get("amount_cents") or 0)
+    usage = []
+    for uid, r in watch_hours.all_rows(now).items():
+        u = users.get(uid)
+        if not watch_hours.metered(u):
+            continue
+        free_left = max(0.0, watch_hours.allowance_s() - r["free_used_s"])
+        usage.append({"user_id": uid, "name": name(uid), "used_s": round(r["free_used_s"] + 0),
+                      "free_left_s": round(free_left), "paid_left_s": round(r["paid_left_s"]),
+                      "bought_s": round(r["bought_s"]), "paid_used_s": round(r["paid_used_s"]),
+                      "out": free_left + r["paid_left_s"] <= 0, "held": uid in _hours_held})
+    usage.sort(key=lambda x: (-x["used_s"], x["name"].lower()))
+    return {
+        "on": watch_hours.allowance_s() > 0, "free_hours": watch_hours.allowance_s() // 3600,
+        "price_cents": watch_hours.PRICE_CENTS, "packs": list(watch_hours.PACKS),
+        "week_start": start, "resets_at": start + watch_hours.WEEK_S,
+        "totals": {"week": totals(start), "days7": totals(now - 7 * 86400), "all": totals(0)},
+        "purchases": [{"at": p.get("at"), "user_id": p.get("user_id"), "name": name(p.get("user_id") or ""),
+                       "hours": int(p.get("hours") or 0), "cents": int(p.get("amount_cents") or 0),
+                       "via": p.get("via") or "",
+                       "buyer_total": per_buyer.get(p.get("user_id"), {})} for p in buys[:300]],
+        "usage": usage[:300], "metered_accounts": len(usage),
+        "out_now": sum(1 for x in usage if x["out"]), "held_now": len(_hours_held),
+    }
 
 
 @app.get("/admin/campaign-requests")
@@ -12208,6 +12564,30 @@ async def robots_txt():
     )
 
 
+# ── Free's watching allowance, as the public pages state it ─────────────────
+# Every page that used to promise Free "no time limit" reads these, so the
+# copy follows FREE_WATCH_HOURS_WEEK: 5 says the limit, 0 says no limit.
+# src.billing.watch_hours.public_words is the wording; these are shorthands.
+def _free_metered() -> bool:
+    from src.billing import watch_hours
+    return watch_hours.allowance_s() > 0
+
+
+def _free_hours() -> int:
+    from src.billing import watch_hours
+    return watch_hours.allowance_s() // 3600
+
+
+def _free_price() -> str:
+    from src.billing import watch_hours
+    return watch_hours.price_words()
+
+
+def _free_time(form: str = "short") -> str:
+    from src.billing import watch_hours
+    return watch_hours.public_words(form)
+
+
 def _llms_campaigns() -> str:
     """Highlightz Campaigns in the /llms.txt brief, or "" while neither half
     is open. Added after an AI summary of the site (owner, 2026-10-27: "make
@@ -12422,7 +12802,7 @@ and editors who follow several channels at once and cannot watch them all.{camp_
 
 ## Plans
 
-- Free — $0, no card, no time limit. {f['max_streams']} channel monitored,
+- Free — $0, no card, {_free_time('long')}. {f['max_streams']} channel monitored,
   {f['max_pending']}-clip review queue, {f['max_suggested']} Highlight clips,
   {keeps(f)}.
 - Pro — ${pro['price']}/month, the most popular plan. {pro['max_streams']} channels at once,
@@ -12548,7 +12928,7 @@ async def llms_full_txt():
     yn = lambda p, k: "Yes" if p.get(k) else "No"      # noqa: E731
     w("| | Free | Pro (most popular) | Studio |")
     w("|---|---|---|---|")
-    w(f"| Price | $0, no card, no time limit | ${pro['price']}/month | ${sd['price']}/month |")
+    w(f"| Price | $0, no card, {_free_time('long')} | ${pro['price']}/month | ${sd['price']}/month |")
     w(f"| Channels at once | {f['max_streams']} | {pro['max_streams']} | {sd['max_streams']} |")
     w(f"| Clips held for review | {f['max_pending']} | {pro['max_pending']} | {sd['max_pending']} |")
     w(f"| Highlight clips | {f['max_suggested']} | {pro['max_suggested']} | {sd['max_suggested']} |")
@@ -12929,7 +13309,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Highlightz — Automatic Twitch &amp; Kick Clipper | Monitor Up To 10 Channels At Once</title>
-<meta name="description" content="Highlightz watches every Twitch and Kick channel you clip for — up to 10 at once — and catches the clip the moment something pops, then reframes it for vertical and posts it for you. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, no time limit.">
+<meta name="description" content="Highlightz watches every Twitch and Kick channel you clip for — up to 10 at once — and catches the clip the moment something pops, then reframes it for vertical and posts it for you. Chat spikes, audio pops, hype moments. Transparent formula, not AI. Free to start — no card, <!--FREETIME_SHORT-->.">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="canonical" href="https://highlightz.app/">
 <!-- Lets Google show a large image preview (results, Discover) instead of
@@ -12944,7 +13324,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:site_name" content="Highlightz">
 <meta property="og:url" content="https://highlightz.app/">
 <meta property="og:title" content="Highlightz — Never miss a highlight again, on 10 streams at once">
-<meta property="og:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, no time limit.">
+<meta property="og:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, <!--FREETIME_SHORT-->.">
 <!-- Preview card: social platforms cache this image keyed on the URL, so the
      filename must change whenever the art does. Source, build and the full
      history: scripts/og_card.html, scripts/build_og_card.mjs. -->
@@ -12955,7 +13335,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <meta property="og:image:alt" content="The Highlightz logo: a magenta-to-violet H with a play mark, and the Highlightz wordmark, on black.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Highlightz — Never miss a highlight again">
-<meta name="twitter:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, no time limit.">
+<meta name="twitter:description" content="Automatic Twitch and Kick clipping across every channel you watch, with a vertical editor and auto-posting built in — a transparent formula, not AI. Free to start — no card, <!--FREETIME_SHORT-->.">
 <meta name="twitter:image" content="https://highlightz.app/static/og-card-v6.png">
 <meta name="twitter:image:alt" content="The Highlightz logo: a magenta-to-violet H with a play mark, and the Highlightz wordmark, on black.">
 <link rel="alternate" type="text/markdown" href="https://highlightz.app/llms.txt" title="Highlightz for language models">
@@ -14014,7 +14394,7 @@ LANDING_HTML = """<!DOCTYPE html>
     <h1 class="disp proof-h" id="proof-h">Every big moment,<br>already a clip.</h1>
     <div class="proof-act">
       <a href="/login" class="btn btn-go btn-lg">Start clipping free</a>
-      <p class="proof-note">Free plan &middot; one channel, Twitch or Kick &middot; no card &middot; no time limit</p>
+      <p class="proof-note">Free plan &middot; one channel, Twitch or Kick &middot; no card &middot; <!--FREETIME_SHORT--></p>
     </div>
   </div>
   <div class="fan">
@@ -14105,7 +14485,7 @@ LANDING_HTML = """<!DOCTYPE html>
   <div class="wrap">
     <div class="watch-head">
       <h2 class="disp l-h" id="watch-h">Ten streams are live right now.</h2>
-      <p class="l-sub">Studio watches thirty channels at once, Pro ten, and the free plan one, with no card and no time limit. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is. On Free, monitoring pauses after 2 hours without you using the dashboard, and starts again when you are back.</p>
+      <p class="l-sub">Studio watches thirty channels at once, Pro ten, and the free plan one, with no card and <!--FREETIME_LONG-->. Twitch and Kick, in the same dashboard. Each channel is scored against its own threshold, and the one that crosses lands in your review queue with its video file. Add a channel before it goes live: it is rechecked every 30 seconds until it is. On Free, monitoring pauses after 2 hours without you using the dashboard, and starts again when you are back.</p>
       <!-- Both platforms, stated once (owner, 2026-09-16: "market kick on
            the landing page"). Two tiles, not a section: the page keeps its
            eight. What differs is only what the clip IS on each platform. -->
@@ -15643,6 +16023,13 @@ def _pricing() -> str:
     def plan(limits: dict, cta: str, suffix: str = "per month") -> str:
         facts = [
             ("Channels at once", chans(limits["max_streams"])),
+            # Free's weekly hours (owner, 2026-11-19). A row on every column
+            # so "Unlimited" on Pro and Studio is read across, and only while
+            # the meter is on, so FREE_WATCH_HOURS_WEEK=0 leaves the table
+            # exactly as it was.
+            *([("Live watching", (f"{_free_hours()} h a week, then {_free_price()}/h"
+                                  if limits.get("meters_watching") else "Unlimited"))]
+              if _free_metered() else []),
             ("Clips held for review", str(limits["max_pending"])),
             ("Highlight clips", str(limits["max_suggested"])),
             ("Clips kept per week", week(limits)),
@@ -15691,7 +16078,9 @@ def _pricing() -> str:
     # Pro, Pro marked "Most popular").
     return (
         '<p class="price-lead"><b>Start free and stay free.</b> There is no card to '
-        "enter and no time limit on it. Upgrade when you want. The plans differ on "
+        + ("enter, and it includes " + _free_time("long") + ". "
+           if _free_metered() else "enter and no time limit on it. ")
+        + "Upgrade when you want. The plans differ on "
         "the rows below and nowhere else.</p>"
         '<div class="plans">' + plan(free, "Start free", "no card") + plan(pro, "Get Pro")
         + plan(studio, "Get Studio") + "</div>"
@@ -15907,6 +16296,27 @@ def _proof_campaigns() -> str:
             'Campaigns: </span>get your stream clipped</span> <span aria-hidden="true">&rarr;</span></a>')
 
 
+def _tos_hours() -> str:
+    """The Terms' paragraph on Free's weekly hours and buying more. Empty
+    while FREE_WATCH_HOURS_WEEK is 0, so the document never describes a
+    limit that is switched off."""
+    if not _free_metered():
+        return ""
+    from src.billing import watch_hours as wh
+    packs = ", ".join(str(n) for n in wh.PACKS[:-1]) + " or " + str(wh.PACKS[-1])
+    return (
+        "<p>The free plan includes " + str(_free_hours()) + " hours of live monitoring "
+        "each week. Time is counted while a channel on your account is live and being "
+        "monitored, for each such channel, and the week starts again every Monday at "
+        "00:00 UTC. When the week's hours are used, live monitoring on the free plan "
+        "pauses until the week starts again or until you buy more. Extra hours cost "
+        + _free_price() + " an hour, in packs of " + packs + " hours, paid once by card "
+        "through Stripe; a purchase is not a subscription and is never charged again. "
+        "Bought hours are used only once the week's free hours are gone, do not expire "
+        "while your account exists, and are covered by the refund terms below. Paid "
+        "plans have no limit on monitoring time.</p>")
+
+
 def _tos_plans() -> str:
     """Section 4 of the Terms, generated from PLAN_LIMITS.
 
@@ -15941,7 +16351,8 @@ def _tos_plans() -> str:
         "short, not a guarantee of any particular capacity. Subscribers on an earlier "
         "plan keep its terms until they change plans. Current plan details and "
         "prices are shown on our pricing page and in your Settings tab.</p>"
-        "<p>Where a plan limits how many clips you may keep in a period, "
+        + _tos_hours()
+        + "<p>Where a plan limits how many clips you may keep in a period, "
         "reaching that limit pauses new approvals until the period rolls over. "
         "Clips already in your library are never removed because of it.</p>")
 
@@ -16124,7 +16535,12 @@ def _faq() -> str:
          "the clip or your account. On Twitch the clip itself is also a real Twitch clip, hosted "
          "by Twitch and attributed to you. Full detail is in the <a href=\"/privacy\">Privacy Policy</a>."),
         ("How does billing work?",
-         f"Free is free: it asks for no card and it never expires. Pro is <b>${pro['price']}</b> a month and Studio is "
+         f"Free is free: it asks for no card and it never expires. "
+         + (f"It watches live channels for <b>{_free_hours()} hours a week</b>, counted only while a "
+            "channel is live and being watched and reset every Monday; after that, hours are "
+            f"<b>{_free_price()}</b> each, bought in packs, and bought hours never run out. "
+            if _free_metered() else "")
+         + f"Pro is <b>${pro['price']}</b> a month and Studio is "
          f"<b>${sd['price']}</b> a month. Move between them whenever you like and cancel from the "
          "Settings tab. Cancelling puts you back on Free, and every clip you approved stays in your "
          "library."),
@@ -16188,6 +16604,11 @@ if _SOCIAL_SWAPS:
 # FAQPage whose "How does billing work?" answer was the empty string. Nothing
 # in a browser shows that. Any future placeholder that lands inside a .faq-a
 # has to be filled before this line for the same reason.
+# Free's weekly hours in the two strap lines (proof-note and the watch
+# section's sub-head). Placeholders so the wording is the one helper's.
+LANDING_HTML = (LANDING_HTML.replace("<!--FREETIME_SHORT-->", _free_time("short"))
+                .replace("<!--FREETIME_LONG-->", _free_time("long")))
+
 LANDING_HTML = LANDING_HTML.replace(
     "<!--FAQ_SCHEMA-->", _org_schema() + _faq_schema(LANDING_HTML), 1)
 
@@ -16258,7 +16679,7 @@ LOGIN_HTML = """<!DOCTYPE html>
     Continue with Twitch
   </a>
   {kick}
-  <p class="price-note">The free plan has no time limit. Want more channels? Plans start at $25/month, cancel any time from your account.</p>
+  <p class="price-note"><!--FREETIME_NOTE--> Want more channels? Plans start at $25/month, cancel any time from your account.</p>
   <p class="admin-toggle" onclick="document.getElementById('admin-form').style.display='block';this.style.display='none'">Admin sign-in</p>
   <div id="admin-form">
     <div class="divider">admin access</div>
@@ -16276,6 +16697,12 @@ LOGIN_HTML = """<!DOCTYPE html>
 </div>
 </body>
 </html>"""
+# The sign-in page's note under the Twitch button, from the same helper as
+# the landing page's strap lines.
+LOGIN_HTML = LOGIN_HTML.replace(
+    "<!--FREETIME_NOTE-->",
+    ("The free plan includes " + _free_time("long") + "."
+     if _free_metered() else "The free plan has no time limit."), 1)
 
 PAYWALL_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -16390,7 +16817,9 @@ def _paywall_plans() -> str:
     # the "Most popular" badge; Studio leads with what Pro does not have.
     return ('<div class="plan-row">'
             + card(pro, "pro", "pro", "",
-                   ["VOD Scanner included", "Clip Editor included",
+                   [*(["Unlimited live watching (Free has " + _free_time("short") + ")"]
+                      if _free_metered() else []),
+                    "VOD Scanner included", "Clip Editor included",
                     "Scheduler included",
                     # Pro's since 2026-11-18 (plans `ahead`).
                     "Ahead of Free accounts when the server is busy"],
@@ -16679,6 +17108,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
     <li><strong>Chat samples</strong> — the detector reads public chat in real time to measure how busy it is. It does not retain that stream, with one exception: when a clip is created we keep up to <!--CHATN--> of the chat messages from around that moment, so you can see why the clip was flagged. These are message texts only — we do not store who sent them.</li>
     <li><strong>Uploaded video</strong> — if you upload a video to the Clip Editor, that file is stored on our servers under your account so it can be played back and edited. It is visible only to you, and it is deleted when you delete it or when you delete your account.</li>
     <li><strong>Billing information</strong> — payment processing is handled entirely by Stripe. We store only your Stripe Customer ID and subscription status. We never see or store your card details.</li>
+    <li><strong>Watching hours</strong> — on the free plan we count how long your channels are live and being monitored each week, and keep your balance of hours you have bought. If you buy hours we keep a record of each purchase: when, how many hours, the amount paid and the Stripe Checkout session id, never card details. Deleting your account deletes the balance; the purchase records stay, as the record of a payment.</li>
     <li><strong>Clip metadata</strong> — channel names, platform identifiers, timestamps, trigger scores, the Twitch clip links generated for your account, and for a Kick clip the channel page it came from. For a Highlight clip we also store the two numbers used to rank it, an audience-interest count and a view count — counts, not identities; we do not store who anyone was. We record whether the channel is flagged on Twitch as intended for mature audiences, which is Twitch's own label on the channel rather than anything about a person, so the dashboard knows to send you to Twitch to watch it.<!--FILEONLY_FIELDS--> The clip itself is hosted by Twitch; for video we hold, see the next entry.</li>
     <li><strong>Recorded stream video</strong> — while a channel you added is being monitored, we may record a short rolling segment of that live public broadcast so a detected moment can be saved as a video file for you. The rolling buffer is a few minutes long and is continuously overwritten. A file saved from it is stored under your account, is visible only to you, and is deleted when you delete the clip, when you delete your account, or after a retention period of up to <!--CLIPDAYS--> days, whichever comes first. Where the rolling recording did not capture a moment, we retrieve the clip's video from Twitch when you ask for it and store it under the same terms. A channel that has opted out is never recorded and its clips are never retrieved.</li>
     <li><strong>Public clip records</strong> — for a channel being watched, we keep a record of the public clips other Twitch users create on it while it is live: the clip's id, title, time, and view count, and what our own score was at that moment, which is how we measure and improve the detector. In place of the clipper we store a one-way code derived from their Twitch id, so the same person is not counted twice; we do not store their name, and the code cannot be turned back into who they are.</li>
@@ -17408,6 +17838,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <button class="tab" data-tab="reviews">Reviews<span class="c" id="tc-reviews"></span></button>
     <button class="tab" data-tab="notify">Announce<span class="c" id="tc-notify"></span></button>
     <button class="tab" data-tab="cleanup">Clean up<span class="c" id="tc-cleanup"></span></button>
+    <button class="tab" data-tab="hours">Hours<span class="c" id="tc-hours"></span></button>
   </div>
 
   <!-- ── USERS ── -->
@@ -17714,6 +18145,22 @@ ADMIN_HTML = """<!DOCTYPE html>
     <h2>Showing now</h2>
     <div class="tw"><div id="an-list"><div class="sub">Loading&hellip;</div></div></div>
   </div>
+  <!-- ── HOURS (owner, 2026-11-19: "make sure we can track this in the admin
+       page and see who buys it etc."). Free's weekly watching hours and the
+       hours people buy on top (src/billing/watch_hours.py). -->
+  <div class="panel" id="panel-hours">
+    <div class="block-head"><h2>Watching hours</h2><span class="c" id="hr-c"></span></div>
+    <p class="lede" id="hr-lede">
+      Free accounts get a number of hours of live watching a week; past that they can buy hours at $1 each.
+      Bought hours are used after the week's free ones and do not expire.
+    </p>
+    <div id="hr-totals" class="loading">Loading&hellip;</div>
+    <h3 style="margin:18px 0 8px">Who bought hours</h3>
+    <div class="tw"><div id="hr-buys" class="loading">Loading&hellip;</div></div>
+    <h3 style="margin:18px 0 8px">Free accounts this week</h3>
+    <div class="tw"><div id="hr-usage" class="loading">Loading&hellip;</div></div>
+  </div>
+
   <div class="panel" id="panel-reviews">
     <div class="block-head"><h2>Reviews</h2><span class="c" id="rv-c"></span></div>
     <p class="lede">
@@ -17823,6 +18270,70 @@ document.getElementById('tabs').addEventListener('click', e => {
   if(b.dataset.tab === 'campaigns') loadCampaigns();
   if(b.dataset.tab === 'onboarding') loadOnboarding();
   if(b.dataset.tab === 'cancellations') loadCancellations();
+  if(b.dataset.tab === 'hours') loadHours();
+});
+
+// ── hours ───────────────────────────────────────────────────────────────
+// Free's watching hours: who bought them and what each Free account has
+// used this week. Re-read every 30 seconds while the tab is open, with the
+// tiles, so a purchase appears by itself.
+function hrDur(s){
+  s = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? h + 'h' + (m ? ' ' + m + 'm' : '') : m + 'm';
+}
+function hrMoney(c){ return '$' + ((c || 0) / 100).toFixed((c || 0) % 100 ? 2 : 0); }
+let HR_OPEN = false;
+async function loadHours(){
+  HR_OPEN = true;
+  let d;
+  try { d = await api('/admin/hours'); } catch(e){ fail('hr-buys', 'hour purchases'); return; }
+  const t = d.totals || {}, w = t.week || {}, s7 = t.days7 || {}, all = t.all || {};
+  document.getElementById('tc-hours').textContent = all.purchases ? n0(all.purchases) : '';
+  document.getElementById('hr-c').textContent = d.on
+    ? n0(d.free_hours) + ' free hours a week · $' + ((d.price_cents || 100) / 100) + ' an hour · packs of ' + (d.packs || []).join(', ')
+    : 'OFF (FREE_WATCH_HOURS_WEEK is 0)';
+  const tot = document.getElementById('hr-totals');
+  tot.className = '';
+  const line = (label, x) => '<div class="ov-row"><span>' + label + '</span><b>' + hrMoney(x.cents) + ' · '
+    + n0(x.hours) + ' h · ' + n0(x.buyers) + (x.buyers === 1 ? ' buyer' : ' buyers') + '</b></div>';
+  tot.innerHTML = '<div style="max-width:560px">' + line('This week', w) + line('Last 7 days', s7) + line('All time', all)
+    + '<div class="ov-row"><span>Free accounts out of hours now</span><b>' + n0(d.out_now) + '</b></div>'
+    + '<div class="ov-row"><span>Channels paused for it now (accounts)</span><b>' + n0(d.held_now) + '</b></div>'
+    + '<div class="sub" style="margin-top:6px">The week resets ' + fmt(d.resets_at) + '. One-off payments: not in MRR.</div></div>';
+  const buys = d.purchases || [];
+  const bw = document.getElementById('hr-buys');
+  if(!buys.length){ bw.className = 'empty'; bw.textContent = 'Nobody has bought hours yet.'; }
+  else {
+    bw.className = '';
+    bw.innerHTML = '<table><thead><tr><th>When</th><th>Account</th><th class="num">Hours</th><th class="num">Paid</th>'
+      + '<th class="num">Their total</th><th>Confirmed by</th></tr></thead><tbody>'
+      + buys.map(p => '<tr><td>' + esc(p.at ? new Date(p.at*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '—') + '</td>'
+        + '<td><button class="btn hr-open" data-uid="' + esc(p.user_id) + '">' + esc(p.name) + '</button></td>'
+        + '<td class="num">' + n0(p.hours) + '</td><td class="num">' + hrMoney(p.cents) + '</td>'
+        + '<td class="num">' + hrMoney((p.buyer_total || {}).cents) + ' · ' + n0((p.buyer_total || {}).purchases) + 'x</td>'
+        + '<td class="dim">' + esc(p.via === 'webhook' ? 'Stripe webhook' : p.via === 'redirect' ? 'return from Stripe' : (p.via || '')) + '</td></tr>').join('')
+      + '</tbody></table>';
+  }
+  const use = d.usage || [];
+  const uw = document.getElementById('hr-usage');
+  if(!use.length){ uw.className = 'empty'; uw.textContent = 'No Free account has watched anything yet this week.'; }
+  else {
+    uw.className = '';
+    uw.innerHTML = '<table><thead><tr><th>Account</th><th class="num">Used this week</th><th class="num">Free left</th>'
+      + '<th class="num">Bought, left</th><th class="num">Bought, all time</th><th>Now</th></tr></thead><tbody>'
+      + use.map(x => '<tr><td><button class="btn hr-open" data-uid="' + esc(x.user_id) + '">' + esc(x.name) + '</button></td>'
+        + '<td class="num">' + hrDur(x.used_s) + '</td><td class="num">' + hrDur(x.free_left_s) + '</td>'
+        + '<td class="num">' + (x.paid_left_s ? hrDur(x.paid_left_s) : '&mdash;') + '</td>'
+        + '<td class="num">' + (x.bought_s ? hrDur(x.bought_s) : '&mdash;') + '</td>'
+        + '<td>' + (x.held ? '<span class="plan-note bad">paused, out of hours</span>' : x.out ? 'out of hours' : '') + '</td></tr>').join('')
+      + '</tbody></table>';
+  }
+}
+document.getElementById('panel-hours').addEventListener('click', e => {
+  const b = e.target.closest('.hr-open'); if(!b) return;
+  const u = (USERS || []).find(x => x.id === b.dataset.uid);
+  if(u) openUser(u);
 });
 
 // ── clean up ────────────────────────────────────────────────────────────────
@@ -19180,9 +19691,14 @@ async function loadOverview(){
   // Legacy ($15-era) subscribers are counted at their real price, so this
   // is the whole figure; the sub-line says how many are on the old rate.
   set('ov-mrr', '$' + n0(d.mrr));
-  set('ov-mrr-s', d.mrr_unknown
+  set('ov-mrr-s', (d.mrr_unknown
     ? 'per month · ' + n0(d.mrr_unknown) + ' legacy at $' + n0(d.legacy_price || 15)
-    : 'per month, active subscriptions only');
+    : 'per month, active subscriptions only')
+    // Watching hours are one-off payments: beside MRR, never in it.
+    + (d.hours && (d.hours.on || d.hours.week_cents)
+        ? ' · + $' + n0((d.hours.week_cents || 0) / 100) + ' in watching hours this week'
+          + (d.hours.week_buyers ? ' (' + n0(d.hours.week_buyers) + (d.hours.week_buyers === 1 ? ' buyer)' : ' buyers)') : '')
+        : ''));
   set('ov-clips', n0(c.lifetime));
   // The gap between lifetime and stored is the whole point of showing both.
   set('ov-clips-s', n0(c.stored) + ' in storage now · ' + n0(c.pending) + ' awaiting review');
@@ -19866,6 +20382,7 @@ function dotClass(s){
 // being watched (owner, 2026-11-19).
 function pausedWhy(rec){
   if(rec.hold === 'queue_full') return 'paused · review queue full';
+  if(rec.hold === 'hours') return 'paused · out of watching hours';
   if(rec.hold === 'billing') return 'paused · card failing';
   return 'paused · away 2 hours';
 }
@@ -19916,6 +20433,12 @@ async function openUser(u){
   let html = '<div><div class="dh">Membership</div><dl class="kv">'
     + '<dt>Plan</dt><dd><b>' + esc(u.plan_label || u.plan) + '</b> — ' + esc(note[0]) + '</dd>'
     + '<dt>Status</dt><dd>' + esc(u.subscription_status || 'none') + '</dd>'
+    + (u.watch_hours
+        ? '<dt>Watching</dt><dd>' + hrDur(u.watch_hours.used_week_s) + ' of ' + hrDur(u.watch_hours.free_s)
+          + ' free used this week'
+          + (u.watch_hours.paid_left_s ? ' · ' + hrDur(u.watch_hours.paid_left_s) + ' bought hours left' : '')
+          + (u.watch_hours.left_s <= 0 ? ' · <b>out of hours</b>' : '') + '</dd>'
+        : '')
     + '<dt>Stripe</dt><dd>' + (u.stripe_customer_id ? esc(u.stripe_customer_id) : 'no customer record') + '</dd>'
     + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
     + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
@@ -20612,6 +21135,8 @@ setInterval(function(){ if(usersOpen()) loadUsers(); }, 60000);
 // after an action or on refocus, so a counter like "33/44 streams monitored"
 // sat stale on a page left open. Cheap, and only while the page is visible.
 setInterval(function(){ if(!document.hidden) loadOverview(); }, 30000);
+// The Hours tab, once it has been opened: a purchase appears by itself.
+setInterval(function(){ if(!document.hidden && HR_OPEN) loadHours(); }, 30000);
 
 fetch('/me').then(r => r.json()).then(m => { ME = m.user_id || ''; }).catch(() => {});
 fetch('/admin/feedback').then(r => r.json()).then(fb => {
@@ -21361,6 +21886,7 @@ _ADMIN_FEEDBACK_HTML = """<!DOCTYPE html>
     const pausedN = streams.filter(s => s.status === 'paused').length;
     const ordered = streams.filter(s => s.status !== 'paused').concat(streams.filter(s => s.status === 'paused'));
     const pausedSays = s => s.hold === 'queue_full' ? 'paused · review queue full'
+      : s.hold === 'hours' ? 'paused · out of watching hours'
       : s.hold === 'billing' ? 'paused · card failing' : 'paused · away 2 hours';
     let more = '<div><div class="dh">Channels (' + streams.length + ')'
       + (pausedN ? ' &middot; ' + (streams.length - pausedN) + ' watched, ' + pausedN + ' paused' : '') + '</div>'

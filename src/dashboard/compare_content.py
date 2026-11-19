@@ -28,6 +28,7 @@ PRICES_CONFIRMED below.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from src.billing import watch_hours as _wh
 
 # Flip to True once the numbers below have been checked against each
 # competitor's own pricing page. Rendered on the page as a visible caveat while
@@ -90,7 +91,7 @@ def _our_plans() -> tuple[Plan, ...]:
         Plan("Free", f"${free['price']}",
              f"{chans(free)}, {free['max_pending']}-clip queue, "
              f"{free['max_suggested']} Highlight clips, {keeps(free)}. "
-             "No card, no time limit."),
+             "No card, " + _wh.public_words("long") + "."),
         Plan("Pro", f"${pro['price']}/mo",
              f"{chans(pro)}, {pro['max_pending']}-clip queue, {keeps(pro)}, "
              "VOD Scanner."),
@@ -232,8 +233,9 @@ THE_MATH = {
         "is one minute of source video. That is five hours — one long stream, "
         "and the month is spent. Someone going live four nights a week produces "
         "closer to sixty. When the credits run out you buy the plan again, and "
-        "what you did not use does not roll over. Nothing here is metered by "
-        "the minute.\n\n"
+        "what you did not use does not roll over. "
+        + ("Pro and Studio are not metered by the minute at all.\n\n"
+           if _wh.allowance_s() else "Nothing here is metered by the minute.\n\n") +
         "And the subscription is the price. Eklipse asks monthly and "
         "semi-annual subscribers for a separate VIP Pass per game to auto-clip "
         "premium titles, charges $18.99 an edit for human touch-ups, and costs "
@@ -355,12 +357,17 @@ def _credit_rows() -> tuple[tuple[str, str, str, str], ...]:
     f, p, s = (PLAN_LIMITS[k]["max_streams"] for k in ("free", "pro", "studio"))
     return (
         ("What is metered",
-         "Nothing. You pay for channels, not minutes.",
+         (f"On Pro and Studio, nothing: you pay for channels, not minutes. Free "
+          f"gets {_wh.public_words('long')}." if _wh.allowance_s() else
+          "Nothing. You pay for channels, not minutes."),
          "Credits. One credit is one minute of the video you upload.",
          "Minutes of YouTube video (YT Credits). Live clipping has its own "
          "per-stream and per-day caps on top."),
         ("What the plan includes",
-         f"Every second of every channel you watch: {f} on Free, {p} on Pro, {s} on Studio.",
+         (f"Every second of every channel you watch: {p} on Pro, {s} on Studio. "
+          f"Free watches {f} {'channel' if f == 1 else 'channels'} for "
+          f"{_wh.public_words('short')}." if _wh.allowance_s() else
+          f"Every second of every channel you watch: {f} on Free, {p} on Pro, {s} on Studio."),
          "60 credits a month on Free, 150 on Starter, 300 on Pro (3,600 a year "
          "if paid annually).",
          "30 minutes a month on Free, 600 a month on Premium (7,200 a year on "
@@ -451,11 +458,12 @@ CLOSER = {
         "will serve you better than we will. If you are watching streams go "
         "live and trying to catch the moment before it scrolls past — one "
         "channel or ten — that is the entire thing this was built to do, and "
-        "nothing above is metered."),
+        + ("nothing on Pro or Studio is metered." if _wh.allowance_s()
+           else "nothing above is metered.")),
     "cta": "Start clipping free",
     # Derived: this said "20-clip queue" as a literal.
     "cta_note": (f"{_FREE_STREAMS} channel and a {_FREE_QUEUE}-clip queue, "
-                 "free with no card and no time limit."),
+                 "free with no card and " + _wh.public_words("long") + "."),
 }
 
 FAQ = (

@@ -49,7 +49,14 @@ def _public_pages() -> dict:
 # with only the second leaves them expecting a card form. Both, everywhere.
 
 _OFFER = "no card"
-_ESCAPE = "no time limit"
+# THE TIME TERMS. "no time limit" until 2026-11-19, when Free became 5 hours
+# of live watching a week with more at $1 an hour (owner: "lets get started
+# with the free tiers only getting 5 hours a week and they can pay for
+# more"). The atom is now whatever src.billing.watch_hours.public_words says,
+# so it is the hours while FREE_WATCH_HOURS_WEEK is on and "no time limit"
+# again at 0: either way a visitor reads the real terms before any price.
+from src.billing import watch_hours as _wh  # noqa: E402
+_ESCAPE = _wh.public_words("long").lower()
 
 # What must never appear again. Every one of these was live on some page while
 # the trial was the only way in, and each is now FALSE — the most damaging kind
@@ -95,7 +102,7 @@ def test_every_public_page_states_the_offer_in_one_wording():
     for name, html in _public_pages().items():
         low = html.lower()
         assert _OFFER in low, f"{name} does not say the card is not needed"
-        assert _ESCAPE in low, f"{name} does not say it has no time limit"
+        assert _ESCAPE in low, f"{name} does not state Free's time terms ({_ESCAPE!r})"
 
 
 def test_the_offer_is_stated_before_a_visitor_is_asked_to_pay():
@@ -113,7 +120,7 @@ def test_the_offer_is_stated_before_a_visitor_is_asked_to_pay():
     pricing = low.index('id="pricing"')
     section = low[pricing:low.index('id="start"')]
     assert _OFFER in section, "pricing does not mention the card"
-    assert _ESCAPE in section, "pricing does not say it is not a trial"
+    assert _ESCAPE in section, "pricing does not state Free's time terms"
     # and the free plan is the first tier a reader meets, not an afterthought
     assert section.index("free") < section.index("$25"), \
         "the paid tiers are introduced before the free one"
@@ -305,7 +312,7 @@ def test_free_is_the_first_column_and_says_why_it_is_zero():
     from src.dashboard.api import _pricing
     html = _pricing()
     lead = html[:html.index('<div class="plans">')]
-    assert "no card" in lead.lower() and "no time limit" in lead.lower()
+    assert "no card" in lead.lower() and _ESCAPE in lead.lower()
     free = PLAN_LIMITS["free"]
     assert _plan_fact(html, "Free", "Clips held for review") == str(free["max_pending"])
     assert _plan_fact(html, "Free", "Clips kept per week") == str(free["max_library_week"])

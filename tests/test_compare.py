@@ -134,7 +134,10 @@ def test_the_advertised_free_plan_is_the_real_one():
     assert str(PLAN_LIMITS["free"]["max_streams"]) in note
     assert str(PLAN_LIMITS["free"]["max_pending"]) in note
     assert "no card" in note, "the compare page does not say a card is not needed"
-    assert "no time limit" in note, "the compare page implies the free plan expires"
+    # Free's time terms, as the one helper words them: its weekly hours
+    # since 2026-11-19, "no time limit" again with the meter off.
+    from src.billing import watch_hours as wh
+    assert wh.public_words("long").lower() in note, "the compare page misstates Free's time terms"
 
 
 def test_we_do_not_claim_a_feature_our_plans_do_not_have():
@@ -169,9 +172,18 @@ def test_the_credit_rules_are_on_the_page_with_their_sources_and_date(page):
                  "expire after 60 days", "$39.98 a month for 1,200 minutes",
                  "$18.99 each, three for $49.99, seven for $99.99", "VIP Pass"):
         assert fact in page, f"the credit section lost: {fact!r}"
-    # And our column says the same thing on every row: nothing is metered.
+    # And our column says the same thing on every row: nothing on a paid
+    # plan is metered. Free's weekly hours (2026-11-19) are said in the same
+    # row rather than hidden: a comparison of what is metered that left out
+    # the one thing we meter would be the claim this page cannot make.
+    from src.billing import watch_hours as wh
     ours = [row[1] for row in C.CREDITS["rows"]]
-    assert ours[0].startswith("Nothing.") and "does not run out" in ours[2]
+    if wh.allowance_s():
+        assert ours[0].startswith("On Pro and Studio, nothing") and wh.public_words("long") in ours[0]
+        assert wh.public_words("short") in ours[1]
+    else:
+        assert ours[0].startswith("Nothing.")
+    assert "does not run out" in ours[2]
     assert str(PLAN_LIMITS["pro"]["max_streams"]) in ours[1], \
         "our channel count in the credit section is typed, not read"
 

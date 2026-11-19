@@ -489,6 +489,23 @@ a.rd-btn{text-decoration:none}
    not rest on hue alone. */
 .rd-toolbar-meta.warn{color:var(--pending)}
 .rd-toolbar-meta.warn svg{color:var(--pending)}
+/* Free's watching hours (WatchHoursMeter): under "Monitored streams". */
+.rd-wh{display:flex;flex-direction:column;gap:var(--s-2);padding:var(--s-3);border-radius:var(--r-md);
+  border:1px solid var(--hair);background:rgba(255,255,255,.03);font-size:12px;color:var(--fg-2)}
+.rd-wh.out{border-color:var(--pending);background:rgba(255,184,77,.08)}
+.rd-wh-top{display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);flex-wrap:wrap}
+.rd-wh-top b{color:var(--fg)}
+.rd-wh-bar{height:4px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.rd-wh-bar i{display:block;height:100%;background:var(--grad)}
+.rd-wh.out .rd-wh-bar i{background:var(--pending)}
+.rd-wh-sub{color:var(--fg-3);line-height:1.4}
+.rd-packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:var(--s-2)}
+.rd-pack{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:var(--s-1);
+  padding:var(--s-3);border-radius:var(--r-md);border:1px solid var(--hair);background:rgba(255,255,255,.04);text-align:center}
+.rd-pack:hover{border-color:var(--acc)}
+.rd-pack b{font-size:18px;color:var(--fg)}
+.rd-pack span{font-size:12px;color:var(--fg-3)}
+.rd-pack[aria-busy="true"]{opacity:.6;cursor:default}
 /* Autopilot, named where clips are decided (AutopilotChip). A pill in the
    title line, never a row of its own: nothing may be added above the first
    clip on this screen (tests/test_dashboard_density.py). "off" is the one
@@ -2983,7 +3000,7 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
   // Amber like reconnecting, because both are "not running yet, shortly" —
   // and labelled, because the bare word means nothing to a viewer.
   const statusColor = s.status==='live' ? 'var(--live)' : (s.status==='reconnecting'||s.status==='queued') ? 'var(--pending)' : 'var(--fg-2)';
-  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : s.hold==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away') : s.status;
+  const statusLabel = s.status==='queued' ? 'waiting for a slot' : s.status==='paused' ? (s.hold==='billing' ? 'paused · payment failed' : s.hold==='queue_full' ? 'paused · review queue full' : s.hold==='hours' ? 'paused · out of watching hours' : 'paused · 2 hours away') : s.status;
   const platColor = s.platform==='kick' ? '#53fc18' : 'var(--acc)';
   // Paused for going quiet (no hold): the person may be right here, with the
   // tab open and untouched (Free pauses after 2 hours without a request), so
@@ -3022,6 +3039,11 @@ function RdStream({ s, scoreData, profile, onRemove, onForce, ahead }) {
         <button className="rd-btn grad sm" onClick={resume} disabled={resuming}
           title="Start watching this channel again" style={{width:'100%',marginTop:'var(--s-2)'}}>
           <Icon name="radio" size={12}/>{resuming ? 'Starting…' : 'Resume watching'}</button>}
+      {/* Out of this week's watching hours (Free): the way back is hours. */}
+      {s.status==='paused' && s.hold==='hours' &&
+        <button className="rd-btn grad sm" onClick={e=>{e.stopPropagation();openBuyHours();}}
+          title="Buy watching hours to start this channel again" style={{width:'100%',marginTop:'var(--s-2)'}}>
+          <Icon name="radio" size={12}/>Buy hours to keep watching</button>}
       {/* ABOVE THE SCORE, not under the stats (owner, 2026-09-19: "make this
           go to the top I need users to see this"). While a channel is
           calibrating the trigger score is pinned at 0 and the card is
@@ -4334,6 +4356,84 @@ function CullPanel({ clips, activePlatform = 'twitch', onDone }) {
    judging clips; putting the add box there meant the two jobs shared one
    screen and neither tab said what it was for. Lifted verbatim so the
    suggestion dropdown keeps its exact focus/blur/escape behaviour. */
+/* FREE'S WATCHING HOURS (owner, 2026-11-19: "the free tiers only getting 5
+   hours a week and they can pay for more and lets have it be 1$ an hour").
+   `wh` is /me.watch_hours (src/billing/watch_hours.py), kept current by the
+   `watch_hours` event once a minute while a channel is live, on a purchase
+   and on a pause, and by refetchAll on every reconnect. Null on a plan with
+   no meter, and then none of this renders. */
+function fmtHours(s) {
+  s = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? h + 'h' + (m ? ' ' + m + 'm' : '') : m + 'm';
+}
+// What is left NOW: once the reset has passed the week's free hours are back,
+// even before the server has said so (an open tab across Monday 00:00 UTC).
+function whLeft(wh, nowMs) {
+  const reset = nowMs / 1000 >= wh.resets_at;
+  const free = reset ? wh.free_s : wh.free_left_s;
+  return {free, paid: wh.paid_left_s || 0, total: free + (wh.paid_left_s || 0),
+          resetsAt: reset ? wh.resets_at + 7 * 86400 : wh.resets_at};
+}
+function openBuyHours() { window.dispatchEvent(new CustomEvent('hz_buy_hours')); }
+function WatchHoursMeter({ wh }) {
+  if (!wh) return null;
+  const l = whLeft(wh, Date.now());
+  const out = l.total <= 0;
+  const pct = wh.free_s ? Math.max(0, Math.min(100, l.free / wh.free_s * 100)) : 0;
+  const reset = new Date(l.resetsAt * 1000).toLocaleString([], {weekday: 'short', hour: 'numeric', minute: '2-digit'});
+  return (
+    <div className={'rd-wh' + (out ? ' out' : '')}>
+      <div className="rd-wh-top">
+        <span><b>{fmtHours(l.free)}</b> of {Math.round(wh.free_s / 3600)}h free watching left this week
+          {l.paid > 0 && <> · <b>{fmtHours(l.paid)}</b> bought</>}</span>
+        <button className="rd-btn sm grad" onClick={openBuyHours}>Buy hours</button>
+      </div>
+      <div className="rd-wh-bar"><i style={{width: pct + '%'}}/></div>
+      <div className="rd-wh-sub">{out
+        ? 'Out of hours, so your channel is paused. Buy hours to keep watching, or it starts again ' + reset + '.'
+        : 'Counts only while a channel is live. The free hours reset ' + reset + '.'}</div>
+    </div>);
+}
+function BuyHoursDialog({ wh, nxt = null, onClose }) {
+  const [busy, setBusy] = useState(0);
+  const [err, setErr] = useState('');
+  const price = (wh.price_cents || 100) / 100;
+  const buy = async (hours) => {
+    if (busy) return;
+    setBusy(hours); setErr('');
+    try {
+      const r = await fetch('/billing/hours/checkout', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                       body: JSON.stringify({hours})});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.url) { setErr(d.detail || 'Could not start the payment.'); setBusy(0); return; }
+      window.location.href = d.url;               // Stripe Checkout; back to /billing/hours/paid
+    } catch (e) { setErr('Could not reach the server.'); setBusy(0); }
+  };
+  return (
+    <div>
+      <div className="wk-pick-bg" onClick={onClose}/>
+      <div className="wk-pick" role="dialog" aria-label="Buy watching hours">
+        <div>
+          <h4>Buy watching hours</h4>
+          <div className="wk-pick-sub">${price % 1 ? price.toFixed(2) : price} an hour. Bought hours are used after your
+            {' '}{Math.round(wh.free_s / 3600)} free hours each week, and they never expire.</div>
+        </div>
+        <div className="rd-packs">
+          {(wh.packs || []).map(h => (
+            <button key={h} className="rd-pack" onClick={() => buy(h)} aria-busy={busy === h ? 'true' : 'false'}
+              disabled={!!busy}>
+              <b>{h} hours</b><span>{busy === h ? 'Opening Stripe…' : '$' + (h * price).toFixed(h * price % 1 ? 2 : 0)}</span>
+            </button>))}
+        </div>
+        {err && <div className="ed-warn">{err}</div>}
+        {nxt && <div className="sc-sub">{nxt.label} watches without a limit, {nxt.max_streams} channels at once, for
+          ${nxt.price} a month. <a href="/billing/paywall">See plans</a></div>}
+        <button className="rd-btn sm" onClick={onClose} disabled={!!busy}>Cancel</button>
+      </div>
+    </div>);
+}
+
 function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRemove, onForce,
                           selected, onSelect, me = null }) {
   const [ch, setCh] = useState('');
@@ -4533,6 +4633,7 @@ function AddStreamPanel({ streams, scores, profiles, activePlatform, onAdd, onRe
             <span className="rd-eyebrow">Monitored streams</span>
             <span className="rd-count">{streamsArr.length}</span>
           </div>
+          <WatchHoursMeter wh={me && me.watch_hours}/>
           <div className="rd-streams">
             {streamsArr.length===0
               ? <div className="rd-empty"><span className="ic"><Icon name="radio" size={26}/></span>No streams yet.<br/>Add one to start monitoring.</div>
@@ -5193,7 +5294,7 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
-  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : active.hold==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away') : active.status;
+  const statusLabel = active.status==='queued' ? 'waiting for a slot' : active.status==='paused' ? (active.hold==='billing' ? 'paused · payment failed' : active.hold==='queue_full' ? 'paused · review queue full' : active.hold==='hours' ? 'paused · out of watching hours' : 'paused · 2 hours away') : active.status;
   return (
     <div className="rd-streams-layout">
       <AddStreamPanel {...{streams,scores,profiles,activePlatform,onAdd,onRemove,onForce,me}}
@@ -12749,6 +12850,15 @@ function RdApp() {
       else if (_params.get('campaign_pay') === 'pending') flash('Stripe has your payment. It shows here the moment it is confirmed.');
       else if (_params.get('campaign_pay') === 'cancelled') flash('Payment cancelled. Nothing was charged.');
       history.replaceState(null,'',location.pathname);
+    } else if (_params.get('hours')) {
+      // Back from buying watching hours. The hours arrive over the socket
+      // (and /me, which refetchAll has just pulled); this says what happened.
+      const h = _params.get('hours');
+      flash(h === 'bought' ? 'Hours added. Thank you.'
+        : h === 'cancelled' ? 'Payment cancelled. Nothing was charged.'
+        : 'Stripe has your payment. Your hours show here the moment it is confirmed.');
+      setRoute('streams');
+      history.replaceState(null,'',location.pathname);
     } else if (_params.get('view') === 'campaigns') {
       // The landing page's "Browse the campaigns", through sign-in. The route
       // falls back to the review queue if the marketplace is closed to them.
@@ -12885,6 +12995,9 @@ function RdApp() {
         // _queue_pause_words) so the toast and the bell note cannot disagree;
         // the channels themselves arrive as stream_updated.
         else if(msg.event==='queue_pause'){if(msg.message)flash(msg.message);}
+        // Free's watching hours: what is left, after a minute live, a
+        // purchase or a pause. The meter reads /me.watch_hours.
+        else if(msg.event==='watch_hours'){setMe(m=>m?({...m, watch_hours: msg.hours||null}):m); if(msg.message)flash(msg.message);}
         else if(msg.event==='streams_paused_idle'){flash('Paused after 2 hours without you using Highlightz. Press Resume watching to start again. Paid plans keep watching while you are away.');}
         // The row itself is already gone via stream_removed. This says WHY, and
         // that it is not permanent — a stream vanishing with no explanation is
@@ -13361,6 +13474,14 @@ function RdApp() {
   // as the editor (release flag + a plan with the Scheduler, or an admin): the
   // endpoint refuses independently, this only stops us offering a dead end.
   const [postClip, setPostClip] = useState(null);
+  // Buying watching hours (Free). Opened from the meter on Live Streams and
+  // from a channel card paused for it, both by the hz_buy_hours event.
+  const [buyHours, setBuyHours] = useState(false);
+  useEffect(()=>{
+    const open = ()=>setBuyHours(true);
+    window.addEventListener('hz_buy_hours', open);
+    return ()=>window.removeEventListener('hz_buy_hours', open);
+  },[]);
   const onPostClip = editorOn ? setPostClip : null;
   // The screen actually rendered. The nav is one way in and savedRoute() is
   // the other (a reload comes back to the section it left), so normalise:
@@ -13587,6 +13708,8 @@ function RdApp() {
           // product change, not just the modal disappear.
           if (expect) flash(expect);
         }}/>}
+      {buyHours && me && me.watch_hours && <BuyHoursDialog wh={me.watch_hours} nxt={me.next_plan}
+        onClose={()=>setBuyHours(false)}/>}
       {postClip && <PostNowDialog clip={postClip} platforms={platforms} connections={connections} queue={queue}
         campaigns={(campaigns||[]).filter(c=>c.status==='live' && !c.locked)} initialCampaign={postFor}
         onClose={()=>setPostClip(null)}/>}

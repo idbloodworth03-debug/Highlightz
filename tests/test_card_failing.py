@@ -289,7 +289,10 @@ def test_a_held_channel_says_why_it_is_paused():
     # sits between them: a Free queue that filled with the tab closed.
     assert SRC.count("==='billing' ? 'paused · payment failed' : ") == 2
     # And since 2026-11-19 going quiet says how long (tests/test_idle_two_hours.py).
-    assert SRC.count("==='queue_full' ? 'paused · review queue full' : 'paused · 2 hours away'") == 2
+    # And since 2026-11-19 a fourth: out of Free's weekly watching hours
+    # (tests/test_watch_hours.py), between the queue and going quiet.
+    assert SRC.count("==='queue_full' ? 'paused · review queue full' : ") == 2
+    assert SRC.count("==='hours' ? 'paused · out of watching hours' : 'paused · 2 hours away'") == 2
 
 
 def test_no_new_event_went_out_without_a_handler():

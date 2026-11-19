@@ -241,8 +241,9 @@ def test_the_sign_in_page_does_not_quote_a_price_as_the_headline():
     # warn about, which is the version of this the page has now had twice.
     assert "no card" in html.lower(), \
         "the sign-in page does not say a card is not needed"
-    assert "no time limit" in html.lower(), \
-        "the sign-in page does not say the free plan keeps working"
+    from src.billing import watch_hours as wh
+    assert wh.public_words("long").lower() in html.lower(), \
+        "the sign-in page does not state the free plan's time terms"
     assert "no credit card" not in html.lower()
 
 

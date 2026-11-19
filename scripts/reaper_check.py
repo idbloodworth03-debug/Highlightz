@@ -62,11 +62,13 @@ DEPLOY = ("cd /opt/highlightz && git fetch origin && git reset --hard "
           "origin/claude/handoff-context-n4badl && systemctl restart highlightz")
 # What the pause rules log, by name. Counted, never read further.
 EVENTS = ("queue_full_pause", "streams_paused_queue_full", "streams_paused_idle",
+          "streams_paused_hours", "watch_hours_pass", "watch_hours_error",
           "idle_stream_reaper_pausing", "streams_resumed_on_return", "idle_pause_lifted_paid_plan",
           "reaper_subscription_lapsed", "reaper_trial_expired", "pause_stream_failed",
           "resume_stream_failed", "queue_pause_notice_failed",
           "idle_stream_reaper_error", "queue_full_watch_error")
-BROKEN = ("idle_stream_reaper_error", "queue_full_watch_error", "pause_stream_failed")
+BROKEN = ("idle_stream_reaper_error", "queue_full_watch_error", "pause_stream_failed",
+          "watch_hours_error")
 
 
 # ── the running site ────────────────────────────────────────────────────────
@@ -199,7 +201,10 @@ def classify(users, streams, clips, activity, decisions, now: float, started: fl
                "watching": len(watching), "used": used, "cap": cap, "live": live.get(uid, 0),
                "full": full, "late_s": 0.0}
         if not watching:
-            row["kind"] = ("held" if "queue_full" in holds else
+            # "hours" first: it is the one a visit does NOT lift, so an
+            # account held for both is out of hours until it has some.
+            row["kind"] = ("hours" if "hours" in holds else
+                           "held" if "queue_full" in holds else
                            "billing" if holds == {"billing"} else "idle")
             row["room"] = not full
         elif full:
@@ -278,6 +283,8 @@ def report(rows: list[dict], *, now: float, started: float | None, changed: floa
     out.append(f"  paused, {IDLE_WORDS} without a visit   : {kinds['idle']:>5,}")
     if kinds["billing"]:
         out.append(f"  paused, card failing              : {kinds['billing']:>5,}")
+    if kinds["hours"]:
+        out.append(f"  paused, out of watching hours     : {kinds['hours']:>5,}   (start again Monday 00:00 UTC, or when they buy hours)")
     out.append(f"  watched, queue has room           : {kinds['room']:>5,}   <- the plan: Free is watched until its queue is full")
     out.append(f"  watched, full, inside its 15 min  : {kinds['inside']:>5,}")
     out.append(f"  SHOULD BE PAUSED AND IS NOT       : {len(late):>5,}")
