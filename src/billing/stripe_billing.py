@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 
 import stripe
 import structlog
@@ -165,6 +166,46 @@ def campaign_checkout_session(session_id: str) -> dict | None:
             "metadata": {k: _get(meta, k) for k in ("kind", "request_id", "user_id")}}
 
 
+_HOURS_PRICE_TTL = 3600
+_hours_price_seen: dict = {}          # price id -> (checked at, usable, why not)
+
+
+def hours_price_problem(price) -> str:
+    """Why this Stripe price cannot be the watching hour's, or "" when it
+    can: it must be live for sale, one-off, USD, and exactly PRICE_CENTS. The
+    credit check (api._hours_paid) refuses a session whose total is not hours
+    x PRICE_CENTS, so a $2 price here would take money and add nothing."""
+    from src.billing import watch_hours
+    checks = [
+        (_get(price, "active") is True, "it is archived"),
+        (_get(price, "type") == "one_time", "it is not a one-off price"),
+        (str(_get(price, "currency") or "").lower() == "usd", "it is not in USD"),
+        (_get(price, "unit_amount") == watch_hours.PRICE_CENTS,
+         f"it is {_get(price, 'unit_amount')} cents, not {watch_hours.PRICE_CENTS}"),
+    ]
+    return next((why for ok, why in checks if not ok), "")
+
+
+def _hours_price() -> str:
+    """STRIPE_PRICE_ID_HOURS when it is set AND Stripe confirms it is a $1.00
+    one-off USD price (asked at most once an hour), else "". Never raises: a
+    price that cannot be read is not a reason to refuse somebody's payment."""
+    pid = (settings.stripe_price_id_hours or "").strip()
+    if not pid:
+        return ""
+    now = time.time()
+    seen = _hours_price_seen.get(pid)
+    if seen is None or now - seen[0] > _HOURS_PRICE_TTL:
+        try:
+            why = hours_price_problem(_client().v1.prices.retrieve(pid))
+        except Exception as exc:
+            why = f"Stripe could not read it ({type(exc).__name__})"
+        seen = _hours_price_seen[pid] = (now, not why, why)
+        if why:
+            log.warning("hours_price_unusable", price=pid[-6:], why=why)
+    return pid if seen[1] else ""
+
+
 def create_hours_checkout(user: dict, hours: int) -> tuple[str, str]:
     """A one-time Stripe Checkout for watching hours on Free
     (src/billing/watch_hours.py). One line, `hours` at $1 each, so the
@@ -181,14 +222,19 @@ def create_hours_checkout(user: dict, hours: int) -> tuple[str, str]:
         raise ValueError("Choose one of the hour packs.")
     meta = {"kind": "watch_hours", "user_id": user["id"], "hours": str(hours)}
     base = "https://highlightz.app"
+    # The owner's Stripe product when it is set up and checks out (its name,
+    # description and image on the page); otherwise our own $1 line.
+    price_id = _hours_price()
+    line = ({"quantity": hours, "price": price_id} if price_id else
+            {"quantity": hours, "price_data": {
+                "currency": "usd", "unit_amount": watch_hours.PRICE_CENTS,
+                "product_data": {"name": "Highlightz watching hour",
+                                 "description": "One hour of live channel watching on the Free plan. "
+                                                "Used after the week's free hours; does not expire."}}})
     params: dict = {
         "mode": "payment",
         "payment_method_types": ["card"],
-        "line_items": [{"quantity": hours, "price_data": {
-            "currency": "usd", "unit_amount": watch_hours.PRICE_CENTS,
-            "product_data": {"name": "Highlightz watching hour",
-                             "description": "One hour of live channel watching on the Free plan. "
-                                            "Used after the week's free hours; does not expire."}}}],
+        "line_items": [line],
         "success_url": f"{base}/billing/hours/paid?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{base}/?hours=cancelled",
         "client_reference_id": user["id"],

@@ -659,6 +659,12 @@ class Settings(BaseSettings):
     stripe_price_id_starter: str = ""   # $10/month (no longer sold; existing subscribers)
     stripe_price_id_pro: str = ""       # $25/month
     stripe_price_id_studio: str = ""    # $250/month (2026-11-03)
+    # Free's watching hours, $1 each, one-off (src/billing/watch_hours.py).
+    # The owner's product in Stripe ("1 Hour of Highlightz"), so Checkout shows
+    # its name, description and image. Optional: unset, or not a live $1.00 USD
+    # one-time price, and the checkout sends its own $1 line instead. Written
+    # by scripts/setup_hours_price.py, never typed from a screenshot.
+    stripe_price_id_hours: str = ""
     stripe_webhook_secret: str = ""
 
     # Trigger thresholds

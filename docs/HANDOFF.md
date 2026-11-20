@@ -10222,6 +10222,20 @@ Stripe webhook endpoint is subscribed to `checkout.session.completed`. If it
 is not, the return route still credits anyone who comes back from Stripe;
 somebody who closes the tab on Stripe's page is credited only by the webhook.
 
+**The owner's Stripe product (2026-11-20).** The owner added "1 Hour of
+Highlightz" ($1.00, one-off, USD, with the logo) in Stripe. When
+`STRIPE_PRICE_ID_HOURS` is set the checkout sells that price × hours, so the
+page shows their name, description and image; `stripe_billing._hours_price`
+re-checks it with Stripe at most once an hour and uses it only if it is still
+an active one-off USD $1.00 price, otherwise it sends its own $1 line (a wrong
+price would take money that `_hours_paid` then refuses to credit). The id is
+written by `scripts/setup_hours_price.py` (finds the account's $1.00 one-off
+prices itself; several → one finished command each, printing only the end of
+each id; refusals say NOTHING WAS CHANGED), never typed off a screenshot.
+Unset, everything works as before. Do not switch on automatic tax for these
+checkouts without changing `_hours_paid`'s amount check, which expects
+exactly hours × $1.
+
 **What people see:** a meter at the top of Monitored streams (free left,
 bought left, when it resets in their clock, Buy hours); a Buy hours dialog
 (5/10/25, with the Pro line under it); a paused card reads "paused · out of
