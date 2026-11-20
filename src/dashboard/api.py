@@ -12612,6 +12612,13 @@ def _free_price() -> str:
     return watch_hours.price_words()
 
 
+def _free_packs() -> str:
+    """"5, 10 or 25": the hour packs, from watch_hours.PACKS."""
+    from src.billing import watch_hours
+    p = [str(n) for n in watch_hours.PACKS]
+    return ", ".join(p[:-1]) + " or " + p[-1] if len(p) > 1 else "".join(p)
+
+
 def _free_time(form: str = "short") -> str:
     from src.billing import watch_hours
     return watch_hours.public_words(form)
@@ -16332,7 +16339,7 @@ def _tos_hours() -> str:
     if not _free_metered():
         return ""
     from src.billing import watch_hours as wh
-    packs = ", ".join(str(n) for n in wh.PACKS[:-1]) + " or " + str(wh.PACKS[-1])
+    packs = _free_packs()
     return (
         "<p>The free plan includes " + str(_free_hours()) + " hours of live monitoring "
         "each week. Time is counted while a channel on your account is live and being "
@@ -16447,9 +16454,14 @@ def _faq() -> str:
          "tab, shut the laptop. If the channel is not live yet it is rechecked every 30 seconds "
          "until it is. On Pro and Studio it keeps watching for as long as the channel is in "
          "your list. On Free it keeps watching, with the tab open or closed, until your review "
-         "queue is full or 2 hours have passed without you using the dashboard, whichever "
-         "comes first. A full queue pauses the channel until you accept or reject a clip; the "
-         "2 hours end on your next visit, or press Resume watching on the channel."),
+         + ("queue is full, 2 hours have passed without you using the dashboard, or the week's "
+            "watching hours are used, whichever comes first. A full queue pauses the channel until "
+            "you accept or reject a clip; the 2 hours end on your next visit, or press Resume "
+            "watching on the channel; the hours come back on Monday, or you can buy more."
+            if _free_metered() else
+            "queue is full or 2 hours have passed without you using the dashboard, whichever "
+            "comes first. A full queue pauses the channel until you accept or reject a clip; the "
+            "2 hours end on your next visit, or press Resume watching on the channel.")),
         ("How many channels can it watch at once?",
          f"<b>{free['max_streams']}</b> on Free, <b>{pro['max_streams']}</b> on Pro, "
          f"<b>{sd['max_streams']}</b> on Studio. At the same time, not in rotation, and each one "
@@ -16565,14 +16577,21 @@ def _faq() -> str:
          "a saved file lives under your account only, for up to 30 days, and goes when you delete "
          "the clip or your account. On Twitch the clip itself is also a real Twitch clip, hosted "
          "by Twitch and attributed to you. Full detail is in the <a href=\"/privacy\">Privacy Policy</a>."),
+        # Its own question (owner, 2026-11-20: "make sure everything is updated
+        # on the landing page"), so somebody looking for the limit finds it,
+        # and so does a search engine reading the FAQ schema built from this.
+        *([("How long does Free watch for?",
+            f"New Free accounts get <b>{_free_hours()} hours of live watching a week</b>, counted only "
+            "while a channel is live and being watched, and reset every Monday (00:00 UTC). After "
+            f"that, hours are <b>{_free_price()}</b> each, bought in packs of {_free_packs()}, and bought "
+            "hours never expire. Pro and Studio watch without a limit."
+            + (f" Accounts made before {_hours_from_words()} keep unlimited watching on Free: nothing "
+               "changed for them." if _hours_from_words() else ""))]
+          if _free_metered() else []),
         ("How does billing work?",
          f"Free is free: it asks for no card and it never expires. "
-         + (f"It watches live channels for <b>{_free_hours()} hours a week</b>, counted only while a "
-            "channel is live and being watched and reset every Monday; after that, hours are "
-            f"<b>{_free_price()}</b> each, bought in packs, and bought hours never run out. "
-            + (f"Accounts made before {_hours_from_words()} keep unlimited watching. "
-               if _hours_from_words() else "")
-            if _free_metered() else "")
+         + (f"New accounts watch for {_free_hours()} hours a week on it, and more is "
+            f"{_free_price()} an hour. " if _free_metered() else "")
          + f"Pro is <b>${pro['price']}</b> a month and Studio is "
          f"<b>${sd['price']}</b> a month. Move between them whenever you like and cancel from the "
          "Settings tab. Cancelling puts you back on Free, and every clip you approved stays in your "

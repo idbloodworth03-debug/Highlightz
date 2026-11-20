@@ -10280,6 +10280,15 @@ accounts are on the limit against grandfathered; the drawer says
 "grandfathered". A grandfathered account cannot buy hours (400, "This account
 watches without a limit").
 
+**Landing page (2026-11-20, owner: "make sure everything is updated on the
+landing page as well"):** the FAQ has its own question, "How long does Free
+watch for?" (the hours, Monday reset, $1 packs, Pro and Studio unlimited, and
+the grandfather date), which the FAQ schema picks up; "Do I have to leave
+anything running?" names the weekly hours as the third thing that pauses
+Free; the billing answer keeps one short line. The announcement the owner
+posts about it was written in chat (existing accounts: nothing changes; new
+ones: 5 hours a week); post it AFTER the deploy, since it says "from today".
+
 **On the first deploy:** existing accounts see no change at all. New Free
 accounts get 5 hours from sign-up; the first `streams_paused_hours` lines come
 once one of them has watched 5 live hours in a week.
