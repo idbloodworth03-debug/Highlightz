@@ -506,6 +506,21 @@ a.rd-btn{text-decoration:none}
 .rd-pack b{font-size:18px;color:var(--fg)}
 .rd-pack span{font-size:12px;color:var(--fg-3)}
 .rd-pack[aria-busy="true"]{opacity:.6;cursor:default}
+/* Free's watching left, in the top bar on every screen (HoursPill). The long
+   words on a wide screen, the bare time on a phone, where the page title is
+   what gives way (the header block for max-width:700px). */
+.rd-hours{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:var(--s-1);
+  font-size:12px;font-weight:600;color:var(--fg);white-space:nowrap;flex-shrink:0;
+  padding:var(--s-1) var(--s-3);border-radius:var(--r-pill);border:1px solid var(--hair);background:rgba(255,255,255,.04)}
+.rd-hours:hover{border-color:var(--acc)}
+.rd-hours:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.rd-hours.out{color:var(--pending);border-color:var(--pending);background:rgba(255,184,77,.08)}
+.rd-hours-s{display:none}
+@media(max-width:700px){
+  .rd-hours{padding:var(--s-1) var(--s-2)}
+  .rd-hours-l{display:none}
+  .rd-hours-s{display:inline}
+}
 /* Autopilot, named where clips are decided (AutopilotChip). A pill in the
    title line, never a row of its own: nothing may be added above the first
    clip on this screen (tests/test_dashboard_density.py). "off" is the one
@@ -2384,7 +2399,7 @@ body.hz-player .ed-bg{-webkit-backdrop-filter:none;backdrop-filter:none}
   .rd-header .rd-bell{width:34px;height:34px}
   .rd-header>div:not([class]){flex:0 1 auto}
   .rd-header .htitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .rd-header .rd-menubtn,.rd-header .plat-switch,.rd-header .rd-inbox,.rd-header .rd-user-chip{flex-shrink:0}
+  .rd-header .rd-menubtn,.rd-header .plat-switch,.rd-header .rd-inbox,.rd-header .rd-user-chip,.rd-header .rd-hours{flex-shrink:0}
 }
 /* A screen that crashed (ErrorBoundary): what happened and a way out, in
    place of a blank page. Tokens from :root, so the whole-app fallback, which
@@ -4394,6 +4409,30 @@ function WatchHoursMeter({ wh }) {
         ? 'Out of hours, so your channel is paused. Buy hours to keep watching, or it starts again ' + reset + '.'
         : 'Counts only while a channel is live. The free hours reset ' + reset + '.'}</div>
     </div>);
+}
+// FREE'S WATCHING LEFT, in the top bar on every screen (owner, 2026-11-20:
+// "make sure new users will have a counter on the top as well showing how
+// much time they have to use left"). Only for an account the meter counts:
+// me.watch_hours is null for every other one (paid, trial, staff, and the
+// accounts grandfathered in), so they see nothing. It moves with the
+// watch_hours event (once a minute while one of their channels is live, and
+// on every pause, purchase and restart) and with /me in refetchAll, so it is
+// right after a reconnect too. A press opens Buy hours.
+function HoursPill({ wh }) {
+  if (!wh) return null;
+  const l = whLeft(wh, Date.now());
+  const out = l.total <= 0;
+  const reset = new Date(l.resetsAt * 1000).toLocaleString([], {weekday: 'short', hour: 'numeric', minute: '2-digit'});
+  const says = out
+    ? 'Out of watching hours for this week. Buy hours, or they come back ' + reset + '.'
+    : fmtHours(l.free) + ' of free watching left this week'
+      + (l.paid > 0 ? ', plus ' + fmtHours(l.paid) + ' bought' : '') + '. Resets ' + reset + '. Press to buy more.';
+  return (
+    <button className={'rd-hours' + (out ? ' out' : '')} onClick={openBuyHours} title={says} aria-label={says}>
+      <Icon name="clock" size={14}/>
+      <span className="rd-hours-l">{out ? 'Out of hours' : fmtHours(l.total) + ' left'}</span>
+      <span className="rd-hours-s">{out ? '0m' : fmtHours(l.total)}</span>
+    </button>);
 }
 function BuyHoursDialog({ wh, nxt = null, onClose }) {
   const [busy, setBusy] = useState(0);
@@ -13622,6 +13661,7 @@ function RdApp() {
             <button className={'plat-sw-btn '+(activePlatform==='kick'?'sw-on-kick':'sw-off')} onClick={()=>switchPlatform('kick')}>Kick</button>
           </div>
           <span className="rd-live"><span className="dot"/>Live</span>
+          <HoursPill wh={me.watch_hours}/>
           <InboxBell inbox={inbox} onRead={markInboxRead} onOpenCampaign={openCampaign}/>
           <button className="rd-user-chip" title="Settings" style={{border:'none',cursor:'pointer'}} onClick={()=>openAccount()}>
             {me.avatar_url

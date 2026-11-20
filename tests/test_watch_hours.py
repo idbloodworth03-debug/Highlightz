@@ -474,3 +474,16 @@ def test_admin_counts_limited_and_grandfathered_free_accounts(real, scene, monke
     monkeypatch.setattr(api, "_require_admin", lambda r: None)
     out = asyncio.run(api.admin_hours(_req("admin", method="GET", path="/admin/hours")))
     assert out["free_limited"] == 1 and out["free_grandfathered"] == 1 and out["started_at"] == start
+
+
+def test_the_top_bar_counts_down_on_every_screen_for_a_metered_account():
+    """Owner, 2026-11-20: "make sure new users will have a counter on the top
+    as well showing how much time they have to use left"."""
+    from src.dashboard.aurora_html import DASHBOARD_HTML as page
+    head = page[page.index('<header className="rd-header">'):page.index("</header>", page.index('<header className="rd-header">'))]
+    assert "<HoursPill wh={me.watch_hours}/>" in head, "the counter is not in the top bar"
+    pill = page[page.index("function HoursPill("):page.index("function BuyHoursDialog(")]
+    assert "if (!wh) return null;" in pill, "an account with no meter would see a counter"
+    assert "onClick={openBuyHours}" in pill and "' left'" in pill and "Out of hours" in pill
+    # It moves live: the event that carries the meter replaces me.watch_hours.
+    assert "watch_hours:msg.hours" in page.replace(" ", "")

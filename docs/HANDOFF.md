@@ -10289,6 +10289,17 @@ Free; the billing answer keeps one short line. The announcement the owner
 posts about it was written in chat (existing accounts: nothing changes; new
 ones: 5 hours a week); post it AFTER the deploy, since it says "from today".
 
+**Top-bar counter (2026-11-20, owner: "make sure new users will have a
+counter on the top as well showing how much time they have to use left"):**
+`HoursPill` in the dashboard header on every screen, only when
+`me.watch_hours` is set (metered accounts; paid, trial, staff and
+grandfathered see nothing). "1h 30m left" / "Out of hours" on a wide screen,
+"1h 30m" / "0m" on a phone (the page title is what gives way, as before);
+amber when out; a press opens Buy hours. Moves with the `watch_hours` event
+and /me in refetchAll. Browser-checked at 1440, 390 and 320 px: no sideways
+scroll, header height unchanged, live change on running out and on a
+webhook purchase with no reload.
+
 **On the first deploy:** existing accounts see no change at all. New Free
 accounts get 5 hours from sign-up; the first `streams_paused_hours` lines come
 once one of them has watched 5 live hours in a week.
