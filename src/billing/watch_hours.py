@@ -21,9 +21,17 @@ reset and do not expire: they are a balance, used only once the week's free
 hours are gone, and the next week starts on free hours again.
 
 WHO. An account whose plan meters watching (plans: Free) while
-FREE_WATCH_HOURS_WEEK is above 0. Paid plans, trials and staff are never
-counted. Setting it to 0 switches the whole thing off; nothing is lost, the
-balances stay on disk.
+FREE_WATCH_HOURS_WEEK is above 0, and that was CREATED AFTER the meter first
+switched on. Paid plans, trials and staff are never counted. Setting it to 0
+switches the whole thing off; nothing is lost, the balances stay on disk.
+
+GRANDFATHERED (owner, 2026-11-20: "dont change any of the free acounts active
+rn grand father them in and the new ones are changed"). Every account that
+existed before the meter first ran keeps unlimited watching, whatever plan it
+is on later. The moment is written once, the first time it is asked for while
+the meter is on (watch_hours_start.json), and never moved: accounts are
+compared on created_at, which every way of signing up records. An account
+with no created_at is an old one.
 
 THE PRICE. PRICE_CENTS a hour, sold in PACKS. Not one hour at a time: a $1
 card charge loses about a third to the card fee (2.9% + 30 cents), and $1
@@ -35,7 +43,9 @@ FILES (in LOCAL_STORAGE_PATH):
                                when they change (at most once a minute);
   watch_hour_purchases.jsonl  one line per purchase, appended once: the
                                ledger the admin page reads, and what makes a
-                               payment credit hours exactly once.
+                               payment credit hours exactly once;
+  watch_hours_start.json      {"at": when the meter first switched on}:
+                               accounts created before it are never metered.
 """
 
 from __future__ import annotations
@@ -59,6 +69,8 @@ _EPOCH_MONDAY = 345600                  # 1970-01-05 00:00 UTC, a Monday
 
 _FILE = Path(settings.local_storage_path) / "watch_hours.json"
 _LEDGER = Path(settings.local_storage_path) / "watch_hour_purchases.jsonl"
+_START = Path(settings.local_storage_path) / "watch_hours_start.json"
+_start_at: float | None = None
 
 _lock = threading.Lock()
 _rows: dict[str, dict] | None = None
@@ -75,12 +87,48 @@ def allowance_s() -> int:
         return 0
 
 
+def started_at() -> float | None:
+    """When the meter first switched on here; None while it never has. Written
+    the first time it is asked for with the meter on, then never moved. If it
+    cannot be written, None: nobody is metered rather than everybody."""
+    global _start_at
+    if _start_at is not None:
+        return _start_at
+    raw = read_json(_START, {})
+    at = raw.get("at") if isinstance(raw, dict) else None
+    if isinstance(at, (int, float)) and at > 0:
+        _start_at = float(at)
+        return _start_at
+    if allowance_s() <= 0:
+        return None
+    now = time.time()
+    try:
+        atomic_write_json(_START, {"at": now, "why": "accounts created before this are never metered"})
+    except Exception as exc:
+        log.warning("watch_hours_start_not_written", error=str(exc)[:160])
+        return None
+    _start_at = now
+    log.info("watch_hours_started", at=round(now))
+    return now
+
+
+def grandfathered(user: dict | None) -> bool:
+    """An account from before the meter: it keeps unlimited watching."""
+    start = started_at()
+    if start is None:
+        return True
+    created = (user or {}).get("created_at")
+    if not isinstance(created, (int, float)) or created <= 0:
+        return True
+    return float(created) < start
+
+
 def metered(user: dict | None) -> bool:
     """Is this account's watching counted against an allowance?"""
     if not user or user.get("is_admin") or allowance_s() <= 0:
         return False
     from src.billing.plans import limits_for
-    return bool(limits_for(user).get("meters_watching"))
+    return bool(limits_for(user).get("meters_watching")) and not grandfathered(user)
 
 
 def price_words() -> str:
@@ -281,7 +329,8 @@ def forget_user(uid: str) -> bool:
 
 
 def _reset_for_tests(root: Path | None = None) -> None:
-    global _rows, _dirty, _FILE, _LEDGER
-    _rows, _dirty = None, False
+    global _rows, _dirty, _FILE, _LEDGER, _START, _start_at
+    _rows, _dirty, _start_at = None, False, None
     if root is not None:
         _FILE, _LEDGER = root / "watch_hours.json", root / "watch_hour_purchases.jsonl"
+        _START = root / "watch_hours_start.json"

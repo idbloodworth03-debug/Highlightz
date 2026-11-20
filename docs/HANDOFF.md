@@ -10263,9 +10263,26 @@ refund terms apply) and the Privacy Policy (the weekly count, the balance and
 the purchase record; deleting an account deletes the balance, the purchase
 lines stay as the payment record).
 
-**On the first deploy:** every Free account starts this week with the full
-5 hours from the moment of the restart (nothing was counted before). The
-first `streams_paused_hours` lines appear 5 hours of live watching after that.
+**GRANDFATHERED (owner, 2026-11-20, before the first deploy):** "dont change
+any of the free acounts active rn grand father them in and the new ones are
+changed". Every account that EXISTS when the meter first switches on keeps
+unlimited watching, on any plan, for good; only accounts created after it are
+metered. `watch_hours.started_at()` writes the moment once
+(`watch_hours_start.json`, the first time it is asked for with the meter on:
+in practice the web process starting on the deploy) and never moves it;
+`grandfathered()` compares `created_at` (every sign-up path sets it; a record
+without one counts as old). If the file cannot be written, nobody is metered.
+To end grandfathering later is a deliberate change to `grandfathered()`, not
+a matter of deleting the file (that would only move the date forward). The
+Terms and the FAQ name the date ("free accounts created before ... keep
+unlimited watching"); the admin Hours tab shows the date and how many Free
+accounts are on the limit against grandfathered; the drawer says
+"grandfathered". A grandfathered account cannot buy hours (400, "This account
+watches without a limit").
+
+**On the first deploy:** existing accounts see no change at all. New Free
+accounts get 5 hours from sign-up; the first `streams_paused_hours` lines come
+once one of them has watched 5 live hours in a week.
 
 Blast radius: Free accounts' live slots and the copy above. Paid plans never
 reach the meter (`metered()` is False before anything is counted). Tests:

@@ -30,10 +30,16 @@ H = 3600
 FREE_S = 5 * H
 
 
+_REAL_GRANDFATHERED = wh.grandfathered
+
+
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "free_watch_hours_week", 5)
     wh._reset_for_tests(tmp_path)
+    # Every account below is a NEW one (made after the meter started), unless
+    # a test says otherwise; grandfathering has its own tests at the end.
+    monkeypatch.setattr(wh, "grandfathered", lambda user: False)
     monkeypatch.setattr(api, "_hours_held", set())
     monkeypatch.setattr(api, "_watch_mark", {})
     yield tmp_path
@@ -387,3 +393,84 @@ def test_reading_a_balance_never_writes_a_row_for_it():
     assert "never" not in wh.all_rows() and not wh.save_if_dirty()
     wh.consume("never", FREE, 60)
     assert "never" in wh.all_rows()
+
+
+# ── grandfathered: accounts from before the meter keep unlimited watching ───
+# Owner, 2026-11-20: "dont change any of the free acounts active rn grand
+# father them in and the new ones are changed".
+
+@pytest.fixture
+def real(monkeypatch):
+    monkeypatch.setattr(wh, "grandfathered", _REAL_GRANDFATHERED)
+
+
+def test_the_start_is_written_once_and_never_moves(real, monkeypatch):
+    first = wh.started_at()
+    assert first and json.loads(wh._START.read_text())["at"] == first
+    wh._start_at = None                                   # a restart reads it back
+    monkeypatch.setattr(wh.time, "time", lambda: first + 86400)
+    assert wh.started_at() == first
+
+
+def test_accounts_from_before_are_never_metered_and_new_ones_are(real):
+    start = wh.started_at()
+    old = {"id": "o", "subscription_status": "none", "created_at": start - 3600}
+    ancient = {"id": "a", "subscription_status": "none"}           # no created_at: an old record
+    new = {"id": "n", "subscription_status": "none", "created_at": start + 60}
+    assert not wh.metered(old) and not wh.metered(ancient) and wh.metered(new)
+    assert wh.left_s("o", old) == float("inf") and wh.snapshot("o", old) is None
+    assert wh.snapshot("n", new)["left_s"] == FREE_S
+
+
+def test_meter_off_at_first_means_no_start_and_nobody_metered(real, monkeypatch):
+    monkeypatch.setattr(settings, "free_watch_hours_week", 0)
+    assert wh.started_at() is None and not wh._START.exists()
+
+
+def test_a_start_that_cannot_be_written_meters_nobody(real, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("read-only")
+    monkeypatch.setattr(wh, "atomic_write_json", boom)
+    assert wh.started_at() is None
+    assert not wh.metered({"id": "n", "subscription_status": "none", "created_at": time.time() + 9})
+
+
+def test_a_grandfathered_account_out_of_hours_before_is_started_again(real, scene):
+    """Paused under the meter before it was grandfathered: the next pass
+    finds it has no limit and starts it."""
+    start = wh.started_at()
+    scene.person("f", pending=0, created_at=start - 60)
+    api._streams["f:chan"].update(status="paused", hold="hours")
+    api._hours_held.add("f")
+    assert asyncio.run(api.watch_hours_once())["resumed"] == 1
+    assert scene.rec("f")["status"] == "starting"
+
+
+def test_a_grandfathered_account_cannot_be_sold_hours(real, scene, monkeypatch):
+    from fastapi import HTTPException
+    start = wh.started_at()
+    scene.person("old", pending=0, created_at=start - 60)
+    monkeypatch.setattr(api, "_current_user_id", lambda r: r.scope["session"]["user_id"])
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_stub")
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(api.hours_checkout(_req("old", {"hours": 5})))
+    assert e.value.status_code == 400 and "without a limit" in e.value.detail
+
+
+def test_the_terms_faq_and_admin_say_who_is_grandfathered(real):
+    src = open(api.__file__).read()
+    assert "neither do free accounts created before" in src and "keep unlimited watching" in src
+    assert "Free accounts grandfathered (no limit)" in src and "grandfathered (account from before" in src
+    assert api._hours_from_words()
+
+
+def test_admin_counts_limited_and_grandfathered_free_accounts(real, scene, monkeypatch):
+    from src.auth import users as user_store
+    start = wh.started_at()
+    scene.person("old", pending=0, created_at=start - 60)
+    scene.person("new", pending=0, created_at=start + 60)
+    scene.person("pro", pending=0, status="active", plan="pro", created_at=start + 60)
+    monkeypatch.setattr(user_store, "get_all", lambda: list(scene.users.values()))
+    monkeypatch.setattr(api, "_require_admin", lambda r: None)
+    out = asyncio.run(api.admin_hours(_req("admin", method="GET", path="/admin/hours")))
+    assert out["free_limited"] == 1 and out["free_grandfathered"] == 1 and out["started_at"] == start

@@ -896,6 +896,28 @@ def _watch_hours_for_me(uid: str, user: dict | None) -> dict | None:
         return None
 
 
+def _hours_grandfathered(user: dict | None) -> bool:
+    """A Free account the meter would count, but for being older than it."""
+    try:
+        from src.billing import watch_hours
+        from src.billing.plans import limits_for
+        return bool(user and not user.get("is_admin") and watch_hours.allowance_s() > 0
+                    and limits_for(user).get("meters_watching") and watch_hours.grandfathered(user))
+    except Exception:
+        return False
+
+
+def _hours_from_words() -> str:
+    """"November 20, 2026": the day the meter first switched on, as the
+    Terms, the FAQ and the admin page say it. "" while it never has."""
+    from src.billing import watch_hours
+    start = watch_hours.started_at()
+    if not start:
+        return ""
+    t = time.gmtime(start)
+    return time.strftime("%B ", t) + str(t.tm_mday) + time.strftime(", %Y", t)
+
+
 def _hours_left_for(uid: str, user: dict | None = None) -> float:
     from src.billing import watch_hours
     if user is None:
@@ -9496,6 +9518,8 @@ async def admin_list_users(request: Request):
         u["streams_paused"] = paused_n.get(uid, 0)
         # Free's watching hours this week (None on a plan with no meter).
         u["watch_hours"] = _watch_hours_for_me(uid, u)
+        # A Free account from before the meter: unlimited, and the drawer says why.
+        u["watch_hours_grandfathered"] = _hours_grandfathered(u)
         # What is in their library RIGHT NOW — a different question from how
         # many they have ever approved, and both are worth seeing.
         u["clip_count"] = clip_n.get(uid, 0)
@@ -11463,7 +11487,7 @@ async def hours_checkout(request: Request):
     uid = _current_user_id(request)
     user = user_store.get_by_id(uid)
     if not watch_hours.metered(user):
-        raise HTTPException(status_code=400, detail="Your plan watches without a limit, so there is nothing to buy.")
+        raise HTTPException(status_code=400, detail="This account watches without a limit, so there is nothing to buy.")
     try:
         body = await request.json()
     except Exception:
@@ -11590,7 +11614,12 @@ async def admin_hours(request: Request):
                       "bought_s": round(r["bought_s"]), "paid_used_s": round(r["paid_used_s"]),
                       "out": free_left + r["paid_left_s"] <= 0, "held": uid in _hours_held})
     usage.sort(key=lambda x: (-x["used_s"], x["name"].lower()))
+    from src.billing.plans import limits_for
+    free = [u for u in users.values() if not u.get("is_admin") and limits_for(u).get("meters_watching")]
+    limited = sum(1 for u in free if watch_hours.metered(u))
     return {
+        "started_at": watch_hours.started_at(), "free_limited": limited,
+        "free_grandfathered": len(free) - limited if watch_hours.allowance_s() > 0 else 0,
         "on": watch_hours.allowance_s() > 0, "free_hours": watch_hours.allowance_s() // 3600,
         "price_cents": watch_hours.PRICE_CENTS, "packs": list(watch_hours.PACKS),
         "week_start": start, "resets_at": start + watch_hours.WEEK_S,
@@ -16314,7 +16343,9 @@ def _tos_hours() -> str:
         "through Stripe; a purchase is not a subscription and is never charged again. "
         "Bought hours are used only once the week's free hours are gone, do not expire "
         "while your account exists, and are covered by the refund terms below. Paid "
-        "plans have no limit on monitoring time.</p>")
+        "plans have no limit on monitoring time"
+        + (", and neither do free accounts created before " + _hours_from_words()
+           if _hours_from_words() else "") + ".</p>")
 
 
 def _tos_plans() -> str:
@@ -16539,6 +16570,8 @@ def _faq() -> str:
          + (f"It watches live channels for <b>{_free_hours()} hours a week</b>, counted only while a "
             "channel is live and being watched and reset every Monday; after that, hours are "
             f"<b>{_free_price()}</b> each, bought in packs, and bought hours never run out. "
+            + (f"Accounts made before {_hours_from_words()} keep unlimited watching. "
+               if _hours_from_words() else "")
             if _free_metered() else "")
          + f"Pro is <b>${pro['price']}</b> a month and Studio is "
          f"<b>${sd['price']}</b> a month. Move between them whenever you like and cancel from the "
@@ -18292,12 +18325,15 @@ async function loadHours(){
   document.getElementById('tc-hours').textContent = all.purchases ? n0(all.purchases) : '';
   document.getElementById('hr-c').textContent = d.on
     ? n0(d.free_hours) + ' free hours a week · $' + ((d.price_cents || 100) / 100) + ' an hour · packs of ' + (d.packs || []).join(', ')
+      + (d.started_at ? ' · for Free accounts made after ' + fmt(d.started_at) : '')
     : 'OFF (FREE_WATCH_HOURS_WEEK is 0)';
   const tot = document.getElementById('hr-totals');
   tot.className = '';
   const line = (label, x) => '<div class="ov-row"><span>' + label + '</span><b>' + hrMoney(x.cents) + ' · '
     + n0(x.hours) + ' h · ' + n0(x.buyers) + (x.buyers === 1 ? ' buyer' : ' buyers') + '</b></div>';
   tot.innerHTML = '<div style="max-width:560px">' + line('This week', w) + line('Last 7 days', s7) + line('All time', all)
+    + '<div class="ov-row"><span>Free accounts on the limit (made after it started)</span><b>' + n0(d.free_limited) + '</b></div>'
+    + '<div class="ov-row"><span>Free accounts grandfathered (no limit)</span><b>' + n0(d.free_grandfathered) + '</b></div>'
     + '<div class="ov-row"><span>Free accounts out of hours now</span><b>' + n0(d.out_now) + '</b></div>'
     + '<div class="ov-row"><span>Channels paused for it now (accounts)</span><b>' + n0(d.held_now) + '</b></div>'
     + '<div class="sub" style="margin-top:6px">The week resets ' + fmt(d.resets_at) + '. One-off payments: not in MRR.</div></div>';
@@ -20438,7 +20474,9 @@ async function openUser(u){
           + ' free used this week'
           + (u.watch_hours.paid_left_s ? ' · ' + hrDur(u.watch_hours.paid_left_s) + ' bought hours left' : '')
           + (u.watch_hours.left_s <= 0 ? ' · <b>out of hours</b>' : '') + '</dd>'
-        : '')
+        : u.watch_hours_grandfathered
+          ? '<dt>Watching</dt><dd>no limit: grandfathered (account from before the weekly hours)</dd>'
+          : '')
     + '<dt>Stripe</dt><dd>' + (u.stripe_customer_id ? esc(u.stripe_customer_id) : 'no customer record') + '</dd>'
     + (u.promo_code ? '<dt>Promo</dt><dd>' + esc(u.promo_code) + '</dd>' : '')
     + (u.ref ? '<dt>Referred by</dt><dd>' + esc(u.ref) + '</dd>' : '')
