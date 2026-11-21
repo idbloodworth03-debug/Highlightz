@@ -11373,3 +11373,57 @@ as now. Until that stage the switch must not be turned on in production.
        a worker process. That is what the trial is, and why `all` will not
        run without one.
 
+
+## Sign-in audit (2026-11-21); fixed: signed in looked signed out, and 7-day sign-ins
+
+Owner: "can we do a full audit on the site there has been a lot of sign in bugs
+still", then "Fix all 3 please". The audit was read-only first: every sign-in
+path read (Twitch, Kick, password, sign out, deletion, the middleware, the
+socket), every dashboard screen clicked through in Chromium as admin and Free at
+desktop and phone width (no script errors, nothing pans), the suite green, and
+a read-only log check run on prod by the owner (counts only; the figures stay
+in the chat, the repository is public).
+
+**What the server does is right.** The cookie is Secure, HttpOnly, Lax, and
+renewed on every answer; the signing key is set on prod. A session ends only on
+Sign out, account deletion, or an account that cannot be found; users.json is
+written atomically and only by the web process (INGEST workers never touch it).
+Deploys and restarts sign nobody out: the dashboard leaves for /login only on a
+real 401. Session-ending socket events are scoped to the account. The 401s in
+the log are bots probing for WordPress.
+
+**What was wrong, fixed in this commit:**
+1. **/login showed the form to people who were signed in.** A bookmark, a
+   home-screen icon, the bar's "Sign in", or Back after signing in (Twitch
+   replays its old answer; the callback sends it to /login?error=invalid_state,
+   which is common in the log) all looked exactly like being signed out. Signed
+   in, /login now redirects to the dashboard (or the `next` target), error or
+   not, and is not counted as a login_view. A session whose account was deleted
+   goes /login -> / and AuthMiddleware ends it there: no loop (tested).
+2. **Every public page's bar said "Sign in" / "Get started" to everybody.**
+   Signed in, `site_nav.for_visitor` (through `campaigns_tab(signed_in=)`) swaps
+   them for a "Dashboard" button on /tos, /privacy, /cookies, /tutorial (the
+   dashboard links there), /compare, /blog and its articles; /promote keeps its
+   campaign button and gets a Dashboard link. A test holds that every copy of
+   the bar uses the markup the swap looks for.
+3. **A sign-in lasted 7 days from the last visit.** Now 30 (`SESSION_DAYS`).
+   The log showed this was NOT the main cause (nobody in the 6-8 day column),
+   but anyone visiting less than weekly was signed out every time.
+
+Tests: `tests/test_signed_in_stays_signed_in.py` (27); every fix broken on
+purpose once, each caught.
+
+**Still open:**
+- **Most "signed out" moments in the log come within 10 minutes of a dashboard
+  load.** The first check could not tell apart a real sign-out, a different
+  person or app on the same address and browser string (every iPhone on one iOS
+  version sends the same one), and a dashboard download cut short (nginx logs a
+  200 with the bytes it got out). `scripts/signout_check.py` (read-only, counts
+  only, streams the logs: millions of lines on a box with no swap) sorts each
+  one by what it was and what came next. Its output decides whether anything
+  else needs fixing. Tests: `tests/test_signout_check.py`.
+- **www.highlightz.app does not resolve** (checked on prod). Anyone typing www
+  gets a browser error. Needs a DNS record at DigitalOcean, the certificate
+  extended to it, and an nginx redirect to the bare domain: owner's call.
+- In-app browsers (TikTok, Instagram) keep their own cookies; the log shows
+  very few signed-in visits from them, so not worth a banner today.

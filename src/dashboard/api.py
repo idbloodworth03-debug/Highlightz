@@ -440,10 +440,14 @@ class HeadRequestMiddleware:
 # only the router and the routes see GET.
 app.add_middleware(HeadRequestMiddleware)
 app.add_middleware(AuthMiddleware)
+SESSION_DAYS = 30
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.dashboard_secret_key,
-    max_age=86400 * 7,
+    # 30 days from the last visit (each response renews it). It was 7, so
+    # anyone who came back less than weekly was signed out every time (audit,
+    # 2026-11-21).
+    max_age=86400 * SESSION_DAYS,
     https_only=settings.dashboard_https_only,
     same_site="lax",
 )
@@ -12051,25 +12055,25 @@ async def admin_user_clips(request: Request, user_id: str):
 
 
 @app.get("/tos", response_class=HTMLResponse)
-async def tos_page():
+async def tos_page(request: Request):
     from src.dashboard.site_nav import campaigns_tab
-    return HTMLResponse(campaigns_tab(TOS_HTML))
+    return HTMLResponse(campaigns_tab(TOS_HTML, signed_in=_signed_in(request)))
 
 
 @app.get("/privacy", response_class=HTMLResponse)
-async def privacy_page():
+async def privacy_page(request: Request):
     from src.dashboard.site_nav import campaigns_tab
-    return HTMLResponse(campaigns_tab(PRIVACY_HTML))
+    return HTMLResponse(campaigns_tab(PRIVACY_HTML, signed_in=_signed_in(request)))
 
 
 @app.get("/cookies", response_class=HTMLResponse)
-async def cookies_page():
+async def cookies_page(request: Request):
     from src.dashboard.site_nav import campaigns_tab
-    return HTMLResponse(campaigns_tab(COOKIES_HTML))
+    return HTMLResponse(campaigns_tab(COOKIES_HTML, signed_in=_signed_in(request)))
 
 
 @app.get("/tutorial", response_class=HTMLResponse)
-async def tutorial_page():
+async def tutorial_page(request: Request):
     """The public walkthrough. In _OPEN_PATHS, so a signed-out visitor reads it.
 
     MUST STAY ABOVE `@app.get("/{slug}")` — that catch-all matches any
@@ -12085,7 +12089,7 @@ async def tutorial_page():
     """
     from src.dashboard.site_nav import campaigns_tab
     from src.dashboard.tutorial_html import render
-    return HTMLResponse(campaigns_tab(render()))
+    return HTMLResponse(campaigns_tab(render(), signed_in=_signed_in(request)))
 
 
 @app.get("/tutorial/content")
@@ -12111,7 +12115,7 @@ async def tutorial_content_json():
 
 
 @app.get("/compare", response_class=HTMLResponse)
-async def compare_page():
+async def compare_page(request: Request):
     """Highlightz against Opus Clip and Eklipse. Public, so it can be linked
     and indexed.
 
@@ -12121,7 +12125,7 @@ async def compare_page():
     """
     from src.dashboard.compare_html import render
     from src.dashboard.site_nav import campaigns_tab
-    return HTMLResponse(campaigns_tab(render()))
+    return HTMLResponse(campaigns_tab(render(), signed_in=_signed_in(request)))
 
 
 @app.get("/promote", response_class=HTMLResponse)
@@ -12144,11 +12148,11 @@ async def promote_page(request: Request):
     if not uid:
         _capture_ref(request)
     cta = _after_sign_in("promote") if uid else "/login?next=promote"
-    return HTMLResponse(campaigns_tab(render(cta), current=True, show=True))
+    return HTMLResponse(campaigns_tab(render(cta), current=True, show=True, signed_in=bool(uid)))
 
 
 @app.get("/blog", response_class=HTMLResponse)
-async def blog_index():
+async def blog_index(request: Request):
     """The blog: guides to making money clipping. Public and indexed.
 
     MUST STAY ABOVE `@app.get("/{slug}")`, like /compare — the catch-all
@@ -12156,11 +12160,11 @@ async def blog_index():
     """
     from src.dashboard.blog_html import render_index
     from src.dashboard.site_nav import campaigns_tab
-    return HTMLResponse(campaigns_tab(render_index()))
+    return HTMLResponse(campaigns_tab(render_index(), signed_in=_signed_in(request)))
 
 
 @app.get("/blog/{slug}", response_class=HTMLResponse)
-async def blog_article(slug: str):
+async def blog_article(request: Request, slug: str):
     """One article. Only the slugs in blog_content exist; anything else is the
     site's 404, never an empty article."""
     from src.dashboard.blog_html import render_article
@@ -12168,7 +12172,7 @@ async def blog_article(slug: str):
     html = render_article(slug)
     if html is None:
         raise HTTPException(status_code=404)
-    return HTMLResponse(campaigns_tab(html))
+    return HTMLResponse(campaigns_tab(html, signed_in=_signed_in(request)))
 
 
 @app.exception_handler(404)
@@ -12201,12 +12205,29 @@ def _after_sign_in(key) -> str:
     return _AFTER_SIGN_IN.get(str(key or ""), "/")
 
 
+def _signed_in(request: Request) -> bool:
+    """Whether this visitor carries a signed-in session. For the open pages,
+    which AuthMiddleware does not check: a session left by a deleted account
+    still reads as signed in here, and its first request to the app ends it."""
+    return bool(request.session.get("auth"))
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = "", next: str = ""):
     _capture_ref(request)
+    # SIGNED IN ALREADY: the dashboard, never the form (audit, 2026-11-21).
+    # The form used to be shown to anyone who reached this address, signed in
+    # or not: a bookmark, a home-screen icon, the bar's "Sign in" on a public
+    # page, or Back after signing in (Twitch sends the old answer again and the
+    # callback lands here as invalid_state, a common sight in the logs). Each
+    # of those looked exactly like being signed out, and users reported being
+    # signed out. An error in the address changes nothing: whatever failed,
+    # this person is signed in. A session whose account was deleted gets here
+    # too, goes to /, and AuthMiddleware ends it there, so this cannot loop.
+    # Not counted as a login_view: nobody was shown the form.
+    if request.session.get("auth"):
+        return RedirectResponse(_after_sign_in(next if next in _AFTER_SIGN_IN else ""), status_code=302)
     if next in _AFTER_SIGN_IN:
-        if request.session.get("auth"):
-            return RedirectResponse(_after_sign_in(next), status_code=302)
         # Rides the session out to Twitch or Kick and back; each sign-in reads
         # it before clearing the session.
         request.session["after_login"] = next
@@ -17297,7 +17318,7 @@ COOKIES_HTML = """<!DOCTYPE html>
   <p>Highlightz uses a minimal number of cookies — only what is strictly necessary to operate the Service:</p>
   <table>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
-    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. It carries your session details — your account id, Twitch username and avatar URL, and your plan status — signed so they cannot be altered, and readable only by your browser and our server over HTTPS. Nothing in it is used to track you across other sites.</td><td>7 days</td><td>Strictly necessary</td></tr>
+    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. It carries your session details — your account id, Twitch username and avatar URL, and your plan status — signed so they cannot be altered, and readable only by your browser and our server over HTTPS. Nothing in it is used to track you across other sites.</td><td>30 days from your last visit</td><td>Strictly necessary</td></tr>
   </table>
   <p>The dashboard also uses your browser's local storage for two small preferences. These are not cookies and are never sent to our servers — they stay in your browser, and clearing your site data clears them.</p>
   <table>
