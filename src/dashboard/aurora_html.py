@@ -1382,6 +1382,18 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .rd-up .ub{padding:12px 12px;display:flex;align-items:center;gap:8px}
 .rd-up .un{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .rd-up .um{font-size:12px;color:var(--fg-3);margin-top:4px}
+/* The Clip Library's Edited shelf (owner, 2026-11-21): the same card as the
+   Clip Editor's list, with where the edit was posted on it. */
+.rd-edits{margin:0 0 24px}
+.rd-edits-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--fg)}
+.rd-edits-h .n{color:var(--fg-3);font-weight:600}
+.rd-edits-h .rd-btn{margin-left:auto}
+.rd-edit .um{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.rd-edit .um .edp-tag{margin-left:0}
+.edp-tag.ok{background:var(--live-soft);color:var(--live);text-decoration:none}
+.edp-tag.bad{background:var(--danger-soft);color:var(--danger)}
+.edp-tag.wait{background:var(--pending-soft);color:var(--pending)}
+.rd-edit .ub .rd-btn{flex-shrink:0}
 /* Twitch clip import cards */
 .rd-tw{border-radius:14px;border:1px solid var(--hair);background:rgba(255,255,255,.02);
   overflow:hidden;display:flex;flex-direction:column}
@@ -5416,7 +5428,116 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
 // /clips/{id}/reject) rather than kept with a status — so "Rejected" could never
 // match anything, and "All" and "Approved" were the same button twice. The
 // streamer filter stays: it is the one that still narrows a real list.
-function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, banner = null }) {
+// EDITED CLIPS IN THE CLIP LIBRARY (owner, 2026-11-21: "Edited posts dont
+// show up in the clip library we need to make it show in the clip library").
+// An edit is a render in the uploads library (source 'render'): the editor's
+// export and Autopilot's both write one. Until this, the Clip Library listed
+// approved clips only, so an edit lived in the Clip Editor's list and the
+// Scheduler and nowhere a person looks for "my clips".
+//
+// Realtime: fetched on mount and on every reconnect (hz_refetch), and kept
+// current by the same upload_added / upload_removed events the Clip Editor
+// screen follows (forwarded as hz_ws). Only for accounts that can open the
+// editor: /uploads refuses everyone else, so asking would be a failing
+// request on every load.
+function useEdits(on) {
+  const [edits, setEdits] = useState([]);
+  const load = useCallback(()=>{
+    if(!on){ setEdits([]); return; }
+    fetch('/uploads').then(r=>r.ok?r.json():null).then(d=>{
+      if(d) setEdits((d.uploads||[]).filter(u=>u.source==='render'));
+    }).catch(()=>{});
+  },[on]);
+  useEffect(()=>{
+    load();
+    window.addEventListener('hz_refetch', load);
+    return ()=>window.removeEventListener('hz_refetch', load);
+  },[load]);
+  useEffect(()=>{
+    const onWs = e=>{
+      try{
+        const m = JSON.parse(e.detail);
+        if(m.event==='upload_added' && m.upload && m.upload.source==='render')
+          setEdits(p=>p.some(u=>u.id===m.upload.id)?p:[m.upload,...p]);
+        else if(m.event==='upload_removed')
+          setEdits(p=>p.filter(u=>u.id!==m.upload_id));
+      }catch{}
+    };
+    window.addEventListener('hz_ws', onWs);
+    return ()=>window.removeEventListener('hz_ws', onWs);
+  },[]);
+  return [...edits].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+}
+
+// Where an edit went, from its Scheduler item (the queue is App state, kept
+// live by schedule_added/updated/removed and refetchAll).
+function editStatus(item) {
+  if(!item) return [];
+  const name = k => PITCH_NAMES[k] || k;
+  const res = item.results || {};
+  const tags = [];
+  Object.entries(res).forEach(([k, r])=>{
+    if(r && r.status==='posted') tags.push({cls:'ok', text:'Posted to ' + name(k), href:r.url || ''});
+  });
+  if(item.status==='failed') tags.push({cls:'bad', text:'Post failed'});
+  else if(item.status==='posting') tags.push({cls:'wait', text:'Posting…'});
+  else if(item.status==='pending' && !tags.length)
+    tags.push({cls:'wait', text: item.scheduled
+      ? 'Scheduled ' + new Date(item.due_at*1000).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})
+      : 'In the Scheduler'});
+  return tags;
+}
+
+function EditedCard({ up, item, onEdit }) {
+  const tags = editStatus(item);
+  const made = up.created_at ? new Date(up.created_at*1000).toLocaleDateString([], {month:'short', day:'numeric'}) : '';
+  return (
+    <div className="rd-up rd-edit">
+      <video src={up.url} controls playsInline preload="metadata"/>
+      <div className="ub">
+        <div style={{minWidth:0,flex:1}}>
+          <div className="un" title={up.filename}>{up.filename}</div>
+          <div className="um">
+            {made && <span>{made}</span>}
+            <span className="edp-tag">Edited</span>
+            {tags.map(t=>t.href
+              ? <a key={t.text} className={'edp-tag '+t.cls} href={t.href} target="_blank" rel="noopener">{t.text} ↗</a>
+              : <span key={t.text} className={'edp-tag '+t.cls}>{t.text}</span>)}
+          </div>
+        </div>
+        {onEdit && <button className="rd-btn sm" onClick={()=>onEdit(up)} title="Open in the Clip Editor">Edit</button>}
+        <a className="rd-btn sm" href={up.url + '?download=1'} title="Download the edited video" aria-label="Download the edited video">
+          <Icon name="download" size={13}/>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+const EDITS_SHOWN = 6;
+function EditedShelf({ edits, queue = [], onEdit }) {
+  const [all, setAll] = useState(false);
+  if(!edits.length) return null;
+  const byUpload = {};
+  (queue||[]).forEach(i=>{ if(i && i.upload_id) byUpload[i.upload_id] = i; });
+  const shown = all ? edits : edits.slice(0, EDITS_SHOWN);
+  return (
+    <section className="rd-edits" aria-label="Edited clips">
+      <div className="rd-edits-h">
+        <Icon name="sliders" size={14}/>Edited <span className="n">{edits.length}</span>
+        {edits.length > EDITS_SHOWN &&
+          <button className="rd-btn sm" onClick={()=>setAll(v=>!v)}>{all ? 'Show fewer' : 'Show all ' + edits.length}</button>}
+      </div>
+      <div className="rd-lib-grid" style={{marginTop:12}}>
+        {shown.map(u=><EditedCard key={u.id} up={u} item={byUpload[u.id]} onEdit={onEdit}/>)}
+      </div>
+    </section>
+  );
+}
+
+function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, banner = null,
+                         uploadsOn = false, queue = [], onEditUpload = null }) {
+  const edits = useEdits(uploadsOn);
   const [chanFilter, setChanFilter] = useState('all');
   // Defaults to newest APPROVAL, not newest capture. The library is the record
   // of what you decided to keep, so approving a clip puts it at the top even if
@@ -5450,6 +5571,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, ba
   return (
     <div className="rd-scroll">
       {banner}
+      <EditedShelf edits={edits} queue={queue} onEdit={onEditUpload}/>
       {/* Same two rows as Clip Review, in the same order and out of the same
           components: what you can DO on the title line, what you are LOOKING at
           below it. The screen name is not repeated here — the page header two
@@ -5477,7 +5599,7 @@ function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, ba
         kind={effKind} setKind={setKind} hasHighlights={hasHighlights}/>}
       </div>
       {clipsArr.length===0
-        ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">Nothing here yet</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
+        ? <div className="rd-grid-empty"><div className="ic"><Icon name="film" size={42}/></div><div className="big">{edits.length ? 'No approved clips yet' : 'Nothing here yet'}</div><div>{pendingCount>0?'Approve a clip in Clip Review and it is archived here.':'Clips you approve are archived in the library.'}</div></div>
         : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
             {clipsArr.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} onPost={onPost} libraryMode/>)}
           </div>}
@@ -5907,7 +6029,7 @@ const KICK_BLOCKED=['review','streams','library','vod','uploads','schedule','aut
 // How long the platform-switch sweep runs. Mirrors the .plat-wipe animation
 // duration in the stylesheet; the screen swaps at the halfway point.
 const PLAT_SWEEP_MS=800;
-const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],promote:['Promote','Fund a clipping campaign for your stream'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Your channels, defaults, plan and connected accounts'],feedback:['Feedback','Questions, bugs & suggestions']};
+const HEAD={streams:['Live Streams','Add channels and watch them score in real time'],review:['Clip Review','Approve or reject the highlights the bot caught'],library:['Clip Library','Every clip you have approved, and every edit'],vod:['VOD Scanner','Find highlight moments in finished streams'],uploads:['Clip Editor','Bring clips in and cut them for vertical'],schedule:['Scheduler','Everything you have exported, posted for you at the time you set'],autopilot:['Autopilot','Accept a clip and it is edited and scheduled for you'],campaigns:['Campaigns','Clipping campaigns: dates, prizes, rules and the streamers in them'],promote:['Promote','Fund a clipping campaign for your stream'],training:['Training Studio','Blind-score clips to calibrate the formula'],landing:['Landing Page','Curate the example clips visitors see'],tutorial:['Tutorial','How every screen works, start to finish'],settings:['Settings','Your channels, defaults, plan and connected accounts'],feedback:['Feedback','Questions, bugs & suggestions']};
 
 function TrainingScreen() {
   // Blind scoring studio: the queue endpoint strips every bot judgment
@@ -13547,7 +13669,8 @@ function RdApp() {
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial'),autopilot,uploadsOn,onOpenAutopilot:()=>setRoute('autopilot')}}/>;
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
-  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner}}/>;
+  else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner,
+      uploadsOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}
       onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}
       openRequest={campOpen} onOpened={()=>setCampOpen('')}/>;

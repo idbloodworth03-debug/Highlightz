@@ -11427,3 +11427,28 @@ purpose once, each caught.
   extended to it, and an nginx redirect to the bare domain: owner's call.
 - In-app browsers (TikTok, Instagram) keep their own cookies; the log shows
   very few signed-in visits from them, so not worth a banner today.
+
+## Edited clips show in the Clip Library (2026-11-21)
+
+Owner: "Edited posts dont show up in the clip library we need to make it show
+in the clip library". An edit is a render in the uploads library (`source:
+"render"`), written by the editor's export (`POST /uploads?source=render`) and
+by Autopilot (`runner.py`). The Clip Library listed approved clips only, so an
+edit was visible in the Clip Editor's list and the Scheduler and nowhere else.
+
+- **Edited shelf** at the top of the Clip Library (`EditedShelf`,
+  `EditedCard`), for accounts that can open the editor (`uploadsOn`; /uploads
+  refuses the rest). Every render, newest first, 6 then "Show all". Each card
+  plays inline, has Edit (opens it in the Clip Editor through `editorTarget`,
+  only when the tab is on) and Download (`?download=1`), and says where it went
+  from its Scheduler item (`editStatus`): "Posted to TikTok" (linked to the
+  post), "Post failed", "Posting…", "Scheduled <time>", or "In the Scheduler".
+- **Realtime:** `useEdits` fetches on mount and on `hz_refetch` (every
+  reconnect), and follows the `upload_added` / `upload_removed` events the App
+  already forwards as `hz_ws`. The status comes from the App's `queue`, which
+  is live already. No new events. Checked in Chromium: an edit saved and then
+  deleted from another session appeared and disappeared without a reload.
+- Not linked to the source clip's card: editor exports carry no clip id. The
+  render's name starts with the clip's ("channel - title-9x16.mp4").
+
+Tests: `tests/test_library_edits.py` (10; the status line run in node).
