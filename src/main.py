@@ -936,6 +936,41 @@ async def auto_delete_old_clips() -> None:
         await asyncio.sleep(86400)
 
 
+# What has to know the moment the site is told to stop, before anything else
+# happens (the ingest pool: its workers get the same SIGTERM and go at once,
+# and that must not read as them dying; src/ingestion/pool.py, "the site
+# stopping"). Called from inside the signal handler, so each one only sets a
+# flag. main()'s finally block is no place for this: uvicorn re-raises the
+# signal once its shutdown is done and the process ends before it runs.
+_on_stop: list = []
+
+
+def on_site_stopping(fn) -> None:
+    _on_stop.append(fn)
+
+
+def _site_stopping() -> None:
+    for fn in list(_on_stop):
+        try:
+            fn()
+        except Exception:
+            pass
+
+
+def make_server(config: "uvicorn.Config") -> "uvicorn.Server":
+    """The uvicorn server, with its stop-signal handler telling _on_stop
+    first. uvicorn installs `self.handle_exit` when it starts serving, so an
+    instance attribute set here is the handler it uses."""
+    server = uvicorn.Server(config)
+    uvicorn_exit = server.handle_exit
+
+    def handle_exit(sig, frame) -> None:
+        _site_stopping()
+        uvicorn_exit(sig, frame)
+    server.handle_exit = handle_exit
+    return server
+
+
 async def run_dashboard() -> None:
     config = uvicorn.Config(
         dashboard_app,
@@ -946,7 +981,7 @@ async def run_dashboard() -> None:
     # After Config: building it re-applies uvicorn's logging setup.
     from src import alerts
     alerts.install_uvicorn_tap()
-    server = uvicorn.Server(config)
+    server = make_server(config)
     await server.serve()
 
 
@@ -1014,6 +1049,7 @@ async def main() -> None:
     if settings.ingest_workers > 0:
         from src.dashboard.ingest import Ingest
         ingest = Ingest(settings.ingest_workers, only=settings.ingest_only)
+        on_site_stopping(ingest.site_stopping)
 
         # A channel the workers handle goes to its worker; any other (a trial
         # on a few channels, INGEST_ONLY) goes the way it always did.

@@ -48,6 +48,10 @@ HELLO_TIMEOUT_S = 20.0
 BACKOFF_S = (0.5, 1.0, 2.0, 5.0, 10.0)
 STEADY_S = 60.0                 # up this long = the next failure starts the backoff over
 STOP_GRACE_S = 5.0
+# A worker killed by SIGTERM while the site has not (yet) said it is stopping:
+# how long to wait for it to say so before calling the worker lost. See
+# site_stopping().
+SITE_STOP_WAIT_S = 2.0
 LOOP_SMOOTH_S = 15.0            # the same averaging as src/ingestion/headroom.py
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -84,6 +88,7 @@ class Pool:
         self.workers = [Worker(i) for i in range(self.count)]
         self._tasks: list[asyncio.Task] = []
         self._stopping = False
+        self._site_stopping = False
 
     # ── which worker ─────────────────────────────────────────────────────────
 
@@ -155,6 +160,14 @@ class Pool:
                 if self._stopping:
                     break
                 up_for = time.monotonic() - w.started_at
+                if await self._went_with_site(w):
+                    # Stopped WITH the site (a deploy, a restart), not lost:
+                    # nothing to announce, nothing to start again.
+                    w.ready = False
+                    log.info("ingest_worker_stopped_with_site", index=w.index,
+                             pid=w.proc.pid if w.proc else None, up_s=round(up_for))
+                    await self._reap(w)
+                    break
                 log.error("ingest_worker_lost", index=w.index, pid=w.proc.pid if w.proc else None,
                           up_s=round(up_for))
                 w.failures = 0 if up_for >= STEADY_S else w.failures + 1
@@ -248,6 +261,51 @@ class Pool:
             raise
         except Exception as exc:
             log.error("ingest_pool_callback_failed", callback=what, index=index, error=repr(exc)[:300])
+
+    # ── the site stopping ────────────────────────────────────────────────────
+    # THE FALSE DEATH ON EVERY DEPLOY (found in the first production trial,
+    # 2026-11-23: "workers that died: 1" right after the restart that started
+    # it). systemd stops the service by sending SIGTERM to EVERY process in it
+    # at once, workers included, and a worker exits on it at once. The web
+    # process is still shutting down at that moment, and stop() below, the
+    # only thing that told the pool, is in main()'s finally block, which
+    # never runs on SIGTERM: uvicorn re-raises the signal once its own
+    # shutdown is done, and the default action ends the process there. So
+    # the pool read the worker's end as a crash: an error (an alert email),
+    # its channels shown as reconnecting, a new worker started into a dying
+    # service, and split_check / `split_trial.py all` counting a death for an
+    # hour after every deploy.
+    #
+    # main.py now calls site_stopping() from uvicorn's own signal handler,
+    # before anything else, so the flag is up before the worker's end is read.
+    # And a worker that ends by SIGTERM without the flag is given
+    # SITE_STOP_WAIT_S for it to arrive (the two signals land together and
+    # either can be seen first). A worker killed any other way, or by a
+    # SIGTERM with the site staying up (somebody's `kill`), is lost exactly
+    # as before.
+
+    def site_stopping(self) -> None:
+        """The site has been told to stop. Only sets a flag, so it is safe to
+        call from a signal handler."""
+        self._site_stopping = True
+
+    async def _went_with_site(self, w: Worker) -> bool:
+        if self._site_stopping or self._stopping:
+            return True
+        rc = None
+        if w.proc is not None:
+            try:
+                rc = await asyncio.wait_for(w.proc.wait(), 1.0)
+            except asyncio.TimeoutError:
+                rc = w.proc.returncode
+        if rc != -signal.SIGTERM:
+            return False
+        end = time.monotonic() + SITE_STOP_WAIT_S
+        while time.monotonic() < end:
+            if self._site_stopping or self._stopping:
+                return True
+            await asyncio.sleep(0.05)
+        return self._site_stopping or self._stopping
 
     async def stop(self) -> None:
         self._stopping = True

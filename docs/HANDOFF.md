@@ -11372,6 +11372,47 @@ as now. Until that stage the switch must not be turned on in production.
      - **Still true:** nothing here has seen a real Twitch or Kick stream in
        a worker process. That is what the trial is, and why `all` will not
        run without one.
+   - **THE FIRST REAL TRIAL (2026-11-23), on kaicenat (Twitch) and blueface
+     (Kick).** Kai was offline the whole time (the site saw him offline at
+     every check), so only blueface ran. **blueface, in worker 0, did
+     everything:** found live, audio, rolling video, a clip cut; the worker
+     logged no error and no warning. That is the first real stream in a
+     worker process. The next trial adds a live Twitch channel.
+   - **Found by it, FIXED the same day: every restart read as a worker
+     dying.** `split_check` said "workers that died: 1" right after the
+     restart that started the trial. Reproduced here: systemd stops the unit
+     with SIGTERM to every process in it at once (KillMode control-group),
+     the worker exits on it at once, and the web process, still shutting
+     down, read the closed link as a crash: `ingest_worker_lost` and
+     `ingest_worker_channels_interrupted` as errors (alert emails), the
+     channels shown as reconnecting, a new worker started into the dying
+     service, and the death counted by `split_check` and by `all`'s gate for
+     an hour after every deploy. `Pool.stop()` never ran: it is in main()'s
+     finally block, and **main()'s finally block does not run on SIGTERM at
+     all**, because uvicorn (0.46) re-raises the signal when its own shutdown
+     is done and the default action ends the process there. (So the rest of
+     that block, stopping in-process workers and closing the queue, does not
+     run on a deploy either; systemd's cgroup kill is what ends their
+     streamlink and ffmpeg. Pre-existing, unchanged.)
+     - `main.make_server` wraps uvicorn's `handle_exit` (the handler uvicorn
+       installs when it starts serving): `_site_stopping()` runs every
+       `on_site_stopping` hook first. `Ingest.site_stopping` ->
+       `Pool.site_stopping` only sets a flag (it runs inside a signal handler).
+     - A worker whose link closes with that flag up is logged
+       `ingest_worker_stopped_with_site` (info), reaped, and not announced
+       or started again. One that ended by SIGTERM without the flag gets
+       `SITE_STOP_WAIT_S` (2 s) for it, because the two signals land
+       together and either can be seen first. Anything else (a crash, SIGKILL,
+       SIGTERM with the site staying up: somebody's `kill`) is lost exactly
+       as before.
+     - Reproduced before and after: the app with `INGEST_WORKERS=1`, SIGTERM
+       to the web process and the worker together. Before: both errors 4 s
+       into a clean stop. After: one info line. Tests in
+       `tests/test_ingest_split.py` (+5, real worker processes); four
+       deliberate breakages, each caught.
+     - **The restart that loads this is still stopped by the old code**, so
+       it logs one last false death; `all`'s gate (no death in the last hour)
+       clears an hour after it.
 
 
 ## Sign-in audit (2026-11-21); fixed: signed in looked signed out, and 7-day sign-ins

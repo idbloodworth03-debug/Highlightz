@@ -85,6 +85,11 @@ class Ingest:
     async def start(self) -> None:
         await self.pool.start()
 
+    def site_stopping(self) -> None:
+        """The site has been told to stop: its workers are going with it, not
+        dying (Pool.site_stopping). Called from a signal handler."""
+        self.pool.site_stopping()
+
     async def stop(self) -> None:
         for task in self._kick_pumps.values():
             task.cancel()

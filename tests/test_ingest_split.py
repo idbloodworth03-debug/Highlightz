@@ -434,3 +434,124 @@ def test_the_pool_is_only_built_behind_the_switch():
     assert "worker_main" not in main_src and "Pool(" not in main_src
     assert main_src.count("Ingest(") == 1
     assert main_src.index("if settings.ingest_workers > 0:") < main_src.index("Ingest(")
+
+
+# ── the site stopping is not a worker dying (first production trial, 2026-11-23) ─
+# systemd stops the service with SIGTERM to every process in it at once. The
+# workers went at once and the web process, still shutting down, logged each
+# as lost (an error, an alert email), showed its channels as reconnecting and
+# started a new one; split_check and `split_trial.py all` then counted a death
+# for an hour after every deploy.
+
+def _logged(cap, event):
+    return [e for e in cap if e.get("event") == event]
+
+
+def test_a_worker_that_goes_with_the_site_is_not_a_death(monkeypatch):
+    from structlog.testing import capture_logs
+    monkeypatch.setattr(pool_mod, "BACKOFF_S", (0.05,) * 5)
+
+    async def go():
+        lost = []
+        p = pool_mod.Pool(1, on_lost=lost.append)
+        await p.start()
+        try:
+            pid = p.workers[0].proc.pid
+            with capture_logs() as cap:
+                p.site_stopping()                   # uvicorn's handler, first
+                os.kill(pid, signal.SIGTERM)        # and systemd's signal to the worker
+                done = await _until(lambda: p._tasks[0].done(), timeout=10)
+            return lost, cap, p.status()[0], pid, done
+        finally:
+            await p.stop()
+    lost, cap, st, pid, done = asyncio.run(go())
+    assert done, "the pool kept the worker going"
+    assert lost == [], "its channels were announced as interrupted"
+    assert not _logged(cap, "ingest_worker_lost")
+    assert _logged(cap, "ingest_worker_stopped_with_site")
+    assert st["restarts"] == 0 and st["up"] is False, "a new worker was started into a stopping site"
+    assert not _alive(pid)
+
+
+def test_the_two_signals_may_be_seen_in_either_order(monkeypatch):
+    """The worker's end can be read before the site's own handler has run."""
+    from structlog.testing import capture_logs
+
+    async def go():
+        lost = []
+        p = pool_mod.Pool(1, on_lost=lost.append)
+        await p.start()
+        try:
+            with capture_logs() as cap:
+                os.kill(p.workers[0].proc.pid, signal.SIGTERM)
+                await asyncio.sleep(0.4)
+                p.site_stopping()
+                done = await _until(lambda: p._tasks[0].done(), timeout=10)
+            return lost, cap, done
+        finally:
+            await p.stop()
+    lost, cap, done = asyncio.run(go())
+    assert done and lost == [] and not _logged(cap, "ingest_worker_lost")
+
+
+def test_somebody_killing_a_worker_while_the_site_runs_is_still_a_death(monkeypatch):
+    """`kill <pid>` sends SIGTERM too. With the site staying up the worker is
+    lost and started again, as it always was."""
+    from structlog.testing import capture_logs
+    monkeypatch.setattr(pool_mod, "BACKOFF_S", (0.05,) * 5)
+
+    async def go():
+        events = []
+        p = pool_mod.Pool(1, on_ready=lambda i: events.append("ready"), on_lost=lambda i: events.append("lost"))
+        await p.start()
+        try:
+            first = p.workers[0].proc.pid
+            with capture_logs() as cap:
+                os.kill(first, signal.SIGTERM)
+                await _until(lambda: events.count("ready") == 2, timeout=15)
+            return events, cap, first, p.workers[0].proc.pid
+        finally:
+            await p.stop()
+    events, cap, first, second = asyncio.run(go())
+    assert events == ["ready", "lost", "ready"]
+    assert _logged(cap, "ingest_worker_lost") and not _logged(cap, "ingest_worker_stopped_with_site")
+    assert second != first
+
+
+def test_a_crash_is_not_waited_on():
+    """Only a SIGTERM can be the site stopping; a crash is a death at once."""
+    async def go():
+        lost = []
+        p = pool_mod.Pool(1, on_lost=lost.append)
+        await p.start()
+        try:
+            t0 = time.monotonic()
+            os.kill(p.workers[0].proc.pid, signal.SIGKILL)
+            seen = await _until(lambda: lost == [0], timeout=10)
+            return seen, time.monotonic() - t0
+        finally:
+            await p.stop()
+    seen, took = asyncio.run(go())
+    assert seen and took < pool_mod.SITE_STOP_WAIT_S
+
+
+def test_the_site_tells_the_pool_from_uvicorns_own_signal_handler():
+    """main()'s finally block never runs on SIGTERM (uvicorn re-raises the
+    signal when its shutdown is done), so the hook is the signal handler."""
+    import uvicorn
+    from src import main as main_mod
+    calls = []
+
+    async def app(scope, receive, send):
+        pass
+    server = main_mod.make_server(uvicorn.Config(app, port=0, log_level="warning"))
+    main_mod._on_stop.append(lambda: calls.append(server.should_exit))
+    try:
+        server.handle_exit(signal.SIGTERM, None)
+    finally:
+        main_mod._on_stop.pop()
+    assert calls == [False], "the pool must hear it before uvicorn starts stopping"
+    assert server.should_exit is True
+    src = open(main_mod.__file__).read()
+    assert "server = make_server(config)" in src
+    assert "on_site_stopping(ingest.site_stopping)" in src
