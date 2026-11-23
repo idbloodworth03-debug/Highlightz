@@ -1384,6 +1384,10 @@ a.cmp-chip:hover{border-color:var(--hair-2)}
 .rd-up .um{font-size:12px;color:var(--fg-3);margin-top:4px}
 /* The Clip Library's Edited shelf (owner, 2026-11-21): the same card as the
    Clip Editor's list, with where the edit was posted on it. */
+.rd-recent-h{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.rd-recent-n{color:var(--pending);background:var(--pending-soft);border-radius:99px;padding:4px 8px;
+  font-size:12px;font-weight:700;letter-spacing:0;text-transform:none}
+.rd-recent-h .rd-btn{margin-left:auto;text-transform:none;letter-spacing:0}
 .rd-edits{margin:0 0 24px}
 .rd-edits-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--fg)}
 .rd-edits-h .n{color:var(--fg-3);font-weight:600}
@@ -5317,7 +5321,8 @@ function ChannelPerformance() {
 
    What was actually wrong is that the count sits at 12px in a toolbar. So the
    count is promoted below, and nothing is duplicated. */
-function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce, me = null, clipMarks = {} }) {
+function StreamsScreen({ streams, scores, profiles, histories, clips, activePlatform, onAdd, onRemove, onForce, me = null, clipMarks = {},
+                        onApprove = null, onReject = null, onOpen = null, onEdit = null, onGoReview = null }) {
   const streamsArr = Object.values(streams);
   const [sel, setSel] = useState(null);
   useEffect(()=>{ if(!sel&&streamsArr.length>0) setSel(streamsArr[0].channel); },[streamsArr.length]);
@@ -5341,7 +5346,20 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
   const p = profiles[active.channel]||{};
   const sd = scores[active.channel]||{score:0,breakdown:{}};
   const hist = histories[active.channel]||[sd.score];
-  const recent = Object.values(clips).filter(c=>c.channel===active.channel).sort((a,b)=>(b.created_at||0)-(a.created_at||0)).slice(0,4);
+  // ACCEPT OR REJECT HERE (owner, 2026-11-23: "make it so you can accept or
+  // reject clips in the live streams tab"). The cards always showed Approve
+  // and Reject on a waiting clip, but this screen handed them empty
+  // functions, so they did nothing, and neither did opening the clip. Now
+  // they are the App's own approveClip / rejectClip / setModalClip, the same
+  // ones Clip Review uses, so the two screens cannot disagree and a decision
+  // here leaves Clip Review at once (one clips state; other tabs follow the
+  // server's clip events as they always did). Waiting clips come first.
+  const newest = (a,b)=>(b.created_at||0)-(a.created_at||0);
+  const mine = Object.values(clips).filter(c=>c.channel===active.channel);
+  const waiting = mine.filter(c=>c.status==='pending').sort(newest);
+  const RECENT_SHOWN = 8;
+  const recent = [...waiting, ...mine.filter(c=>c.status!=='pending').sort(newest)].slice(0, RECENT_SHOWN);
+  const moreWaiting = Math.max(0, waiting.length - RECENT_SHOWN);
   const WK=['CHAT_VELOCITY','KEYWORD','SENTIMENT','AUDIO_SPIKE','VIEWER_SPIKE','SILENCE_BURST'];
   const sw = p.signal_weights||{};
   const statusColor = active.status==='live'?'var(--live)':(active.status==='reconnecting'||active.status==='queued')?'var(--pending)':'var(--fg-2)';
@@ -5404,11 +5422,16 @@ function StreamsScreen({ streams, scores, profiles, histories, clips, activePlat
           </div>;})}
         </div>}
         <div>
-          <div className="rd-eyebrow" style={{marginBottom:12}}>Recent clips · {active.channel}</div>
+          <div className="rd-eyebrow rd-recent-h">
+            <span>Recent clips · {active.channel}</span>
+            {waiting.length>0 && <span className="rd-recent-n">{waiting.length} waiting for you</span>}
+            {moreWaiting>0 && onGoReview &&
+              <button className="rd-btn sm" onClick={()=>onGoReview()}>{moreWaiting} more in Clip Review</button>}
+          </div>
           {recent.length===0
             ? <div className="rd-empty" style={{padding:24}}>No clips captured yet.</div>
             : <div className="rd-grid" style={{overflow:'visible',paddingRight:0}}>
-                {recent.map(c=><RdClip key={c.id} clip={c} onOpen={()=>{}} onApprove={()=>{}} onReject={()=>{}} libraryMode/>)}
+                {recent.map(c=><RdClip key={c.id} clip={c} onOpen={onOpen} onApprove={onApprove} onReject={onReject} onEdit={onEdit} libraryMode/>)}
               </div>}
         </div>
         <ChannelPerformance/>
@@ -13668,7 +13691,8 @@ function RdApp() {
   if(activePlatform==='kick' && !kickOpen && KICK_BLOCKED.includes(view)) screen=<KickUnderConstruction/>;
   else if(view==='uploads' && !clipTabOn) screen=<UploadsUnderConstruction/>;
   else if(view==='review') screen=<ReviewScreen {...{streams:platformStreams,scores,clips:platformClips,activePlatform,onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,lost:lostClips,me,onDismissLost:dismissMissNotice,refusals,onDismissRefusal:dismissRefusal,onGoTutorial:()=>setRoute('tutorial'),autopilot,uploadsOn,onOpenAutopilot:()=>setRoute('autopilot')}}/>;
-  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks}}/>;
+  else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks,
+      onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner,
       uploadsOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}

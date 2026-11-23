@@ -11493,3 +11493,24 @@ edit was visible in the Clip Editor's list and the Scheduler and nowhere else.
   render's name starts with the clip's ("channel - title-9x16.mp4").
 
 Tests: `tests/test_library_edits.py` (10; the status line run in node).
+
+## Approve and reject on the Live Streams tab (2026-11-23)
+
+Owner: "make it so you can accept or reject clips in the live streams tab"
+(the split is ON HOLD at the owner's word: the trial on blueface + coachlim
+keeps running as it is; `split_trial.py all` clears its gate an hour after
+the last restart and has NOT been run).
+
+The tab's "Recent clips · <channel>" row always drew Approve and Reject on a
+waiting clip (RdClip does it for any pending clip), but `StreamsScreen` handed
+the cards `()=>{}` for onApprove, onReject and onOpen, so the buttons and the
+thumbnail did nothing. Now the App passes the same `approveClip`,
+`rejectClip`, `setModalClip` and `onEditClip` as Clip Review, so the two
+screens cannot disagree and a decision here leaves Clip Review at once (one
+clips state; other tabs follow `clip_updated` / `clip_removed` from the
+existing routes). The row lists waiting clips first (newest first), then the
+decided ones, 8 in all; "N waiting for you" beside the heading, and "N more
+in Clip Review" when more are waiting than it shows. Checked in Chromium with
+12 seeded clips: approve 10 -> 9 waiting, reject 9 -> 8, both reflected in a
+second tab without a reload and on the server; the clip opens in the player;
+phone width does not pan. Tests: `tests/test_streams_tab_review.py` (4).
