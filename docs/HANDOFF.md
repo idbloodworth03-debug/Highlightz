@@ -11514,3 +11514,30 @@ in Clip Review" when more are waiting than it shows. Checked in Chromium with
 12 seeded clips: approve 10 -> 9 waiting, reject 9 -> 8, both reflected in a
 second tab without a reload and on the server; the clip opens in the player;
 phone width does not pan. Tests: `tests/test_streams_tab_review.py` (4).
+
+## Approve and reject are instant (2026-11-23)
+
+Owner: "there is some latency when clicking reject or accept I dont want that
+to be the case". The card changed only when `/clips/{id}/approve` or
+`/reject` answered, and before answering the server rewrites the whole clip
+store (`_save_clips`, on the loop, under `_data_lock`), logs the outcome for
+learning and stats, and moves the channel's profile (with the split, a call to
+the worker), all on the loop that scores every live channel.
+
+App's `approveClip` / `rejectClip` now change the clips state BEFORE the
+request (approved, or removed) and the server's answer confirms it. Refused,
+the clip is put back as it was with the reason (403 weekly cap, any other
+error, the server not reached); a clip another tab removed meanwhile is not
+brought back, and a newer copy that arrived over the socket is kept. No
+instant approve when the weekly keep limit is already reached (`libFull`, the
+same count the Review meter shows): the server will refuse, and flipping the
+card twice is worse than waiting for its sentence. Every screen calls these
+two (Clip Review, Live Streams, the player), so all of them are instant.
+`clipsRef` holds the clips as last rendered for the put-back. Checked in
+Chromium with the server slowed to 1.5 s: the card changed in 0.06-0.08 s; a
+refused reject came back with "Could not reject that clip. It is still
+waiting for you." Tests: `tests/test_instant_review.py` (6).
+
+NOT changed, and worth measuring before touching: the server's own time for
+these routes (`_save_clips` rewrites every clip on each decision). The click no
+longer waits for it, but the loop still does the work.

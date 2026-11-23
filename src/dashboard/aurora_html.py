@@ -12711,6 +12711,10 @@ function RdApp() {
   // When a clip fired, per channel (ms timestamps), for the chart's markers.
   const [clipMarks, setClipMarks] = useState({});
   const [clips, setClips] = useState({});
+  // The clips as last rendered, for the instant approve/reject below: they need
+  // the record as it was, to put it back if the server refuses.
+  const clipsRef = useRef(clips);
+  clipsRef.current = clips;
   const [activePlatform, setActivePlatform] = useState(()=>{ try{return localStorage.getItem('hz_platform')||'twitch';}catch{return 'twitch';} });
   // The platform switch is a moment, not a repaint (owner, 2026-09-16: "the
   // only thing that changes is the color"). A band in the target platform's
@@ -13428,12 +13432,37 @@ function RdApp() {
   // that read like faults). Approve and Reject share the lock, because both
   // at once on one clip is the same race.
   const clipBusy = useRef(new Set());
+  // INSTANT (owner, 2026-11-23: "there is some latency when clicking reject
+  // or accept I dont want that to be the case"). The card used to change only
+  // when the server answered, and the server rewrites the clip store, records
+  // the decision for learning and moves the channel's threshold first (with
+  // the split, by asking the worker), on the same loop that scores every live
+  // channel: the whole of that was felt on every click. Now the decision is
+  // shown the moment it is made, on every screen at once (one clips state),
+  // and the server's answer confirms it. If it refuses, the clip is put back
+  // as it was, with the reason; a clip another tab removed meanwhile is not
+  // brought back.
+  const libFull = ()=>{
+    const cap = (me && me.plan_limits && me.plan_limits.max_library_week) || 0;
+    if(!(cap > 0 && cap < 1000000000)) return false;
+    const since = Date.now()/1000 - 7*24*60*60;
+    return Object.values(clipsRef.current).filter(c =>
+      c.status === 'approved' && (c.approved_at || c.created_at || 0) >= since).length >= cap;
+  };
   const approveClip = async(id)=>{
     if(clipBusy.current.has(id)) return false;
+    const before = clipsRef.current[id];
     clipBusy.current.add(id);
+    // Not when the weekly keep limit is already reached: the server is going
+    // to refuse, and approved-then-back-again would be worse than waiting for
+    // its sentence.
+    const shown = !!before && before.status !== 'approved' && !libFull();
+    if(shown) setClips(p=>p[id]?{...p,[id]:{...p[id],status:'approved',approved_at:Date.now()/1000}}:p);
+    const putBack = ()=>{ if(shown) setClips(p=>p[id]?{...p,[id]:before}:p); };
     try{
       const r=await fetch(`/clips/${id}/approve`,{method:'POST'});
       if(r.ok){const u=await r.json();setClips(p=>({...p,[id]:u}));return true;}
+      putBack();
       // A 403 is the weekly library cap, and it is the one failure here that is
       // not an error: the clip is fine, it is still in review, and the server
       // already wrote the sentence explaining that. Showing "it may have been
@@ -13446,14 +13475,27 @@ function RdApp() {
       }
       flash('Could not approve clip — it may have been removed. Refreshing...');refetchAll();
       return false;
+    } catch {
+      putBack();
+      flash('Could not reach the server, so that clip is still waiting for you.');
+      return false;
     } finally { clipBusy.current.delete(id); }
   };
   const rejectClip = async(id)=>{
     if(clipBusy.current.has(id)) return;
+    const before = clipsRef.current[id];
     clipBusy.current.add(id);
+    setClips(p=>{ if(!p[id]) return p; const n={...p}; delete n[id]; return n; });
+    // Back where it was, unless something else (another tab, the socket) has
+    // put a newer copy there meanwhile.
+    const putBack = ()=>{ if(before) setClips(p=>p[id]?p:{...p,[id]:before}); };
     try{
-      await fetch(`/clips/${id}/reject`,{method:'POST'});
-      setClips(p=>{const n={...p};delete n[id];return n;});
+      const r = await fetch(`/clips/${id}/reject`,{method:'POST'});
+      // 404: already gone (another tab, or undone and gone again). Nothing to undo.
+      if(!r.ok && r.status!==404){ putBack(); flash('Could not reject that clip. It is still waiting for you.'); }
+    } catch {
+      putBack();
+      flash('Could not reach the server, so that clip is still waiting for you.');
     } finally { clipBusy.current.delete(id); }
   };
   // Which Twitch clips this admin already has, so the Grab button can say
