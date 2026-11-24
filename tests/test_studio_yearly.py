@@ -246,6 +246,8 @@ def test_the_sale_says_studios_discount_is_its_first_year(yearly, monkeypatch):
     monkeypatch.setattr(api.settings, "holiday_sale_code", "CLIPPER")
     monkeypatch.setattr(api.settings, "holiday_sale_percent", 50)
     monkeypatch.setattr(api.settings, "holiday_sale_last_day", "2099-12-31")
+    # Pro only by default (2026-11-24); with Studio in it, its year is named.
+    monkeypatch.setattr(api.settings, "holiday_sale_plans", "pro,studio")
     html = api.render_landing()
     vis = _text(re.sub(r"<script.*?</script>|<style>.*?</style>", "", html, flags=re.S))
     assert "Pro is $12.50 for your first month instead of $25, Studio $125 for your first year " \

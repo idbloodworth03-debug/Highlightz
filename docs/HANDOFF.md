@@ -11624,3 +11624,29 @@ YEAR for new subscribers. Pro stays $25 a month.
 
 Tests: `tests/test_studio_yearly.py` (27). Browser: pricing at 1440 and 360
 in yearly mode, no overflow, ribbon one line.
+
+## CLIPPER works on Pro only (2026-11-24)
+
+Owner: "make CLIPPER work on Pro only". (Replaces the last bullet of the
+Studio-yearly section: Studio is no longer in the sale.)
+
+- **The page:** `HOLIDAY_SALE_PLANS` (default `pro`) is which plans the sale
+  names. It now says "50% off your first month of Pro", the phone ribbon
+  "Pro: 50% off first month", the card and FAQ add "The code is for Pro only;
+  Studio is not part of the sale.", and Studio's column has no sale price.
+  `pro,studio` puts Studio back in (its first YEAR, once yearly).
+- **Stripe:** a coupon cannot be narrowed after it is made, so
+  `scripts/promo_restrict.py` (`--check` first if wanted) makes a new coupon
+  like the old one but for the Pro product only, switches the old CLIPPER
+  promotion code off and gives the new coupon the code CLIPPER, carrying over
+  its expiry, first-order rule, minimum and what is left of a redemption
+  limit. Refuses with NOTHING WAS CHANGED; if the new code fails it switches
+  the old one back on (and says loudly if even that fails). Re-running when
+  it is already Pro only does nothing. Handles both Stripe API shapes for a
+  promotion code's coupon (`promotion.coupon` and the older `coupon`).
+- `scripts/promo_check.py` now also fails a code that works on Studio.
+- **Checkout:** a pre-applied offer code Stripe refuses for the plan (a
+  personal or bulk CLIPPER offer naming Studio) now opens the ordinary
+  Checkout with the code box instead of an error (`offer_code_refused_at_checkout`).
+
+Tests: `tests/test_promo_pro_only.py` (16).

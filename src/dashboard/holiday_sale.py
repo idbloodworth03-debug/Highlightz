@@ -62,9 +62,17 @@ def current(now: datetime | None = None) -> dict | None:
     if now >= end:
         return None
     from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS, period
-    plans = []
+    # Which plans the code works on (owner, 2026-11-24: "make CLIPPER work
+    # on Pro only"). The page names only these; scripts/promo_restrict.py
+    # makes the Stripe coupon match.
+    wanted = sale_plans()
+    plans, left_out = [], []
     for key in SELLABLE_PLANS:
         lim = PLAN_LIMITS.get(key)
+        if key not in wanted:
+            if lim:
+                left_out.append(lim["label"])
+            continue
         if lim and lim.get("price"):
             price = float(lim["price"])
             plans.append({"key": key, "label": lim["label"], "price": _money(price),
@@ -75,9 +83,41 @@ def current(now: datetime | None = None) -> dict | None:
     if not plans:
         return None
     last = (end - timedelta(days=1)).date()
-    return {"code": code, "pct": pct, "end": end, "plans": plans,
+    return {"code": code, "pct": pct, "end": end, "plans": plans, "left_out": left_out,
             "left_s": int((end - now).total_seconds()),
             "last_day": f"{last:%B} {last.day}"}
+
+
+def sale_plans() -> tuple[str, ...]:
+    """The plans HOLIDAY_SALE_PLANS names, in the pricing's order."""
+    from src.billing.plans import SELLABLE_PLANS
+    asked = {p.strip().lower() for p in str(settings.holiday_sale_plans or "").split(",")}
+    return tuple(p for p in SELLABLE_PLANS if p in asked)
+
+
+def _off(sale: dict) -> str:
+    """"50% off your first month", and "of Pro" when the code is not for
+    every plan on sale."""
+    plans = sale["plans"]
+    return (f"{sale['pct']}% off your {_first(plans)}"
+            + (f" of {_names(plans)}" if sale.get("left_out") else ""))
+
+
+def _short(sale: dict) -> str:
+    """The ribbon on a phone: "Pro: 50% off first month"."""
+    plans = sale["plans"]
+    return ((f"{_names(plans)}: " if sale.get("left_out") else "")
+            + f"{sale['pct']}% off {_first(plans)}")
+
+
+def _only(sale: dict) -> str:
+    """" The code is for Pro only; Studio is not part of the sale." or ""."""
+    out = sale.get("left_out") or []
+    if not out:
+        return ""
+    them = out[0] if len(out) == 1 else ", ".join(out[:-1]) + " and " + out[-1]
+    return (f" The code is for {_names(sale['plans'])} only; {them} "
+            f"{'is' if len(out) == 1 else 'are'} not part of the sale.")
 
 
 def _names(plans: list[dict]) -> str:
@@ -171,7 +211,7 @@ def pieces(sale: dict | None) -> dict[str, str]:
     plans = sale["plans"]
     names = _names(plans)
     first = plans[0]
-    off = f"{pct}% off your {_first(plans)}"
+    off = _off(sale)
 
     out["<!--SALE_HERO-->"] = (
         '<a class="proof-new hz-new hz-only" href="#holiday"><b>Holiday sale </b><span>'
@@ -198,14 +238,15 @@ def pieces(sale: dict | None) -> dict[str, str]:
         f'<h3 class="hz-deal-h">{off}.</h3>'
         f'<p class="hz-deal-p">Pick {names} and type <b>{code}</b> into the promotion code box '
         f'at checkout. {_prices(plans)} After that it is the usual price, and you can cancel '
-        'from the Settings tab whenever you like.</p>'
+        f'from the Settings tab whenever you like.{_only(sale)}</p>'
         '<div class="hz-deal-row">'
         f'<div class="hz-deal-code"><span>Code</span><b>{code}</b>'
         + _copy_button(code, "Copy") + '</div>'
         f'<a class="btn btn-go btn-lg" href="/login?next={first["key"]}">'
         f'Get {first["label"]} for {first["sale"]}</a></div>'
-        f'<p class="hz-deal-fine">Ends {sale["last_day"]}. For a new subscription: the code '
-        f'takes {pct}% off its first payment.</p>'
+        f'<p class="hz-deal-fine">Ends {sale["last_day"]}. For a new '
+        + (f'{names} ' if sale.get("left_out") else '')
+        + f'subscription: the code takes {pct}% off its first payment.</p>'
         '</div>' + _clock(sale["left_s"]) + '</div>')
 
     for p in plans:
@@ -221,7 +262,7 @@ def pieces(sale: dict | None) -> dict[str, str]:
         f'        <p class="faq-a">Pick {names} and enter <b>{code}</b> in the promotion code '
         f'box at checkout. Your {_first(plans)} is {pct}% off: {_prices(plans)} After that it '
         'renews at the usual price, and you can cancel from the Settings tab any time. '
-        f'The sale ends {sale["last_day"]}.</p>\n'
+        f'The sale ends {sale["last_day"]}.{_only(sale)}</p>\n'
         '      </details>\n'
         '    </div>\n')
 
@@ -241,8 +282,8 @@ def ribbon(sale: dict) -> str:
         '<div class="hz-ribbon hz-only">'
         '<a class="hz-ribbon-in" href="#holiday">' + SNOWFLAKE
         + '<b class="hz-r-k">Holiday sale</b>'
-        f'<span class="hz-r-long">{sale["pct"]}% off your {_first(sale["plans"])} with code</span>'
-        f'<span class="hz-r-short">{sale["pct"]}% off {_first(sale["plans"])}</span>'
+        f'<span class="hz-r-long">{_off(sale)} with code</span>'
+        f'<span class="hz-r-short">{_short(sale)}</span>'
         f'<span class="hz-code">{code}</span>'
         f'<span class="hz-r-more">Ends {sale["last_day"]}<span data-hz-days>'
         f'{_days_left(sale["left_s"])}</span></span>'
@@ -323,6 +364,7 @@ STYLE = """<style>
     .hz-r-long{display:none}
     .hz-r-short{display:inline}
   }
+  @media(max-width:400px){ .hz-r-go{display:none} }
 
   /* The pill above the headline, in the season's red. */
   .proof-new.hz-new{background:rgba(122,20,32,.78);border-color:rgba(255,227,163,.5);color:#fff}

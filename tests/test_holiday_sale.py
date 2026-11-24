@@ -104,7 +104,9 @@ def test_the_prices_are_the_plans_own_halved(sale):
     blocks = re.findall(r'<div class="plan[^"]*">.*?<ul class="plan-facts">', html, re.S)
     assert "hz-plan" not in blocks[0], "Free got a sale price"
     assert f"<b>{want_pro}</b> your first month with code <b>CLIPPER</b>" in blocks[1]
-    assert f"<b>{want_studio}</b> your first month with code <b>CLIPPER</b>" in blocks[2]
+    # Pro only (owner, 2026-11-24); tests/test_promo_pro_only.py has the rest.
+    assert "hz-plan" not in blocks[2], "Studio got a sale price"
+    assert want_studio not in _visible(html)
     assert f"Pro is <b>{want_pro}</b> for your first month instead of ${pro}" in html
 
 
@@ -247,13 +249,14 @@ def _check():
 GOOD_PROMO = {"id": "promo_1AAAAAA", "active": True, "code": "CLIPPER", "times_redeemed": 2,
               "max_redemptions": None, "expires_at": None, "restrictions": {},
               "coupon": {"id": "cpn_1BBBBBB", "valid": True, "percent_off": 50.0,
-                         "duration": "once", "applies_to": {"products": []}}}
+                         "duration": "once", "applies_to": {"products": ["prod_price_pro"]}}}
 NOW = datetime(2026, 11, 24, tzinfo=UTC).timestamp()
 
 
 def test_a_code_that_matches_the_page_passes():
     pc = _check()
-    assert pc.problems(GOOD_PROMO, GOOD_PROMO["coupon"], 50, {"Pro": "prod_p", "Studio": "prod_s"}, NOW) == []
+    assert pc.problems(GOOD_PROMO, GOOD_PROMO["coupon"], 50, {"Pro": "prod_price_pro"}, NOW,
+                       {"Studio": "prod_price_studio"}) == []
 
 
 @pytest.mark.parametrize("change,word", [
@@ -273,12 +276,14 @@ def test_a_code_that_cannot_be_used_is_reported(change, word):
     (dict(percent_off=None, amount_off=500), "fixed amount"),
     (dict(duration="forever"), "forever"),
     (dict(duration="repeating", duration_in_months=3), "for 3 months"),
-    (dict(applies_to={"products": ["prod_p"]}), "not Studio"),
+    (dict(applies_to={"products": ["prod_s"]}), "not Pro"),
+    (dict(applies_to={"products": ["prod_p", "prod_s"]}), "also works on Studio"),
+    (dict(applies_to={"products": []}), "works on every plan, Studio too"),
 ])
 def test_a_coupon_unlike_the_page_is_reported(change, word):
     pc = _check()
     coupon = dict(GOOD_PROMO["coupon"], **change)
-    out = pc.problems(GOOD_PROMO, coupon, 50, {"Pro": "prod_p", "Studio": "prod_s"}, NOW)
+    out = pc.problems(GOOD_PROMO, coupon, 50, {"Pro": "prod_p"}, NOW, {"Studio": "prod_s"})
     assert any(word in p for p in out), out
 
 
@@ -312,7 +317,7 @@ def test_the_check_reads_stripe_and_says_ok(monkeypatch, capsys):
     assert pc.main([], client=fake, now=NOW) == 0
     out = capsys.readouterr().out
     assert fake.asked["code"] == "CLIPPER"
-    assert "OK: CLIPPER takes 50% off the first payment of Pro (a month) and Studio (a month)" in out
+    assert "OK: CLIPPER takes 50% off the first payment of Pro (a month) and not Studio" in out
     assert "promo_1AAAAAA" not in out and "...AAAAAA" in out, "a whole Stripe id was printed"
 
 

@@ -85,7 +85,18 @@ async def create_checkout_url(user_id: str, username: str, price_id: str,
         if promo_id:
             params.pop("allow_promotion_codes", None)
             params["discounts"] = [{"promotion_code": promo_id}]
-    session = client.checkout.sessions.create(params=params)
+    try:
+        session = client.checkout.sessions.create(params=params)
+    except stripe.InvalidRequestError as exc:
+        # A code Stripe will not put on THIS plan (CLIPPER is Pro only since
+        # 2026-11-24, and an offer made earlier may name Studio): open the
+        # ordinary Checkout with the code box rather than an error page.
+        if "discounts" not in params:
+            raise
+        log.warning("offer_code_refused_at_checkout", code=promo_code, error=str(exc)[:200])
+        params.pop("discounts")
+        params["allow_promotion_codes"] = True
+        session = client.checkout.sessions.create(params=params)
     return session.url
 
 

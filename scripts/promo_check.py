@@ -4,11 +4,12 @@ Read-only: asks Stripe, changes nothing.
     venv/bin/python scripts/promo_check.py
 
 The landing page (src/dashboard/holiday_sale.py) promises HOLIDAY_SALE_PERCENT
-off the first payment of Pro and Studio (a month of Pro; a year of Studio
-once Studio is yearly) with the code HOLIDAY_SALE_CODE. The
-discount itself is a Stripe Promotion Code, so the page can only be as true as
-that code: this checks it is active, takes that percentage, applies once (the
-first payment only), covers both plans, and has not run out or expired.
+off the first payment of the plans in HOLIDAY_SALE_PLANS (Pro only since
+2026-11-24) with the code HOLIDAY_SALE_CODE. The discount itself is a Stripe
+Promotion Code, so the page can only be as true as that code: this checks it
+is active, takes that percentage, applies once (the first payment only), works
+on those plans and on no other plan on sale, and has not run out or expired.
+scripts/promo_restrict.py fixes the plans it works on.
 
 Prints the code and the tails of Stripe ids only.
 """
@@ -58,8 +59,12 @@ def _when(ts) -> str:
     return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def problems(promo, coupon, pct: int, plan_products: dict[str, str], now: float) -> list[str]:
-    """Every way this code is not what the page promises. Empty when it is."""
+def problems(promo, coupon, pct: int, plan_products: dict[str, str], now: float,
+             others: dict[str, str] | None = None) -> list[str]:
+    """Every way this code is not what the page promises. Empty when it is.
+    `plan_products` are the plans the sale names (HOLIDAY_SALE_PLANS), as
+    plan -> Stripe product; `others` the plans on sale that it leaves out,
+    which the code must NOT work on (Pro only, 2026-11-24)."""
     out = []
     if not g(promo, "active"):
         out.append("the promotion code is switched off in Stripe")
@@ -85,15 +90,57 @@ def problems(promo, coupon, pct: int, plan_products: dict[str, str], now: float)
     if g(coupon, "redeem_by") and int(g(coupon, "redeem_by")) <= now:
         out.append("its coupon could only be redeemed until " + _when(g(coupon, "redeem_by")))
     limited = list(g(g(coupon, "applies_to"), "products", []) or [])
+    others = {k: v for k, v in (others or {}).items() if v}
     if limited:
         for plan, product in plan_products.items():
             if product and product not in limited:
                 out.append(f"its coupon is limited to other products, not {plan}")
+        for plan, product in others.items():
+            if product in limited:
+                out.append(f"its coupon also works on {plan}, the page says "
+                           f"{' and '.join(plan_products) or 'other plans'} only")
+    elif others:
+        out.append(f"its coupon works on every plan, {' and '.join(others)} too; the page says "
+                   f"{' and '.join(plan_products) or 'other plans'} only "
+                   "(scripts/promo_restrict.py fixes that)")
     restr = g(promo, "restrictions")
     if g(restr, "minimum_amount"):
         out.append(f"the code needs a minimum order of {int(g(restr, 'minimum_amount')) / 100:g} "
                    f"{str(g(restr, 'minimum_amount_currency') or '').upper()}")
     return out
+
+
+def coupon_of(client, promo):
+    """The promotion code's coupon, with applies_to (newer Stripe API
+    versions keep it under `promotion`)."""
+    coupon = g(promo, "coupon") or g(g(promo, "promotion"), "coupon")
+    if isinstance(coupon, str) or (coupon is not None and g(coupon, "applies_to") is None):
+        try:
+            return client.coupons.retrieve(as_id(coupon), params={"expand": ["applies_to"]})
+        except Exception as exc:
+            print(f"Could not read the coupon ({type(exc).__name__}).")
+            return None if isinstance(coupon, str) else coupon
+    return coupon
+
+
+def products(client) -> tuple[dict[str, str], dict[str, str]]:
+    """(the sale's plans, the plans on sale it leaves out), each label ->
+    Stripe product id, from the configured prices."""
+    from config.settings import settings
+    from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS
+    from src.dashboard.holiday_sale import sale_plans
+    wanted = sale_plans()
+    sale, rest = {}, {}
+    for key in SELLABLE_PLANS:
+        price_id = getattr(settings, f"stripe_price_id_{key}", "")
+        if not price_id:
+            continue
+        try:
+            product = as_id(g(client.prices.retrieve(price_id), "product"))
+        except Exception:
+            product = ""
+        (sale if key in wanted else rest)[PLAN_LIMITS[key]["label"]] = product
+    return sale, rest
 
 
 def main(argv=None, client=None, now: float | None = None) -> int:
@@ -118,23 +165,8 @@ def main(argv=None, client=None, now: float | None = None) -> int:
     if len(live) > 1:
         print(f"Note: {len(live)} active codes are called {code}; checking {tail(promo)}.")
 
-    coupon = g(promo, "coupon") or g(g(promo, "promotion"), "coupon")
-    if isinstance(coupon, str) or (coupon is not None and g(coupon, "applies_to") is None):
-        try:
-            coupon = client.coupons.retrieve(as_id(coupon), params={"expand": ["applies_to"]})
-        except Exception as exc:
-            print(f"Could not read the coupon ({type(exc).__name__}).")
-            coupon = None if isinstance(coupon, str) else coupon
-
-    plan_products = {}
-    for plan, price_id in (("Pro", settings.stripe_price_id_pro),
-                           ("Studio", settings.stripe_price_id_studio)):
-        if not price_id:
-            continue
-        try:
-            plan_products[plan] = as_id(g(client.prices.retrieve(price_id), "product"))
-        except Exception:
-            plan_products[plan] = ""
+    coupon = coupon_of(client, promo)
+    plan_products, others = products(client)
 
     pct_off = g(coupon, "percent_off")
     used, mx = int(g(promo, "times_redeemed") or 0), g(promo, "max_redemptions")
@@ -146,14 +178,15 @@ def main(argv=None, client=None, now: float | None = None) -> int:
           + (f" of {mx}" if mx else ", no limit")
           + (", expires " + _when(g(promo, "expires_at")) if g(promo, "expires_at") else ", no expiry"))
 
-    bad = problems(promo, coupon, pct, plan_products, now)
+    bad = problems(promo, coupon, pct, plan_products, now, others)
     if bad:
         for b in bad:
             print("PROBLEM: " + b + ".")
         return 1
     from src.billing.plans import period
     plans = " and ".join(f"{p} (a {period(p.lower())})" for p in plan_products) or "the paid plans"
-    print(f"OK: {code} takes {pct}% off the first payment of {plans}, as the landing page says.")
+    print(f"OK: {code} takes {pct}% off the first payment of {plans}"
+          + (f" and not {' or '.join(others)}" if others else "") + ", as the landing page says.")
     return 0
 
 

@@ -392,6 +392,10 @@ class Settings(BaseSettings):
     holiday_sale_code: str = "CLIPPER"
     holiday_sale_percent: int = 50
     holiday_sale_last_day: str = "2027-01-01"
+    # The plans the code works on, comma separated (owner, 2026-11-24: "make
+    # CLIPPER work on Pro only"). The page names only these, and
+    # scripts/promo_restrict.py makes the Stripe coupon apply to only these.
+    holiday_sale_plans: str = "pro"
 
     # Auto-captions (Whisper, on this box — owner's call over a paid API).
     #
