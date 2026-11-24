@@ -956,6 +956,48 @@ def price_id_for(plan: str) -> str:
             "studio": settings.stripe_price_id_studio}.get(plan, "") or ""
 
 
+_PERIOD_TTL = 3600
+_period_seen: dict = {}               # price id -> (checked at, why not, or "")
+
+
+def period_problem(price, plan: str) -> str:
+    """Why this Stripe price does not bill as often as the pages say `plan`
+    is billed (plans.period), or "" when it does."""
+    from src.billing.plans import period
+    rec = _get(price, "recurring") or {}
+    checks = [
+        (_get(price, "active") is True, "it is archived"),
+        (_get(rec, "interval") == period(plan), f"it bills every {_get(rec, 'interval')}, "
+                                                f"the site says every {period(plan)}"),
+        (int(_get(rec, "interval_count") or 1) == 1, "it bills every "
+                                                     f"{_get(rec, 'interval_count')} {_get(rec, 'interval')}s"),
+    ]
+    return next((why for ok, why in checks if not ok), "")
+
+
+def price_period_problem(plan: str, price_id: str) -> str:
+    """For a plan billed yearly (Studio, 2026-11-24): why its configured price
+    cannot be sold as the pages describe it, or "". Asked of Stripe at most
+    once an hour per price. Monthly plans are not asked: they are what they
+    always were. A price Stripe cannot read is not a reason to refuse a sale
+    (the Checkout call that follows would fail on its own)."""
+    from src.billing.plans import period
+    if period(plan) == "month" or not price_id or not settings.stripe_secret_key:
+        return ""
+    now = time.time()
+    seen = _period_seen.get(price_id)
+    if seen is None or now - seen[0] > _PERIOD_TTL:
+        try:
+            why = period_problem(_client().v1.prices.retrieve(price_id), plan)
+        except Exception as exc:
+            log.warning("plan_price_unread", plan=plan, error=type(exc).__name__)
+            why = ""
+        seen = _period_seen[price_id] = (now, why)
+        if why:
+            log.error("plan_price_wrong_period", plan=plan, price=price_id[-6:], why=why)
+    return seen[1]
+
+
 def plan_for_price(price_id: str | None) -> str | None:
     """Map a Stripe price id to a membership plan. The legacy single-price id
     ($15 era) maps to 'pro' — existing subscribers are grandfathered with full
@@ -967,6 +1009,10 @@ def plan_for_price(price_id: str | None) -> str | None:
     if price_id == settings.stripe_price_id_pro:
         return "pro"
     if price_id == settings.stripe_price_id_studio:
+        return "studio"
+    # Studio monthly, after Studio went yearly (2026-11-24): not sold, but
+    # whoever is on it keeps Studio, the way Starter's subscribers keep theirs.
+    if price_id == settings.stripe_price_id_studio_monthly:
         return "studio"
     if price_id == settings.stripe_price_id:
         return "pro"   # grandfathered legacy $15 subscribers

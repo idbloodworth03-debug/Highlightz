@@ -2125,6 +2125,10 @@ async def me(request: Request):
         # back to "review some to free up space" and never mentioned
         # upgrading at all.
         "next_plan":           _next_tier(user),
+        # Each plan on sale with its price and period ("$250/year": Studio is
+        # yearly, 2026-11-24), for the Settings rows that name them. On /me,
+        # so a reconnect after the deploy that changes them brings the words.
+        "prices":              {p: _plan_price_text(p) for p in _sellable()},
         # Early access (admin-granted, per account) opens the held-back
         # posting features for testers and platform app reviewers. Folded
         # into the flag itself so every screen that reads features.uploads
@@ -3368,6 +3372,11 @@ async def billing_checkout(request: Request, plan: str = "pro", offer: int = 0):
         # right after Studio shipped): say so on the plans page, not a 503.
         log.error("checkout_price_missing", plan=plan)
         return RedirectResponse("/billing/paywall?unavailable=" + plan)
+    # Studio yearly (2026-11-24): never sell a price that bills more often
+    # than the pages say. Logged by price_period_problem.
+    from src.billing.stripe_billing import price_period_problem
+    if await asyncio.to_thread(price_period_problem, plan, price_id):
+        return RedirectResponse("/billing/paywall?unavailable=" + plan)
     uid      = request.session.get("user_id", "")
     username = request.session.get("username", "")
     if not uid:
@@ -3458,8 +3467,8 @@ background:linear-gradient(135deg,#7c3aed,#b86adc);color:#fff;font-weight:600;ma
 button:focus-visible,a:focus-visible{outline:2px solid #c489e4;outline-offset:2px}
 a{display:block;text-align:center;color:#9a9aae;text-decoration:none;padding:8px}</style></head>
 <body><div class="card"><h1>{title}</h1>
-<div class="row"><span>Now</span><span>{current_label} &middot; ${current_price}/month</span></div>
-<div class="row"><span>After</span><span>{new_label} &middot; ${new_price}/month</span></div>
+<div class="row"><span>Now</span><span>{current_label} &middot; {current_price}</span></div>
+<div class="row"><span>After</span><span>{new_label} &middot; {new_price}</span></div>
 <p>{what}</p>
 <form method="post" action="/billing/change">
 <input type="hidden" name="plan" value="{plan}"><input type="hidden" name="token" value="{token}">
@@ -3467,23 +3476,49 @@ a{display:block;text-align:center;color:#9a9aae;text-decoration:none;padding:8px
 <a href="/">Not now</a></div></body></html>"""
 
 
-def _plan_change_html(current: str, plan: str, token: str) -> str:
+def _billed_every(user: dict | None, plan: str) -> str:
+    """How often THIS account's subscription to `plan` is billed: what a new
+    subscriber pays (plans.period), except an account still on the monthly
+    Studio price after Studio went yearly (2026-11-24)."""
+    from src.billing.plans import period
+    if (plan == "studio" and user and settings.stripe_price_id_studio_monthly
+            and user.get("stripe_price_id") == settings.stripe_price_id_studio_monthly):
+        return "month"
+    return period(plan)
+
+
+def _plan_change_html(current: str, plan: str, token: str, user: dict | None = None) -> str:
     import html as _html
-    from src.billing.plans import PLAN_LIMITS
+    from src.billing.plans import PLAN_LIMITS, period
     cur, new = PLAN_LIMITS[current], PLAN_LIMITS[plan]
-    if new["price"] > cur["price"]:
+    was, now = _billed_every(user, current), period(plan)
+    after = f"${new['price']}/{now}"
+    if was != now:
+        # Month to year or year to month (Studio yearly, 2026-11-24): Stripe
+        # starts the new period today rather than at the old renewal date.
+        if now == "year":
+            what = (f"When you confirm, Stripe charges the card on your subscription "
+                    f"today for a year of {new['label']}, less the unused part of "
+                    f"{cur['label']} this {was}. It then renews every year from today, "
+                    f"at {after}.")
+        else:
+            what = (f"When you confirm, you move to {new['label']} now. The unused part "
+                    f"of your {cur['label']} {was} becomes a credit on your account, used "
+                    f"against your {new['label']} invoices. It then renews every {now} "
+                    f"from today, at {after}.")
+    elif new["price"] > cur["price"]:
         what = ("When you confirm, Stripe charges the card on your subscription "
                 "today for the difference, for the rest of this billing period "
                 "(worked out to the day). From your next renewal it is "
-                f"${new['price']}/month.")
+                f"{after}.")
     else:
         what = (f"When you confirm, you move to {new['label']} now. The unused part "
                 f"of {cur['label']} this billing period becomes a credit on your "
                 "account, used against your next invoices. From your next renewal "
-                f"it is ${new['price']}/month.")
+                f"it is {after}.")
     fields = {"title": f"Switch to {new['label']}?", "current_label": cur["label"],
-              "current_price": str(cur["price"]), "new_label": new["label"],
-              "new_price": str(new["price"]), "what": what, "plan": plan, "token": token}
+              "current_price": f"${cur['price']}/{was}", "new_label": new["label"],
+              "new_price": after, "what": what, "plan": plan, "token": token}
     page = _PLAN_CHANGE_HTML
     for k, v in fields.items():
         page = page.replace("{" + k + "}", _html.escape(v))
@@ -3513,7 +3548,7 @@ async def billing_change_page(request: Request, plan: str = ""):
         return RedirectResponse("/?plan=unchanged")
     token = secrets.token_urlsafe(24)
     request.session["plan_change"] = {"plan": plan, "token": token, "at": time.time()}
-    return HTMLResponse(_plan_change_html(current, plan, token),
+    return HTMLResponse(_plan_change_html(current, plan, token, db_user),
                         headers={"Cache-Control": "no-store"})
 
 
@@ -3541,6 +3576,9 @@ async def billing_change_confirm(request: Request, plan: str = Form(""), token: 
     price_id = price_id_for(plan)
     if not settings.stripe_secret_key or not price_id:
         log.error("plan_change_price_missing", plan=plan)
+        return RedirectResponse("/billing/paywall?unavailable=" + plan, status_code=303)
+    from src.billing.stripe_billing import price_period_problem
+    if await asyncio.to_thread(price_period_problem, plan, price_id):
         return RedirectResponse("/billing/paywall?unavailable=" + plan, status_code=303)
     if db_user.get("subscription_status") != "active":
         return RedirectResponse("/billing/checkout?plan=" + plan, status_code=303)
@@ -5918,9 +5956,9 @@ async def add_stream(request: Request, req: StreamRequest):
             # The moment a free user hits this is the moment upgrading means
             # something concrete to them, so name the next tier rather than
             # just refusing.
-            from src.billing.plans import PLAN_LIMITS, next_plan
+            from src.billing.plans import PLAN_LIMITS, next_plan, price_text
             nxt = next_plan(plan)
-            upgrade = (f" {PLAN_LIMITS[nxt]['label']} (${PLAN_LIMITS[nxt]['price']}/mo) gives you"
+            upgrade = (f" {PLAN_LIMITS[nxt]['label']} ({price_text(nxt, 'short')}) gives you"
                        f" {PLAN_LIMITS[nxt]['max_streams']}." if nxt else "")
             raise HTTPException(
                 status_code=429,
@@ -6878,7 +6916,7 @@ def _queue_pause_words(channels: list[str], cap: int, user: dict | None,
     to put the next clip), that nothing was lost and it restarts by itself,
     and only then what the next plan does differently, as a fact with its
     price, not as a push."""
-    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan
+    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan, price_text
     who = _name_channels(channels)
     were = "were" if len([c for c in channels if c]) > 1 else "was"
     nxt = next_plan(get_plan(user))
@@ -6886,7 +6924,7 @@ def _queue_pause_words(channels: list[str], cap: int, user: dict | None,
     if nxt:
         lim = PLAN_LIMITS[nxt]
         more = (f" {lim['label']} keeps watching around the clock, with or without the tab "
-                f"open, and holds {lim['max_pending']} clips. It is ${lim['price']} a month "
+                f"open, and holds {lim['max_pending']} clips. It is {price_text(nxt, 'words')} "
                 "if you ever want that; you can change plans from Settings.")
     plan = PLAN_LIMITS[get_plan(user)]["label"]
     mins = _QUEUE_FULL_UNREVIEWED // 60
@@ -7733,12 +7771,22 @@ def _require_captions(uid: str):
 # soliciting only happy users is review gating, which Google and Trustpilot
 # both prohibit and which Trustpilot removes profiles for.
 
+def _sellable() -> tuple:
+    from src.billing.plans import SELLABLE_PLANS
+    return SELLABLE_PLANS
+
+
+def _plan_price_text(plan: str, style: str = "slash") -> str:
+    from src.billing.plans import price_text
+    return price_text(plan, style)
+
+
 def _next_tier(user: dict | None) -> dict | None:
     """The plan above this user's, with its real numbers. None on Studio —
     there is nothing above it, and an upgrade button that leads nowhere is
     worse than no button. Always a tier on sale (plans.next_plan): Free and
     Starter are offered Pro, Pro is offered Studio (2026-11-03)."""
-    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan
+    from src.billing.plans import PLAN_LIMITS, get_plan, next_plan, period, price_text
     # "locked" (a missing account) maps like free, so the prompt never
     # vanishes for the person it exists to convert.
     nxt = next_plan(get_plan(user))
@@ -7747,7 +7795,10 @@ def _next_tier(user: dict | None) -> dict | None:
     return {"plan": nxt, "label": PLAN_LIMITS[nxt]["label"],
             "max_pending": PLAN_LIMITS[nxt]["max_pending"],
             "max_streams": PLAN_LIMITS[nxt]["max_streams"],
-            "price": PLAN_LIMITS[nxt]["price"]}
+            "price": PLAN_LIMITS[nxt]["price"],
+            # "$250 a year": Studio is yearly (2026-11-24), so the price is
+            # never shown without its period.
+            "per": period(nxt), "price_text": price_text(nxt, "words")}
 
 
 def pending_room(uid: str) -> tuple[int, int]:
@@ -7874,7 +7925,7 @@ async def notify_clip_missed(user_id: str, channel: str, reason: str = "queue_fu
     _ss.record(_ss.MISSED, {"id": "", "user_id": user_id, "channel": channel,
                             "created_at": time.time()})
     plan = get_plan(user)
-    from src.billing.plans import next_plan
+    from src.billing.plans import next_plan, price_text
     nxt = next_plan(plan)
     log.info("clip_missed_queue_full", user_id=user_id, channel=channel,
              pending=used, cap=cap, plan=plan)
@@ -7888,6 +7939,7 @@ async def notify_clip_missed(user_id: str, channel: str, reason: str = "queue_fu
         "next_plan": nxt,
         "next_limit": PLAN_LIMITS[nxt]["max_pending"] if nxt else 0,
         "next_price": PLAN_LIMITS[nxt]["price"] if nxt else 0,
+        "next_price_text": price_text(nxt, "words") if nxt else "",
     }, user_id=user_id)
 
 
@@ -12873,7 +12925,7 @@ and editors who follow several channels at once and cannot watch them all.{camp_
 - Pro — ${pro['price']}/month, the most popular plan. {pro['max_streams']} channels at once,
   {pro['max_pending']}-clip queue, {pro['max_suggested']} Highlight clips,
   {_pro_extra}
-- Studio — ${sd['price']}/month. Everything in Pro, with {sd['max_streams']} channels at
+- Studio — {_plan_price_text('studio')}. Everything in Pro, with {sd['max_streams']} channels at
   once, a {sd['max_pending']}-clip queue and {sd['max_suggested']} Highlight clips, plus:
   front of the line when the server is busy (its channels go live first and
   its clips are cut first), clip videos kept the full {settings.clip_file_max_age_days} days, no fee on the
@@ -12993,7 +13045,7 @@ async def llms_full_txt():
     yn = lambda p, k: "Yes" if p.get(k) else "No"      # noqa: E731
     w("| | Free | Pro (most popular) | Studio |")
     w("|---|---|---|---|")
-    w(f"| Price | $0, no card, {_free_time('long')} | ${pro['price']}/month | ${sd['price']}/month |")
+    w(f"| Price | $0, no card, {_free_time('long')} | {_plan_price_text('pro')} | {_plan_price_text('studio')} |")
     w(f"| Channels at once | {f['max_streams']} | {pro['max_streams']} | {sd['max_streams']} |")
     w(f"| Clips held for review | {f['max_pending']} | {pro['max_pending']} | {sd['max_pending']} |")
     w(f"| Highlight clips | {f['max_suggested']} | {pro['max_suggested']} | {sd['max_suggested']} |")
@@ -16086,7 +16138,7 @@ def _posts_to_shorts() -> bool:
 
 
 def _pricing() -> str:
-    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN, period
     free, pro, studio = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def fee(limits: dict) -> str:
@@ -16104,7 +16156,8 @@ def _pricing() -> str:
     def chans(n: int) -> str:
         return str(n) + (" channel" if n == 1 else " channels")
 
-    def plan(key: str, limits: dict, cta: str, suffix: str = "per month") -> str:
+    # "per month", or "per year" for Studio once it is yearly (2026-11-24).
+    def plan(key: str, limits: dict, cta: str, suffix: str = "") -> str:
         facts = [
             ("Channels at once", chans(limits["max_streams"])),
             # Free's weekly hours (owner, 2026-11-19). A row on every column
@@ -16148,7 +16201,8 @@ def _pricing() -> str:
         return ('<div class="plan' + (" is-pop" if popular else "") + '">'
                 + ('<span class="plan-badge">Most popular</span>' if popular else "")
                 + '<h3 class="plan-name">' + limits["label"] + "</h3>"
-                + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
+                + '<p class="plan-price">$' + str(limits["price"]) + "<i>"
+                + (suffix or "per " + period(key)) + "</i></p>"
                 # The holiday sale's first-month price, per request
                 # (src/dashboard/holiday_sale.py); empty with no sale.
                 + "<!--SALE_PLAN_" + key + "-->"
@@ -16414,7 +16468,7 @@ def _tos_plans() -> str:
     nothing connected it to the plans. Deriving it means the document cannot
     describe a product we do not sell.
     """
-    from src.billing.plans import PLAN_LIMITS
+    from src.billing.plans import PLAN_LIMITS, period
     f, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def chans(n: int) -> str:
@@ -16430,7 +16484,8 @@ def _tos_plans() -> str:
         + str(pro["price"]) + "/month for " + chans(pro["max_streams"]) + ", a "
         + str(pro["max_pending"]) + "-clip queue, no weekly limit on what you "
         "keep, the VOD Scanner, the Clip Editor and the Scheduler. Studio is $"
-        + str(sd["price"]) + "/month for everything in Pro with " + chans(sd["max_streams"])
+        + str(sd["price"]) + "/" + period("studio") + " for everything in Pro with "
+        + chans(sd["max_streams"])
         + " and a " + str(sd["max_pending"]) + "-clip queue; in addition, when the "
         "Service is at capacity, Studio channels are given priority for live monitoring "
         "and Studio clips for processing, saved clip files are kept for the full retention "
@@ -16451,7 +16506,7 @@ def _faq() -> str:
     drift from the plans. Highlight clips get their own group: they are the
     one thing on the page a visitor has no way of knowing about, and the
     pricing column names them without saying what they are."""
-    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, period
     free, pro, sd = PLAN_LIMITS["free"], PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def week(limits: dict) -> str:
@@ -16643,8 +16698,8 @@ def _faq() -> str:
          f"Free is free: it asks for no card and it never expires. "
          + (f"New accounts watch for {_free_hours()} hours a week on it, and more is "
             f"{_free_price()} an hour. " if _free_metered() else "")
-         + f"Pro is <b>${pro['price']}</b> a month and Studio is "
-         f"<b>${sd['price']}</b> a month. Move between them whenever you like and cancel from the "
+         + f"Pro is <b>${pro['price']}</b> a {period('pro')} and Studio is "
+         f"<b>${sd['price']}</b> a {period('studio')}. Move between them whenever you like and cancel from the "
          "Settings tab. Cancelling puts you back on Free, and every clip you approved stays in your "
          "library."),
         ("What does Studio add?",
@@ -16660,6 +16715,10 @@ def _faq() -> str:
 
 
 LANDING_HTML = LANDING_HTML.replace("<!--PRICING-->", _pricing(), 1)
+# The JSON-LD offer says each plan's period too (Studio yearly, 2026-11-24).
+LANDING_HTML = LANDING_HTML.replace(
+    "then Pro $25/month or Studio $250/month.",
+    "then Pro " + _plan_price_text("pro") + " or Studio " + _plan_price_text("studio") + ".", 1)
 LANDING_HTML = LANDING_HTML.replace("<!--FAQ-->", _faq(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--EDITOR-->", _editor_section(), 1)
 LANDING_HTML = LANDING_HTML.replace("<!--RAIL-->", _rail_html(), 1)
@@ -16893,7 +16952,7 @@ def _paywall_plans() -> str:
     weekly keep limit is now one of the main reasons to upgrade and the page
     did not mention it at all.
     """
-    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN
+    from src.billing.plans import PLAN_LIMITS, UNLIMITED_PENDING, POPULAR_PLAN, period
     pro, studio = PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
 
     def keeps(p: dict) -> str:
@@ -16909,7 +16968,8 @@ def _paywall_plans() -> str:
         return ('<div class="plan ' + cls + '">'
                 + ('<div class="plan-pop">Most popular</div>' if popular else "")
                 + '<div class="plan-name">' + p["label"] + "</div>"
-                + '<div class="plan-price">$' + str(p["price"]) + "<span>/mo</span></div>"
+                + '<div class="plan-price">$' + str(p["price"]) + "<span>/"
+                + ("yr" if period(key) == "year" else "mo") + "</span></div>"
                 + '<ul class="plan-feats">'
                 + "".join("<li>" + f + "</li>" for f in feats)
                 + "</ul>"

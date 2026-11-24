@@ -28,6 +28,8 @@ PRICES_CONFIRMED below.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from src.billing.plans import price_text as _price_text
 from src.billing import watch_hours as _wh
 
 # Flip to True once the numbers below have been checked against each
@@ -92,10 +94,10 @@ def _our_plans() -> tuple[Plan, ...]:
              f"{chans(free)}, {free['max_pending']}-clip queue, "
              f"{free['max_suggested']} Highlight clips, {keeps(free)}. "
              "No card, " + _wh.public_words("long") + "."),
-        Plan("Pro", f"${pro['price']}/mo",
+        Plan("Pro", _price_text("pro", "short"),
              f"{chans(pro)}, {pro['max_pending']}-clip queue, {keeps(pro)}, "
              "VOD Scanner."),
-        Plan("Studio", f"${sd['price']}/mo",
+        Plan("Studio", _price_text("studio", "short"),
              f"{chans(sd)}, {sd['max_pending']}-clip queue, everything in Pro, "
              "front of the line, no campaign fee."),
     )
@@ -472,7 +474,8 @@ FAQ = (
      "Opus Clip's cheapest paid tier and $24.99 for Eklipse Premium. Against "
      "Opus Pro at $29 it is cheaper, against Eklipse it is a wash, so the "
      "question becomes what you get for it: they clip your account, Pro "
-     "watches ten channels that do not have to be yours. Studio, at $250, is "
+     "watches ten channels that do not have to be yours. Studio, at "
+     + _price_text("studio", "words") + ", is "
      "for clipping thirty channels at once with the front of the line."),
     ("What happens when the credits run out on Opus Clip or Eklipse?",
      "The tool stops until the next cycle or the next purchase. On Opus Clip "

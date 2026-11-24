@@ -85,6 +85,7 @@ price_name = {pid: name for pid, name in (
     (settings.stripe_price_id_starter, "starter"),
     (settings.stripe_price_id_pro,     "pro"),
     (settings.stripe_price_id_studio,  "studio"),
+    (settings.stripe_price_id_studio_monthly, "studio (monthly, not sold)"),
     (settings.stripe_price_id,         "legacy"),
 ) if pid}
 

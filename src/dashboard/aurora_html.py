@@ -4483,7 +4483,7 @@ function BuyHoursDialog({ wh, nxt = null, onClose }) {
         </div>
         {err && <div className="ed-warn">{err}</div>}
         {nxt && <div className="sc-sub">{nxt.label} watches without a limit, {nxt.max_streams} channels at once, for
-          ${nxt.price} a month. <a href="/billing/paywall">See plans</a></div>}
+          {nxt.price_text || ('$' + nxt.price + ' a month')}. <a href="/billing/paywall">See plans</a></div>}
         <button className="rd-btn sm" onClick={onClose} disabled={!!busy}>Cancel</button>
       </div>
     </div>);
@@ -5101,7 +5101,7 @@ function ReviewScreen({ streams, scores, clips, onApprove, onReject, onOpen, onE
               : lostN + ' highlights were not clipped in the last 24 hours, because there was no room left in your queue.'}
             {nextPlan
               ? ' ' + PLAN_NAME(nextPlan) + ' holds '
-                + lost.next_limit + ' — $' + lost.next_price + '/month.'
+                + lost.next_limit + ' — ' + (lost.next_price_text || ('$' + lost.next_price + ' a month')) + '.'
               : ' Review or clear some to make room.'}
             {/* Free only (plan_limits.pauses_when_idle). A full queue pauses
                 the channel: within minutes with Highlightz closed, and after
@@ -6498,7 +6498,7 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
             </a>
           </div>}
           {sub==='active' && me.plan==='pro' && <div className="rd-field">
-            <div><div className="fl">Go Studio</div><div className="fd">30 streams, 1,000 pending clips, front of the line when the server is busy, clip videos kept {(me.plan_limits && me.plan_limits.keep_days) || 30} days, no fee on your campaigns and direct support — $250/month</div></div>
+            <div><div className="fl">Go Studio</div><div className="fd">30 streams, 1,000 pending clips, front of the line when the server is busy, clip videos kept {(me.plan_limits && me.plan_limits.keep_days) || 30} days, no fee on your campaigns and direct support — {(me.prices||{}).studio || '$250'}</div></div>
             <a href="/billing/change?plan=studio" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade
             </a>
@@ -6536,8 +6536,8 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
           {!isSubscribed && sub!=='trialing' && sub!=='past_due' && <div className="rd-field">
             <div><div className="fl">Want more?</div>
               <div className="fd">
-                Pro is $25/month for 10 streams, 200 pending clips and the VOD scanner.
-                Studio is $250 for 30 streams and the front of the line.
+                Pro is {(me.prices||{}).pro || '$25/month'} for 10 streams, 200 pending clips and the VOD scanner.
+                Studio is {(me.prices||{}).studio || '$250'} for 30 streams and the front of the line.
               </div></div>
             <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>See plans
@@ -12971,7 +12971,8 @@ function RdApp() {
                       limit:(data.plan_limits||{}).max_pending,
                       next_plan:(data.next_plan||{}).plan,
                       next_limit:(data.next_plan||{}).max_pending,
-                      next_price:(data.next_plan||{}).price});
+                      next_price:(data.next_plan||{}).price,
+                      next_price_text:(data.next_plan||{}).price_text});
       else setLostClips(null);
     }).catch(()=>{});
     // Static config, but it still belongs here: refetchAll runs on every

@@ -670,7 +670,17 @@ class Settings(BaseSettings):
     # Two-tier prices (recurring Price IDs from the Stripe dashboard).
     stripe_price_id_starter: str = ""   # $10/month (no longer sold; existing subscribers)
     stripe_price_id_pro: str = ""       # $25/month
-    stripe_price_id_studio: str = ""    # $250/month (2026-11-03)
+    stripe_price_id_studio: str = ""    # $250 a STUDIO_INTERVAL (2026-11-03)
+    # Studio yearly (owner, 2026-11-24: "change the 250$ one to be a yearly
+    # subscription now too instead ... keep the same price"). How often a NEW
+    # Studio subscription is billed: every page that prints Studio's price
+    # reads it (plans.period). scripts/setup_studio_yearly.py writes "year"
+    # together with the yearly price id above, and keeps the monthly price
+    # below, so the words and the charge can never disagree.
+    studio_interval: str = "month"
+    # The monthly Studio price, once the yearly one replaced it: no longer
+    # sold, but subscribers already on it are still Studio (plan_for_price).
+    stripe_price_id_studio_monthly: str = ""
     # Free's watching hours, $1 each, one-off (src/billing/watch_hours.py).
     # The owner's product in Stripe ("1 Hour of Highlightz"), so Checkout shows
     # its name, description and image. Optional: unset, or not a live $1.00 USD

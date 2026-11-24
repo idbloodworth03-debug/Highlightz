@@ -4,7 +4,8 @@ Read-only: asks Stripe, changes nothing.
     venv/bin/python scripts/promo_check.py
 
 The landing page (src/dashboard/holiday_sale.py) promises HOLIDAY_SALE_PERCENT
-off the first month of Pro and Studio with the code HOLIDAY_SALE_CODE. The
+off the first payment of Pro and Studio (a month of Pro; a year of Studio
+once Studio is yearly) with the code HOLIDAY_SALE_CODE. The
 discount itself is a Stripe Promotion Code, so the page can only be as true as
 that code: this checks it is active, takes that percentage, applies once (the
 first payment only), covers both plans, and has not run out or expired.
@@ -80,7 +81,7 @@ def problems(promo, coupon, pct: int, plan_products: dict[str, str], now: float)
     if dur != "once":
         months = g(coupon, "duration_in_months")
         what = f"for {months} months" if dur == "repeating" else "forever" if dur == "forever" else str(dur)
-        out.append(f"its coupon applies {what}, the page says the first month only")
+        out.append(f"its coupon applies {what}, the page says the first payment only")
     if g(coupon, "redeem_by") and int(g(coupon, "redeem_by")) <= now:
         out.append("its coupon could only be redeemed until " + _when(g(coupon, "redeem_by")))
     limited = list(g(g(coupon, "applies_to"), "products", []) or [])
@@ -150,8 +151,9 @@ def main(argv=None, client=None, now: float | None = None) -> int:
         for b in bad:
             print("PROBLEM: " + b + ".")
         return 1
-    plans = " and ".join(plan_products) or "the paid plans"
-    print(f"OK: {code} takes {pct}% off the first month of {plans}, as the landing page says.")
+    from src.billing.plans import period
+    plans = " and ".join(f"{p} (a {period(p.lower())})" for p in plan_products) or "the paid plans"
+    print(f"OK: {code} takes {pct}% off the first payment of {plans}, as the landing page says.")
     return 0
 
 

@@ -11580,3 +11580,47 @@ well". `src/dashboard/holiday_sale.py`, applied per request by
 Tests: `tests/test_holiday_sale.py` (33). Browser: 1440, 1180, 768, 390, 360,
 no overflow and no console errors; copy button puts CLIPPER on the clipboard;
 clock ticks; at the end time the page went back to exactly its old self.
+
+## Studio is yearly, same $250 (2026-11-24)
+
+Owner: "change the 250$ one to be a yearly subscription now too instead so lets
+make the changes for that as well but keep the same price". Studio: $250 a
+YEAR for new subscribers. Pro stays $25 a month.
+
+- **One switch, written with the price.** `STUDIO_INTERVAL` (default `month`)
+  is what every page reads (`plans.period()` / `plans.price_text()`).
+  `scripts/setup_studio_yearly.py` (run on the server; `--check` first if
+  wanted) finds or makes the $250-a-year price on the Studio product, then in
+  ONE .env write sets `STRIPE_PRICE_ID_STUDIO=<yearly>`, `STUDIO_INTERVAL=year`
+  and `STRIPE_PRICE_ID_STUDIO_MONTHLY=<the old monthly>`, and points every
+  portal configuration that switches plans at Pro monthly + Studio yearly.
+  Refuses with NOTHING WAS CHANGED. Until it runs, the site still says (and
+  bills) Studio monthly, so the words and the charge never disagree.
+- **Guard:** while Studio is yearly, Checkout and the in-place switch ask
+  Stripe (hourly cache, off the loop) that Studio's price really bills yearly;
+  if not, `/billing/paywall?unavailable=studio` and `plan_price_wrong_period`
+  in the log. Monthly plans are never asked. A Stripe read error does not
+  block a sale.
+- **Studio monthly subscribers keep it** (`plan_for_price` maps
+  `STRIPE_PRICE_ID_STUDIO_MONTHLY` to studio, like Starter). Nobody's
+  subscription is touched. The script prints how many there are. The switch
+  page shows them what they really pay (`_billed_every`, from
+  `stripe_price_id` on the account).
+- **Switching month <-> year:** Stripe restarts the period on the day of the
+  switch (`always_invoice`): Pro -> Studio is charged a year today less the
+  unused Pro month; Studio -> Pro turns the unused year into account credit.
+  `/billing/change` says exactly that.
+- **Where the period shows:** pricing columns ("per year"), FAQ, Terms 4,
+  paywall (/yr), the switch page, llms.txt and llms-full, the landing JSON-LD
+  (rewritten at import from its one literal), compare and tutorial tables
+  (built at import), the stream-limit and idle refusals, the queue-full
+  notice (`next_price_text`), Settings rows (`/me.prices`, in refetchAll via
+  /me; `next_plan.price_text`). MRR counts a year as a twelfth
+  (`billed_monthly` fallback; Stripe's own figure already did).
+- **Holiday sale:** CLIPPER is a "once" coupon, so on yearly Studio it is 50%
+  off the first YEAR ($125). The sale copy says so ("first payment"; "Studio
+  $125 for your first year"). If it should be Pro-only, restrict the coupon
+  to the Pro product in Stripe and say so here.
+
+Tests: `tests/test_studio_yearly.py` (27). Browser: pricing at 1440 and 360
+in yearly mode, no overflow, ribbon one line.

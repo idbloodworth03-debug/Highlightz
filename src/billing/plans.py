@@ -8,8 +8,11 @@ Membership tiers.
             Starter subscribers keep it, at their price, until they change it.
   pro     — $25/month: 10 monitored streams, 200 pending clips, VOD scanner,
             Clip Editor. Shown as "Most popular".
-  studio  — $250/month (owner, 2026-11-03: "a new tier that is $250, this needs
-            to be better than the highest tier"): everything in Pro, plus 30
+  studio  — $250 (owner, 2026-11-03: "a new tier that is $250, this needs
+            to be better than the highest tier"), billed every month at first
+            and every YEAR once STUDIO_INTERVAL=year (owner, 2026-11-24: "change
+            the 250$ one to be a yearly subscription now too instead ... keep
+            the same price"; see period()): everything in Pro, plus 30
             streams, 1,000 pending clips, 200 Highlight clips, FRONT OF THE LINE
             (reserved live slots, its clips cut first), clip videos KEPT the
             full 30 days (never cleared early to make room), NO FEE on the
@@ -276,6 +279,44 @@ LEGACY_PRICE = 15
 DEFAULT_PLAN = FREE_PLAN
 
 
+# ── How often a plan is billed ───────────────────────────────────────────────
+# Studio became a YEARLY subscription at the same $250 (owner, 2026-11-24).
+# Every page that prints a price reads the period from here, so the words can
+# never say "a year" while Stripe bills a month, or the other way round: the
+# setting is written by scripts/setup_studio_yearly.py in the same step as the
+# yearly price id, and until then Studio is the monthly plan it always was.
+PERIODS = ("month", "year")
+
+
+def period(plan: str) -> str:
+    """'month' or 'year': how often this plan is billed for a NEW subscriber.
+    Only Studio can be yearly (STUDIO_INTERVAL); everything else is monthly.
+    Someone already on Studio monthly keeps it (STRIPE_PRICE_ID_STUDIO_MONTHLY)."""
+    if plan == "studio":
+        try:
+            from config.settings import settings
+            v = str(settings.studio_interval or "").strip().lower()
+        except Exception:
+            v = ""
+        return v if v in PERIODS else "month"
+    return "month"
+
+
+def price_text(plan: str, style: str = "slash") -> str:
+    """A plan's price with its period, the one way every page writes it.
+      slash  "$25/month"   "$250/year"
+      words  "$25 a month" "$250 a year"
+      short  "$25/mo"      "$250/yr"
+    """
+    price = PLAN_LIMITS[plan]["price"]
+    per = period(plan)
+    if style == "words":
+        return f"${price} a {per}"
+    if style == "short":
+        return f"${price}/" + ("yr" if per == "year" else "mo")
+    return f"${price}/{per}"
+
+
 def billed_monthly(user: dict) -> float:
     """What a paying subscriber is charged a month, for MRR.
 
@@ -294,7 +335,11 @@ def billed_monthly(user: dict) -> float:
         return float(m)
     stored = user.get("plan")
     if stored in PAID_PLANS:
-        return float(PLAN_LIMITS[stored]["price"])
+        # A yearly list price is a twelfth of itself a month. (Best effort:
+        # an old monthly Studio subscriber read before Stripe's figure is
+        # recorded is under-counted until the hourly sweep writes it.)
+        price = float(PLAN_LIMITS[stored]["price"])
+        return round(price / 12, 2) if period(stored) == "year" else price
     return float(LEGACY_PRICE)
 
 # The pending-clip cap for admins: effectively none.

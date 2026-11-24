@@ -87,9 +87,10 @@ def test_every_percentage_says_it_is_the_first_month(sale):
     hits = list(re.finditer(r"50% off", vis))
     assert len(hits) >= 6
     for m in hits:
-        # "50% off your first month", or the FAQ's "Your first month is 50% off".
+        # "50% off your first month", or the FAQ's "Your first month is 50% off";
+        # "first payment" once Studio is yearly (tests/test_studio_yearly.py).
         near = vis[max(0, m.start() - 24):m.end() + 30]
-        assert "first month" in near, near
+        assert "first month" in near or "first payment" in near, near
 
 
 def test_the_prices_are_the_plans_own_halved(sale):
@@ -104,7 +105,7 @@ def test_the_prices_are_the_plans_own_halved(sale):
     assert "hz-plan" not in blocks[0], "Free got a sale price"
     assert f"<b>{want_pro}</b> your first month with code <b>CLIPPER</b>" in blocks[1]
     assert f"<b>{want_studio}</b> your first month with code <b>CLIPPER</b>" in blocks[2]
-    assert f"Pro is <b>{want_pro}</b> instead of ${pro} for your first month" in html
+    assert f"Pro is <b>{want_pro}</b> for your first month instead of ${pro}" in html
 
 
 def test_the_percentage_and_code_follow_the_settings(sale):
@@ -311,7 +312,7 @@ def test_the_check_reads_stripe_and_says_ok(monkeypatch, capsys):
     assert pc.main([], client=fake, now=NOW) == 0
     out = capsys.readouterr().out
     assert fake.asked["code"] == "CLIPPER"
-    assert "OK: CLIPPER takes 50% off the first month of Pro and Studio" in out
+    assert "OK: CLIPPER takes 50% off the first payment of Pro (a month) and Studio (a month)" in out
     assert "promo_1AAAAAA" not in out and "...AAAAAA" in out, "a whole Stripe id was printed"
 
 

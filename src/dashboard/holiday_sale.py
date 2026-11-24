@@ -61,14 +61,17 @@ def current(now: datetime | None = None) -> dict | None:
     now = now or datetime.now(timezone.utc)
     if now >= end:
         return None
-    from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS
+    from src.billing.plans import PLAN_LIMITS, SELLABLE_PLANS, period
     plans = []
     for key in SELLABLE_PLANS:
         lim = PLAN_LIMITS.get(key)
         if lim and lim.get("price"):
             price = float(lim["price"])
             plans.append({"key": key, "label": lim["label"], "price": _money(price),
-                          "sale": _money(round(price * (100 - pct) / 100, 2))})
+                          "sale": _money(round(price * (100 - pct) / 100, 2)),
+                          # A "once" coupon is the first payment: a month of
+                          # Pro, a YEAR of Studio once it is yearly (2026-11-24).
+                          "per": period(key)})
     if not plans:
         return None
     last = (end - timedelta(days=1)).date()
@@ -83,12 +86,30 @@ def _names(plans: list[dict]) -> str:
 
 
 def _prices(plans: list[dict]) -> str:
-    """"Pro is $12.50 for your first month instead of $25, Studio $125
-    instead of $250." """
-    parts = [f"<b>{p['sale']}</b> instead of {p['price']}" for p in plans]
-    first = f"{plans[0]['label']} is {parts[0]} for your first month"
+    """"Pro is $12.50 for your first month instead of $25, Studio $125 for
+    your first year instead of $250." """
+    parts = [f"<b>{p['sale']}</b> for your first {p['per']} instead of {p['price']}"
+             for p in plans]
+    first = f"{plans[0]['label']} is {parts[0]}"
     rest = [f"{p['label']} {part}" for p, part in zip(plans[1:], parts[1:])]
     return ", ".join([first] + rest) + "."
+
+
+def _first(plans: list[dict]) -> str:
+    """What the discount is on, in a phrase: "first month" while every plan
+    is monthly, "first payment" once one is yearly (it is a month of one and a
+    year of the other)."""
+    return "first month" if all(p["per"] == "month" for p in plans) else "first payment"
+
+
+def _firsts(plans: list[dict]) -> str:
+    """"your first month of Pro or Studio", or "your first month of Pro or
+    first year of Studio"."""
+    if all(p["per"] == plans[0]["per"] for p in plans):
+        return f"your first {plans[0]['per']} of {_names(plans)}"
+    parts = [f"first {p['per']} of {p['label']}" for p in plans]
+    return "your " + (parts[0] if len(parts) == 1 else
+                      ", ".join(parts[:-1]) + " or " + parts[-1])
 
 
 def _clock(left_s: int) -> str:
@@ -150,7 +171,7 @@ def pieces(sale: dict | None) -> dict[str, str]:
     plans = sale["plans"]
     names = _names(plans)
     first = plans[0]
-    off = f"{pct}% off your first month"
+    off = f"{pct}% off your {_first(plans)}"
 
     out["<!--SALE_HERO-->"] = (
         '<a class="proof-new hz-new hz-only" href="#holiday"><b>Holiday sale </b><span>'
@@ -162,7 +183,7 @@ def pieces(sale: dict | None) -> dict[str, str]:
         '<div class="hz-tag-card"><span class="hz-tag-hole" aria-hidden="true"></span>'
         '<p class="hz-tag-k">' + SNOWFLAKE + 'Holiday sale</p>'
         f'<p class="hz-tag-big">{pct}% off</p>'
-        f'<p class="hz-tag-sub">your first month of {names}</p>'
+        f'<p class="hz-tag-sub">{_firsts(plans)}</p>'
         f'<div class="hz-tag-code"><span>Use code</span><b>{code}</b></div>'
         + _copy_button(code, "Copy code") + '</div></aside>')
 
@@ -184,13 +205,13 @@ def pieces(sale: dict | None) -> dict[str, str]:
         f'<a class="btn btn-go btn-lg" href="/login?next={first["key"]}">'
         f'Get {first["label"]} for {first["sale"]}</a></div>'
         f'<p class="hz-deal-fine">Ends {sale["last_day"]}. For a new subscription: the code '
-        f'takes {pct}% off the first month&rsquo;s payment.</p>'
+        f'takes {pct}% off its first payment.</p>'
         '</div>' + _clock(sale["left_s"]) + '</div>')
 
     for p in plans:
         out[f"<!--SALE_PLAN_{p['key']}-->"] = (
             '<p class="hz-plan hz-only"><span class="hz-plan-k">Holiday</span>'
-            f'<span><b>{p["sale"]}</b> your first month with code <b>{code}</b></span></p>')
+            f'<span><b>{p["sale"]}</b> your first {p["per"]} with code <b>{code}</b></span></p>')
 
     out["<!--SALE_FAQ-->"] = (
         '    <div class="faq-group hz-faq hz-only">\n'
@@ -198,7 +219,7 @@ def pieces(sale: dict | None) -> dict[str, str]:
         '      <details class="faq-item" open>\n'
         '        <summary class="faq-q">How does the holiday sale work?</summary>\n'
         f'        <p class="faq-a">Pick {names} and enter <b>{code}</b> in the promotion code '
-        f'box at checkout. Your first month is {pct}% off: {_prices(plans)} After that it '
+        f'box at checkout. Your {_first(plans)} is {pct}% off: {_prices(plans)} After that it '
         'renews at the usual price, and you can cancel from the Settings tab any time. '
         f'The sale ends {sale["last_day"]}.</p>\n'
         '      </details>\n'
@@ -220,8 +241,8 @@ def ribbon(sale: dict) -> str:
         '<div class="hz-ribbon hz-only">'
         '<a class="hz-ribbon-in" href="#holiday">' + SNOWFLAKE
         + '<b class="hz-r-k">Holiday sale</b>'
-        f'<span class="hz-r-long">{sale["pct"]}% off your first month with code</span>'
-        f'<span class="hz-r-short">{sale["pct"]}% off first month</span>'
+        f'<span class="hz-r-long">{sale["pct"]}% off your {_first(sale["plans"])} with code</span>'
+        f'<span class="hz-r-short">{sale["pct"]}% off {_first(sale["plans"])}</span>'
         f'<span class="hz-code">{code}</span>'
         f'<span class="hz-r-more">Ends {sale["last_day"]}<span data-hz-days>'
         f'{_days_left(sale["left_s"])}</span></span>'

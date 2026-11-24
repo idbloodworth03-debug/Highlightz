@@ -453,14 +453,14 @@ def _week(limits: dict) -> str:
 
 
 def _plan_rows() -> tuple[tuple[str, ...], ...]:
-    from src.billing.plans import PLAN_LIMITS
+    from src.billing.plans import PLAN_LIMITS, price_text
     free = PLAN_LIMITS["free"]
     pro, studio = PLAN_LIMITS["pro"], PLAN_LIMITS["studio"]
     yn = lambda p, k: "Yes" if p.get(k) else "No"      # noqa: E731
     return (
         ("",                       "Free", "Pro", "Studio"),
         ("Price",                  "$0, no card",
-         f"${pro['price']}/mo", f"${studio['price']}/mo"),
+         price_text("pro", "short"), price_text("studio", "short")),
         ("Channels at once",       str(free["max_streams"]),
          str(pro["max_streams"]), str(studio["max_streams"])),
         ("Clips held for review",  str(free["max_pending"]),
