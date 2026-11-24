@@ -161,5 +161,10 @@ real output instead of changing code on an assumption.
 - Frontend is React via Babel-standalone embedded as a string in
   `aurora_html.py` — **no bundler**. A JS/JSX syntax error white-screens the whole
   app, so validate JSX (e.g. parse it with `@babel/preset-react`) before pushing.
+- **After any change to that JSX, run `node scripts/build_dashboard.js` and commit
+  `src/dashboard/static/dashboard.js`** (2026-11-24). The dashboard is served from
+  that compiled file only while it matches the JSX; a stale one falls back to
+  compiling in the browser (slow, about five seconds a load), and
+  `tests/test_audit_nov24.py` fails until it is rebuilt.
 - Deploys restart the server, which drops every open socket at once — rule #3/#4
   above are what keep that from looking like an outage to users with tabs open.

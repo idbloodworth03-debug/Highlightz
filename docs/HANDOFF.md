@@ -11650,3 +11650,47 @@ Studio-yearly section: Studio is no longer in the sale.)
   Checkout with the code box instead of an error (`offer_code_refused_at_checkout`).
 
 Tests: `tests/test_promo_pro_only.py` (16).
+
+## Site audit, all five findings fixed (2026-11-24)
+
+Owner: "lets run an audit on the site", then "fix all".
+
+1. **Looking sets no cookie.** The landing and sign-in pages used to write a
+   session cookie on every visitor (the funnel journal), against the Cookie
+   Policy's "strictly necessary". Now `landing` and `login_view` are counted
+   with nothing written; the journal starts at the click out to Twitch. Staff
+   are kept out of the counts by `hz_staff`, set by the response to a staff
+   sign-in (both OAuth callbacks and the password form) and checked before
+   counting those two steps. A staff browser never seen before is counted
+   once, on its first visit; from then on never. Cookie Policy: the session
+   row says when it is set, new rows for `hz_staff` and `hz_sale_hidden`;
+   all three documents dated November 24, 2026.
+2. **Free asks for nothing refused.** The upload screen and Clip Library no
+   longer GET `/uploads` (or the edits list) on a plan without uploads: one
+   403 on every load, gone.
+3. **Sign-out is a POST.** GET `/logout` shows "Sign out of Highlightz?" with
+   a POST button (signed out: straight to /login). The portal's sign-out link
+   is a form now; the dashboard and admin buttons already POSTed.
+4. **The sale reaches signed-in accounts.** `/me.sale` (`holiday_sale.for_app`):
+   the sale for anyone not already paying (staff always, to check it), None
+   otherwise or after it ends. The dashboard shows a dismissable strip over
+   every screen (copy code, See plans; dismissed per code in
+   `localStorage hz_sale_hidden`) and a line under each "Upgrade to Pro". It
+   hides itself at `ends_ms` in an open tab; /me is in refetchAll. The plans
+   page (`/billing/paywall`) has a line above the plans and the first
+   payment's price on each plan in the sale.
+5. **The dashboard is compiled ahead of time.** Every load used to download
+   Babel (about 3 MB) and compile the JSX in the browser, about five seconds.
+   `scripts/build_dashboard.js` compiles the JSX in `aurora_html.py` with the
+   same Babel and settings to `src/dashboard/static/dashboard.js`, stamped
+   with the sha256 of the JSX it came from. `src/dashboard/bundle.py` serves
+   the page with that file in place of Babel ONLY when the stamp matches the
+   JSX now; otherwise it serves the page as before (compiling in the browser)
+   and logs `dashboard_bundle_stale`. So a forgotten rebuild is slow, never
+   wrong. **After any JSX change: `node scripts/build_dashboard.js` and commit
+   the file** (the test fails until you do). Start-up went from about 5 s to
+   under 0.3 s in the browser checks.
+
+Tests: `tests/test_audit_nov24.py`, the three journal tests in
+`tests/test_funnel.py` rewritten for the new rule. Browser: every screen for
+Pro, Free and staff at 390 and 1440, no console errors, no failed requests.

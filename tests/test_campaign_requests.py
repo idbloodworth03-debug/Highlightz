@@ -589,7 +589,9 @@ def test_an_abandoned_campaign_sign_in_does_not_steer_a_later_one(client):
     client.get("/login?error=twitch_failed")             # the same attempt, retried
     assert client.session()["after_login"] == "promote"
     client.get("/login")                                  # a fresh visit
-    assert "after_login" not in client.session()
+    # Nothing else is in the session, so the cookie itself goes (2026-11-24:
+    # looking at the sign-in page no longer writes anything).
+    assert "after_login" not in (client.session() if client.cookies.get("session") else {})
 
 
 def test_next_is_a_key_not_a_url(client):

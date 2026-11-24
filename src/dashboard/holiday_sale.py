@@ -196,6 +196,48 @@ def _copy_button(code: str, label: str, cls: str = "hz-copy") -> str:
             f'aria-label="Copy the code {code}">{label}</button>')
 
 
+# ── inside the app (audit, 2026-11-24) ────────────────────────────────────
+# The landing page is the one page a signed-in account never sees, so the
+# people most likely to buy (free accounts) never saw the sale. /me carries it
+# to the dashboard (a strip at the top, a line under every "Upgrade to Pro"),
+# and the plans page shows it too.
+_PAYING = ("active", "past_due", "incomplete")
+
+
+def for_app(user: dict | None, now: datetime | None = None) -> dict | None:
+    """The sale as the dashboard shows it, or None. Only for an account that
+    could use it: a code goes on a NEW subscription, so somebody already
+    paying is not offered it. Staff always see it, to check how it looks.
+    No account (a visitor on the plans page) counts as somebody new."""
+    sale = current(now)
+    if not sale:
+        return None
+    if user and not user.get("is_admin") and (user.get("subscription_status") or "none") in _PAYING:
+        return None
+    return {"code": sale["code"], "pct": sale["pct"], "ends_ms": int(sale["end"].timestamp() * 1000),
+            "last_day": sale["last_day"], "headline": _off(sale),
+            "plans": [{k: p[k] for k in ("key", "label", "price", "sale", "per")} for p in sale["plans"]],
+            "left_out": sale["left_out"]}
+
+
+def paywall_pieces(user: dict | None, now: datetime | None = None) -> dict[str, str]:
+    """The plans page's placeholders: a line above the plans and the first
+    payment's price on each plan the code is for. "" without a sale."""
+    keys = ["<!--SALE_PAYWALL-->"] + [f"<!--SALE_PAYWALL_{k}-->" for k in ("pro", "studio")]
+    out = dict.fromkeys(keys, "")
+    s = for_app(user, now)
+    if not s:
+        return out
+    code = _html.escape(s["code"])
+    out["<!--SALE_PAYWALL-->"] = (
+        f'<p class="sale-top"><b>Holiday sale:</b> {s["headline"]} with code '
+        f'<b class="sale-code">{code}</b> at checkout, until {s["last_day"]}.</p>')
+    for p in s["plans"]:
+        out[f"<!--SALE_PAYWALL_{p['key']}-->"] = (
+            f'<div class="sale-note">{p["sale"]} your first {p["per"]} with <b>{code}</b></div>')
+    return out
+
+
 def pieces(sale: dict | None) -> dict[str, str]:
     """Placeholder -> markup. With no sale every placeholder goes to "", so
     the page is exactly the page it was."""

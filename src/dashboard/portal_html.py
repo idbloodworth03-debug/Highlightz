@@ -80,6 +80,8 @@ PORTAL_HTML = """<!DOCTYPE html>
     dl{grid-template-columns:1fr;gap:2px 0}
     dd{margin-bottom:10px}
   }
+  .signout{display:inline;margin:0}
+  .signout button{all:unset;cursor:pointer;color:inherit;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -108,7 +110,7 @@ function tile(k, v, sub, cls){
 function render(d){
   var root = document.getElementById('root');
   document.getElementById('who').innerHTML =
-    esc(d.username || '') + ' <a href="/logout">Sign out</a>';
+    esc(d.username || '') + ' <form method="post" action="/logout" class="signout"><button type="submit">Sign out</button></form>';
 
   // Not an affiliate, and not staff. Says what to do rather than just
   // refusing — somebody who followed a link here and sees a bare "no access"

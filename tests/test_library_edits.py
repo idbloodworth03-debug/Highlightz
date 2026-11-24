@@ -102,14 +102,18 @@ def test_it_only_asks_for_accounts_that_can_open_the_editor():
     hook = _fn("useEdits")
     assert "if(!on){ setEdits([]); return; }" in hook
     lib = _fn("LibraryScreen")
-    assert "const edits = useEdits(uploadsOn);" in lib
+    # uploadsOn is the release switch; editorOn is whether THIS account's plan
+    # has the editor (audit, 2026-11-24: Free got a 403 from /uploads on
+    # every load of the library).
+    assert "editorOn = uploadsOn" in lib
+    assert "const edits = useEdits(uploadsOn && editorOn);" in lib
     assert "<EditedShelf edits={edits} queue={queue} onEdit={onEditUpload}/>" in lib
 
 
 def test_the_app_hands_the_library_what_the_shelf_needs():
     line = next(l for l in JS.splitlines() if "view==='library') screen=<LibraryScreen" in l)
     nxt = JS[JS.index(line):JS.index(line) + 600]
-    assert "uploadsOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null" in nxt
+    assert "uploadsOn,editorOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null" in nxt
 
 
 def test_the_shelf_card_plays_edits_and_downloads_them():

@@ -544,17 +544,47 @@ async def test_an_admin_signing_in_leaves_the_funnel_untouched(client, monkeypat
     state = _j.loads(base64.b64decode(raw)).get("oauth_state")
     assert state, "no oauth state was stored"
 
-    c.get(f"/auth/twitch/callback?code=abc&state={state}")
+    r = c.get(f"/auth/twitch/callback?code=abc&state={state}")
+    assert "hz_staff=1" in r.headers.get("set-cookie", ""), "a staff sign-in did not mark the browser"
 
     t = funnel.totals()["totals"]
-    assert t["landing"] == 0, "the admin's landing view was not taken back"
-    assert t["login_view"] == 0
+    # The trip out to Twitch and back is taken back, as it always was.
     assert t["oauth_start"] == 0
     assert t["oauth_return"] == 0
     assert t["signup"] == 0 and t["returning"] == 0
+    # The landing and sign-in page views of a browser never seen before stay
+    # counted (audit, 2026-11-24): a visitor who only looks gets no cookie, so
+    # there is nothing to take them back with. From now on this browser is
+    # marked, and it is not counted again, signed in or out.
+    assert t["landing"] == 1 and t["login_view"] == 1
+    c.post("/logout")
+    c.get("/")
+    c.get("/login")
+    t = funnel.totals()["totals"]
+    assert t["landing"] == 1 and t["login_view"] == 1, "a marked staff browser was counted"
 
 
-def test_the_journal_accumulates_across_requests():
+def _twitch_off(monkeypatch):
+    from src.auth import twitch_oauth
+    monkeypatch.setattr(twitch_oauth, "authorization_url",
+                        lambda state: "https://id.twitch.tv/oauth2/authorize")
+    monkeypatch.setattr(api.settings, "twitch_client_id", "test-client")
+
+
+def test_looking_at_the_site_sets_no_cookie():
+    """Audit, 2026-11-24: every landing-page visitor got a cookie recording
+    what they were counted for, while the Cookie Policy promises only what is
+    strictly necessary. Looking is counted, and leaves nothing behind."""
+    c = TestClient(api.app, follow_redirects=False, base_url="https://testserver")
+    for path in ("/", "/login"):
+        r = c.get(path)
+        assert r.status_code == 200
+        assert "set-cookie" not in r.headers, f"{path} set a cookie for a visitor"
+    t = funnel.totals()["totals"]
+    assert t["landing"] == 1 and t["login_view"] == 1
+
+
+def test_the_journal_accumulates_across_requests(monkeypatch):
     """THE BUG THIS CAUGHT, and it failed invisibly.
 
     Starlette's Session rewrites the cookie only when `session.modified` is
@@ -566,18 +596,20 @@ def test_the_journal_accumulates_across_requests():
     still existed, and no error was raised anywhere. It would have surfaced
     only as a staff sign-in taking back one step instead of four — a wrong
     number on a panel built to be trusted, which is the worst shape of failure
-    this feature has.
+    this feature has. (Since 2026-11-24 the journal starts at the click out to
+    Twitch: the landing and sign-in pages write nothing.)
     """
+    _twitch_off(monkeypatch)
     c = TestClient(api.app, follow_redirects=False, base_url="https://testserver")
-    c.get("/")
-    c.get("/login")
+    c.get("/auth/twitch")
+    c.get("/auth/twitch")
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     sess = _j.loads(base64.b64decode(signer.unsign(c.cookies.get("session")).decode()))
     steps = [e[1] for e in sess.get("_fn", [])]
-    assert steps == ["landing", "login_view"], steps
+    assert steps == ["oauth_start", "oauth_start"], steps
 
 
-def test_why_these_tests_speak_https():
+def test_why_these_tests_speak_https(monkeypatch):
     """A note to the next person, written as a test so it cannot go stale.
 
     dashboard_https_only marks the session cookie Secure. httpx keeps such a
@@ -586,10 +618,11 @@ def test_why_these_tests_speak_https():
     would make the tests above pass against a product that was in fact broken.
     Hence base_url="https://testserver" everywhere the journal matters.
     """
+    _twitch_off(monkeypatch)
     http = TestClient(api.app, follow_redirects=False, base_url="http://testserver")
-    http.get("/")
-    http.get("/login")
+    http.get("/auth/twitch")
+    http.get("/auth/twitch")
     signer = TimestampSigner(api.settings.dashboard_secret_key)
     sess = _j.loads(base64.b64decode(signer.unsign(http.cookies.get("session")).decode()))
     # One entry, not two: the second request never saw the first one's session.
-    assert [e[1] for e in sess.get("_fn", [])] == ["login_view"]
+    assert [e[1] for e in sess.get("_fn", [])] == ["oauth_start"]

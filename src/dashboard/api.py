@@ -63,6 +63,9 @@ from src.publish.release import live_platforms as _release_live_platforms
 from src.publish.release import youtube_note as _release_youtube_note
 from src import language as _language
 from src.dashboard.aurora_html import DASHBOARD_HTML
+# What is actually served: compiled ahead of time when the file matches
+# (src/dashboard/bundle.py; audit, 2026-11-24).
+from src.dashboard.bundle import SERVED_HTML as SERVED_DASHBOARD_HTML
 
 _STREAMS_FILE  = Path(settings.local_storage_path) / "streams.json"
 _CLIPS_FILE    = Path(settings.local_storage_path) / "clips.json"
@@ -441,6 +444,19 @@ class HeadRequestMiddleware:
 app.add_middleware(HeadRequestMiddleware)
 app.add_middleware(AuthMiddleware)
 SESSION_DAYS = 30
+@app.middleware("http")
+async def _staff_marker(request: Request, call_next):
+    """Sets hz_staff on the response of a staff sign-in (_mark_staff). A
+    cookie of its own, not a session key, so signing out does not clear it:
+    the owner looking at their own landing page while signed out is still not
+    a visitor. Only staff browsers ever carry it (Cookie Policy)."""
+    response = await call_next(request)
+    if getattr(request.state, "mark_staff", False):
+        response.set_cookie(_STAFF_COOKIE, "1", max_age=365 * 86400, httponly=True,
+                            secure=settings.dashboard_https_only, samesite="lax")
+    return response
+
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.dashboard_secret_key,
@@ -1851,6 +1867,7 @@ async def twitch_callback(request: Request, code: str = "", state: str = "", err
     # the same one-line window pending_ref and pending_invite live in.
     if user.get("is_admin"):
         funnel.undo(request.session.get("_fn"))
+        _mark_staff(request)
     else:
         funnel.record("signup" if _was_new else "returning")
         # "Where did you find us?" is due for a new account (owner,
@@ -1964,6 +1981,7 @@ async def kick_callback(request: Request, code: str = "", state: str = "", error
     user_store.mark_login(user["id"])
     if user.get("is_admin"):
         funnel.undo(request.session.get("_fn"))
+        _mark_staff(request)
     else:
         funnel.record("signup" if _was_new else "returning")
         if _was_new:                           # same as the Twitch sign-up
@@ -2125,6 +2143,10 @@ async def me(request: Request):
         # back to "review some to free up space" and never mentioned
         # upgrading at all.
         "next_plan":           _next_tier(user),
+        # The holiday sale, for an account that could use it (not paying),
+        # while it runs (src/dashboard/holiday_sale.py). On /me so a
+        # reconnect brings a new or ended sale; the tab hides it at ends_ms.
+        "sale":                _holiday_for(user),
         # Each plan on sale with its price and period ("$250/year": Studio is
         # yearly, 2026-11-24), for the Settings rows that name them. On /me,
         # so a reconnect after the deploy that changes them brings the words.
@@ -3337,7 +3359,11 @@ async def paywall_page(request: Request, unavailable: str = ""):
         copy["note"] = (PLAN_LIMITS[unavailable]["label"] + " is not open for checkout "
                         "yet. Email support@highlightz.app and we will set you up.")
     import html as _html
-    page = (PAYWALL_HTML
+    from src.dashboard import holiday_sale
+    page = PAYWALL_HTML
+    for k, v in holiday_sale.paywall_pieces(db_user).items():
+        page = page.replace(k, v)
+    page = (page
             .replace("{username}", _html.escape(username))
             .replace("{headline}", copy["headline"])
             .replace("{subline}",  copy["subline"])
@@ -6119,7 +6145,7 @@ async def onboarding_preview(request: Request):
     POST on this same path is the real thing and is unaffected.
     """
     _require_admin(request)
-    return HTMLResponse(content=DASHBOARD_HTML)
+    return HTMLResponse(content=SERVED_DASHBOARD_HTML)
 
 
 @app.post("/onboarding")
@@ -7770,6 +7796,11 @@ def _require_captions(uid: str):
 # worth having. The trigger is a CLIP COUNT and never a sentiment score:
 # soliciting only happy users is review gating, which Google and Trustpilot
 # both prohibit and which Trustpilot removes profiles for.
+
+def _holiday_for(user: dict | None) -> dict | None:
+    from src.dashboard import holiday_sale
+    return holiday_sale.for_app(user)
+
 
 def _sellable() -> tuple:
     from src.billing.plans import SELLABLE_PLANS
@@ -12337,6 +12368,8 @@ async def login(request: Request, password: str = Form(...)):
         return too_many
     if user:
         await _clear_login_rate(ip)
+        if user.get("is_admin"):
+            _mark_staff(request)
         after = request.session.get("after_login")
         # Fix 10: clear any existing session before setting new auth data (session fixation)
         request.session.clear()
@@ -12356,13 +12389,34 @@ async def logout(request: Request):
     return RedirectResponse("/login", status_code=302)
 
 
+_SIGN_OUT_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Sign out of Highlightz?</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b12;color:#e8e8f0;font:15px/1.6 'Sora','Sora Fallback',system-ui,sans-serif;padding:16px;box-sizing:border-box}
+.card{max-width:400px;width:100%;padding:32px;background:#14141f;border:1px solid #26263a;border-radius:16px;box-sizing:border-box;text-align:center}
+h1{font-size:19px;margin:0 0 24px}
+button{all:unset;box-sizing:border-box;display:block;width:100%;text-align:center;cursor:pointer;padding:12px 24px;border-radius:10px;
+background:linear-gradient(135deg,#7c3aed,#b86adc);color:#fff;font-weight:600;margin-bottom:12px}
+button:focus-visible,a:focus-visible{outline:2px solid #c489e4;outline-offset:2px}
+a{display:block;color:#9a9aae;text-decoration:none;padding:8px}</style></head>
+<body><div class="card"><h1>Sign out of Highlightz?</h1>
+<form method="post" action="/logout"><button type="submit">Sign out</button></form>
+<a href="/">Back to the dashboard</a></div></body></html>"""
+
+
 @app.get("/logout")
 async def logout_get(request: Request):
-    # GET /logout: clear session so browser bookmarks/links actually log users out.
-    # SameSite=lax already blocks cross-site form submissions; this endpoint only
-    # handles same-site GET navigation (e.g., bookmark, address bar).
-    request.session.clear()
-    return RedirectResponse("/login", status_code=302)
+    """A link or a bookmark to /logout asks first (audit, 2026-11-24).
+
+    It used to sign out on the GET itself. A session cookie is SameSite=Lax,
+    which IS sent on a top-level navigation from another site, so any page
+    could link (or redirect) someone here and sign them out. Signing out now
+    happens only on the POST, which another site cannot send with the cookie;
+    the page's own buttons already POST."""
+    if not request.session.get("auth"):
+        return RedirectResponse("/login", status_code=302)
+    return HTMLResponse(_SIGN_OUT_HTML, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
@@ -12497,11 +12551,33 @@ def _fn_record(request: Request, step: str) -> None:
     so nothing looks wrong until a staff sign-in takes back one step instead of
     four. Writing the key back marks the session dirty.
     """
+    # NO COOKIE FOR LOOKING (audit, 2026-11-24). The landing page and the
+    # sign-in page are counted, but nothing is written into the browser for
+    # them: a visitor who only looks gets no cookie at all, which is what the
+    # Cookie Policy promises (only what is strictly necessary). Staff are kept
+    # out of these two counts by the hz_staff marker their browser gets when
+    # they sign in (_STAFF_COOKIE), not by a journal on everybody. The steps
+    # after them (the trip out to Twitch or Kick and back) need the session
+    # for the sign-in itself, so their journal stays.
+    if step in _COOKIELESS_STEPS:
+        if request.cookies.get(_STAFF_COOKIE) != "1":
+            funnel.record(step)
+        return
     j = request.session.get("_fn")
     if not isinstance(j, list):
         j = []
     funnel.record(step, journal=j)
     request.session["_fn"] = j
+
+
+_COOKIELESS_STEPS = ("landing", "login_view")
+_STAFF_COOKIE = "hz_staff"
+
+
+def _mark_staff(request: Request) -> None:
+    """This browser belongs to staff: from now on its landing and sign-in page
+    views are not counted. Set on the response by _staff_marker."""
+    request.state.mark_staff = True
 
 
 def _verification_tags() -> str:
@@ -12596,7 +12672,7 @@ async def dashboard(request: Request):
     # in AuthMiddleware, so they get the app. Everyone else sees the public
     # marketing landing page.
     if request.session.get("auth"):
-        return HTMLResponse(content=DASHBOARD_HTML)
+        return HTMLResponse(content=SERVED_DASHBOARD_HTML)
     # Signed-out only: a logged-in user reloading their dashboard is not a
     # visitor arriving at the top of the funnel, and counting them there would
     # make the product look like it converts worse the more it is used.
@@ -16886,6 +16962,11 @@ PAYWALL_HTML = """<!DOCTYPE html>
   .plan-name{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#c489e4}
   .plan-price{font-size:30px;font-weight:800;margin:4px 0 8px}
   .plan-price span{font-size:12px;color:#b9aec4;font-weight:600}
+  /* The holiday sale (src/dashboard/holiday_sale.py), only while it runs. */
+  .sale-top{margin:0 0 16px;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
+    background:rgba(193,39,45,.2);border:1px solid rgba(255,227,163,.35);color:#f2eaf7}
+  .sale-code{letter-spacing:.08em;color:#ffe3a3}
+  .sale-note{margin:0 0 8px;font-size:12px;font-weight:700;color:#ffe3a3}
   .plan-feats{list-style:none;margin:0 0 16px;padding:0;flex:1}
   .plan-feats li{font-size:12px;color:#b9aec4;padding:4px 0 4px 16px;position:relative}
   .plan-feats li::before{content:'✓';position:absolute;left:0;color:#34d399;font-weight:800;font-size:12px}
@@ -16931,6 +17012,7 @@ PAYWALL_HTML = """<!DOCTYPE html>
   <span class="badge">Highlightz</span>
   <h1>{headline}</h1>
   <p class="sub">Hi {username} — {subline}</p>
+  <!--SALE_PAYWALL-->
   <!--PAYWALLPLANS-->
   <p class="sub" style="font-size:12px;margin-top:14px">{cta_note}</p>
   <a href="/billing/portal" class="manage">Already subscribed? Manage billing</a>
@@ -16970,6 +17052,7 @@ def _paywall_plans() -> str:
                 + '<div class="plan-name">' + p["label"] + "</div>"
                 + '<div class="plan-price">$' + str(p["price"]) + "<span>/"
                 + ("yr" if period(key) == "year" else "mo") + "</span></div>"
+                + "<!--SALE_PAYWALL_" + key + "-->"
                 + '<ul class="plan-feats">'
                 + "".join("<li>" + f + "</li>" for f in feats)
                 + "</ul>"
@@ -17132,7 +17215,7 @@ TOS_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Terms of Service</h1>
-  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: November 24, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>Please read these Terms of Service ("Terms") carefully before using Highlightz ("Service"), operated by ANTI Technology LLC ("we," "us," or "our"). By accessing or using the Service you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
 
@@ -17257,7 +17340,7 @@ PRIVACY_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Privacy Policy</h1>
-  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: November 24, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Privacy Policy describes how ANTI Technology LLC ("we," "us," or "our") collects, uses, and shares information when you use Highlightz ("Service"). By using the Service you agree to the practices described here.</p>
 
@@ -17397,7 +17480,7 @@ COOKIES_HTML = """<!DOCTYPE html>
 <main class="legal">
   <div class="k">Legal</div>
   <h1>Cookie Policy</h1>
-  <p class="meta">Effective date: October 23, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
+  <p class="meta">Effective date: November 24, 2026 &nbsp;|&nbsp; ANTI Technology LLC</p>
 
   <p>This Cookie Policy explains how Highlightz uses cookies and similar technologies. By using the Service you consent to the use of cookies as described here.</p>
 
@@ -17408,14 +17491,16 @@ COOKIES_HTML = """<!DOCTYPE html>
   <p>Highlightz uses a minimal number of cookies — only what is strictly necessary to operate the Service:</p>
   <table>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
-    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. It carries your session details — your account id, Twitch username and avatar URL, and your plan status — signed so they cannot be altered, and readable only by your browser and our server over HTTPS. Nothing in it is used to track you across other sites.</td><td>30 days from your last visit</td><td>Strictly necessary</td></tr>
+    <tr><td><code>session</code></td><td>Keeps you signed in between page loads. It carries your session details — your account id, Twitch username and avatar URL, and your plan status — signed so they cannot be altered, and readable only by your browser and our server over HTTPS. While you are signing in it also carries the sign-in's security check, a referral or invite code you arrived with, and which steps of signing in your browser went through, so that our own staff's sign-ins can be left out of our sign-up counts. It is set only once you start signing in, or arrive from a referral or invite link: looking at the site does not set it. Nothing in it is used to track you across other sites.</td><td>30 days from your last visit</td><td>Strictly necessary</td></tr>
+    <tr><td><code>hz_staff</code></td><td>Set only in the browsers of Highlightz staff when they sign in, so that our own visits are not counted as visitors. It is never set for anyone else.</td><td>1 year</td><td>Staff only</td></tr>
   </table>
-  <p>The dashboard also uses your browser's local storage for two small preferences. These are not cookies and are never sent to our servers — they stay in your browser, and clearing your site data clears them.</p>
+  <p>The dashboard also uses your browser's local storage for a few small preferences. These are not cookies and are never sent to our servers — they stay in your browser, and clearing your site data clears them.</p>
   <table>
     <tr><th>Name</th><th>Purpose</th><th>Duration</th><th>Type</th></tr>
     <tr><td><code>hz_platform</code></td><td>Remembers which platform tab you were last on, so the dashboard opens where you left it.</td><td>Until cleared</td><td>Preference</td></tr>
     <tr><td><code>hz_welcome_seen</code></td><td>Remembers that you have already seen the welcome screen, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
     <tr><td><code>hz_yt_shorts_seen</code></td><td>Remembers that you closed the notice about posting to YouTube Shorts, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
+    <tr><td><code>hz_sale_hidden</code></td><td>Remembers that you hid the holiday sale notice, so it is not shown again.</td><td>Until cleared</td><td>Preference</td></tr>
   </table>
   <p>We do not use advertising cookies, tracking pixels, or third-party analytics cookies. We do not use Google Analytics or any equivalent service.</p>
 

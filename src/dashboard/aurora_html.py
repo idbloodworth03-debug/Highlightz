@@ -355,6 +355,15 @@ a.rd-btn{text-decoration:none}
 .rd-btn.ghost-force{background:rgba(255,138,76,.14);color:#f7a745;border:1px solid rgba(255,138,76,.3)}
 .rd-btn.ghost-force:hover{background:rgba(255,138,76,.24)}
 .rd-btn.sm{padding:8px 12px;font-size:12px;border-radius:10px}
+/* The holiday sale (SaleStrip, SaleLine), only while it runs. */
+.hz-salestrip{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 0 16px;padding:12px 16px;
+  border-radius:var(--r-md);background:linear-gradient(135deg,rgba(193,39,45,.24),rgba(184,106,220,.16));
+  border:1px solid rgba(255,227,163,.35);font-size:12px;line-height:1.5}
+.hz-salestrip-t{flex:1 1 240px;min-width:0}
+.hz-salestrip-code{letter-spacing:.08em;color:#ffe3a3}
+.hz-salestrip-x{background:none;border:none;color:inherit;opacity:.7;font-size:16px;cursor:pointer;padding:4px 8px}
+.hz-salestrip-x:hover{opacity:1}
+.hz-saleline{margin-top:8px;font-size:12px;line-height:1.5;color:#ffe3a3}
 .rd-streams{display:flex;flex-direction:column;gap:8px;overflow-y:auto;padding-right:4px;min-height:0}
 .rd-stream{border-radius:var(--r-md);padding:12px;background:rgba(255,255,255,.025);border:1px solid var(--hair);transition:var(--dur-fast)}
 .rd-stream:hover{border-color:var(--hair-2);background:rgba(255,255,255,.045)}
@@ -5559,8 +5568,10 @@ function EditedShelf({ edits, queue = [], onEdit }) {
 }
 
 function LibraryScreen({ clips, onOpen, onDelete, onEdit, onPost, onGoReview, banner = null,
-                         uploadsOn = false, queue = [], onEditUpload = null }) {
-  const edits = useEdits(uploadsOn);
+                         uploadsOn = false, editorOn = uploadsOn, queue = [], onEditUpload = null }) {
+  // Only an account that can open the editor has edits to show: /uploads
+  // refuses everyone else (audit, 2026-11-24).
+  const edits = useEdits(uploadsOn && editorOn);
   const [chanFilter, setChanFilter] = useState('all');
   // Defaults to newest APPROVAL, not newest capture. The library is the record
   // of what you decided to keep, so approving a clip puts it at the top even if
@@ -6538,6 +6549,7 @@ function AccountScreen({ me, connections = [], accountsOn = false, embedded = fa
               <div className="fd">
                 Pro is {(me.prices||{}).pro || '$25/month'} for 10 streams, 200 pending clips and the VOD scanner.
                 Studio is {(me.prices||{}).studio || '$250'} for 30 streams and the front of the line.
+                <SaleLine me={me}/>
               </div></div>
             <a href="/billing/paywall" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>See plans
@@ -10277,6 +10289,50 @@ const aptLabel = c => {
   return APT_LABEL[a.status] || a.status;
 };
 
+// ── The holiday sale, inside the app (audit, 2026-11-24) ─────────────────
+// The landing page is the one page a signed-in account never sees, so free
+// accounts, the likeliest buyers, never saw the sale. /me.sale is there only
+// for an account that could use it and only while the sale runs
+// (src/dashboard/holiday_sale.py); /me is in refetchAll, so a reconnect brings
+// a new or ended sale, and a tab left open past the end hides it by itself.
+function useSale(me) {
+  const sale = me && me.sale;
+  const [now, setNow] = useState(Date.now());
+  useEffect(()=>{
+    if(!sale) return;
+    const id = setInterval(()=>setNow(Date.now()), 60000);
+    return ()=>clearInterval(id);
+  }, [sale && sale.ends_ms]);
+  return sale && now < sale.ends_ms ? sale : null;
+}
+function SaleLine({ me, plan = 'pro' }) {
+  const sale = useSale(me);
+  const p = sale && (sale.plans || []).find(x => x.key === plan);
+  if (!p) return null;
+  return <div className="hz-saleline"><b>Holiday sale:</b> {p.sale} your first {p.per} with code <b>{sale.code}</b>, until {sale.last_day}.</div>;
+}
+function SaleStrip({ me }) {
+  const sale = useSale(me);
+  const code = sale ? sale.code : '';
+  const readHidden = () => { try { return !!code && localStorage.getItem('hz_sale_hidden') === code; } catch { return false; } };
+  const [hidden, setHidden] = useState(readHidden);
+  useEffect(()=>{ setHidden(readHidden()); }, [code]);
+  const [copied, setCopied] = useState(false);
+  if (!sale || hidden) return null;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(sale.code); setCopied(true); setTimeout(()=>setCopied(false), 1600); } catch {}
+  };
+  const hide = () => { try { localStorage.setItem('hz_sale_hidden', sale.code); } catch {} setHidden(true); };
+  return (
+    <div className="hz-salestrip" role="region" aria-label="Holiday sale">
+      <span className="hz-salestrip-t"><b>Holiday sale:</b> {sale.headline} with code <b className="hz-salestrip-code">{sale.code}</b> at checkout, until {sale.last_day}.</span>
+      <button className="rd-btn sm" onClick={copy}>{copied ? 'Copied' : 'Copy code'}</button>
+      <a className="rd-btn sm grad" href="/billing/paywall" style={{textDecoration:'none'}}>See plans</a>
+      <button className="hz-salestrip-x" aria-label="Hide the holiday sale" onClick={hide}>×</button>
+    </div>
+  );
+}
+
 function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captionsOn = false,
                            uploadsOn = true, onOpenScheduler = null, queue = [] }) {
   const cfg = (ap && ap.config) || null;
@@ -10321,6 +10377,7 @@ function AutopilotScreen({ me, ap, onSaved, clips = {}, connections = [], captio
           <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
             <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
           </a>
+          <SaleLine me={me}/>
         </div>
       </div>
     );
@@ -10717,6 +10774,7 @@ function ScheduleScreen({ me, queue = [], clips = {}, platforms = [], connection
           <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
             <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
           </a>
+          <SaleLine me={me}/>
         </div>
       </div>
     );
@@ -10797,14 +10855,17 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
   const load = useCallback(()=>{
     // Don't call an endpoint that is deliberately 503ing: when only the import
     // half is live this screen still mounts, and a pointless failing request
-    // on every reconnect is noise in the logs for no gain.
+    // on every reconnect is noise in the logs for no gain. Nor one that 403s:
+    // a plan without the editor sees the upgrade card, and /uploads refuses it
+    // (audit, 2026-11-24).
     if(!uploadsOn) return;
+    if(me && me.plan_limits && !me.plan_limits.uploads && !me.is_admin) return;
     fetch('/uploads').then(r=>r.ok?r.json():null).then(d=>{
       if(!d) return;
       setUploads(d.uploads||[]);
       setQuota(d.quota||null);
     }).catch(()=>{});
-  },[uploadsOn]);
+  },[uploadsOn, !!(me && ((me.plan_limits && me.plan_limits.uploads) || me.is_admin))]);
 
   // Mount + every WS reconnect (deploy, sleep, network blip). Without the
   // hz_refetch listener the library would silently go stale after a restart.
@@ -10926,6 +10987,7 @@ function UploadScreen({ me, uploadsOn = true, importOn = false, captionsOn = fal
             <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
             </a>
+            <SaleLine me={me}/>
           </div>
         </div>
       </div>
@@ -11248,6 +11310,7 @@ function VodScreen({ clips, me }) {
             <a href="/billing/portal" className="rd-btn grad" style={{textDecoration:'none',display:'inline-flex',gap:8,alignItems:'center'}}>
               <Icon name="zap" size={14}/>Upgrade to Pro — $25/month
             </a>
+            <SaleLine me={me}/>
           </div>
         </div>
       </div>
@@ -13737,7 +13800,7 @@ function RdApp() {
   else if(view==='streams') screen=<StreamsScreen {...{streams:platformStreams,scores,profiles,histories,clips:platformClips,activePlatform,onAdd:addStream,onRemove:removeStream,onForce:forceClip,me,clipMarks,
       onApprove:approveClip,onReject:rejectClip,onOpen:setModalClip,onEdit:onEditClip,onGoReview:()=>setRoute('review')}}/>;
   else if(view==='library') screen=<LibraryScreen {...{clips:platformClips,onOpen:setModalClip,onDelete:deleteClip,onEdit:onEditClip,onPost:onPostClip,onGoReview:()=>setRoute('review'),banner:postForBanner,
-      uploadsOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null}}/>;
+      uploadsOn,editorOn,queue,onEditUpload:clipTabOn?(u=>{ setEditorTarget(u); setRoute('uploads'); }):null}}/>;
   else if(view==='campaigns') screen=<CampaignsScreen campaigns={campaigns} canPost={!!onPostClip} postingOpen={uploadsOn}
       onPostFor={id=>{ setPostFor(id); setRoute('library'); }} flash={flash} onRefresh={refetchCampaigns}
       openRequest={campOpen} onOpened={()=>setCampOpen('')}/>;
@@ -13899,6 +13962,7 @@ function RdApp() {
             </div>);
         })()}
         <main className={'rd-screen'+(platFx && platFx.to===activePlatform?' plat-in':'')}>
+          <SaleStrip me={me}/>
           <ErrorBoundary key={view} where={view} onHome={view!=='review' ? ()=>setRoute('review') : null}>{screen}</ErrorBoundary>
         </main>
         {/* The platform-switch sweep. Keyed by n so a fresh switch restarts
