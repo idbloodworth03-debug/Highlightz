@@ -381,6 +381,18 @@ class Settings(BaseSettings):
     campaign_min_budget_usd: float = 100.0
     campaign_max_budget_usd: float = 50000.0
 
+    # The holiday sale on the landing page (src/dashboard/holiday_sale.py;
+    # owner, 2026-11-24: "promote that we are doing a 50% off deal for the
+    # holidays when you use code CLIPPER at checkout"). The page only
+    # advertises it: the discount is the Stripe promotion code of this name,
+    # which Checkout's code box accepts. It leaves the page by itself after
+    # the last day (to midnight US Pacific); HOLIDAY_SALE_CODE set to nothing
+    # takes it down sooner. scripts/promo_check.py asks Stripe whether the
+    # code really is what the page says.
+    holiday_sale_code: str = "CLIPPER"
+    holiday_sale_percent: int = 50
+    holiday_sale_last_day: str = "2027-01-01"
+
     # Auto-captions (Whisper, on this box — owner's call over a paid API).
     #
     # DEFAULTS RAISED 2026-09-15. They started at tiny.en / greedy / no prompt,

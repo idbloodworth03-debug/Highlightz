@@ -11541,3 +11541,42 @@ waiting for you." Tests: `tests/test_instant_review.py` (6).
 NOT changed, and worth measuring before touching: the server's own time for
 these routes (`_save_clips` rewrites every clip on each decision). The click no
 longer waits for it, but the loop still does the work.
+
+## The holiday sale on the landing page (2026-11-24)
+
+Owner: "promote that we are doing a 50% off deal for the holidays when you use
+code CLIPPER at checkout put it all over and make it like holiday themed as
+well". `src/dashboard/holiday_sale.py`, applied per request by
+`render_landing()`, so it starts and stops with no deploy.
+
+- **Where:** a fixed red ribbon above the nav with a string of twinkling
+  lights (the nav is pushed down by `--sale-h`; the nav-height block measures
+  ribbon + bar into `--nav-h`, so anchors and the sticky FAQ lead clear both);
+  a pill above the headline (hidden on phones); a gift tag hanging on a string
+  beside the headline (under the button below 1100px); a "wrapped present"
+  card first in Pricing (`id="holiday"`, where every sale link goes) with a
+  countdown, a copy button and **Get Pro for $12.50** (`/login?next=pro` ->
+  `/billing/checkout?plan=pro`; `pro` and `studio` were added to
+  `_AFTER_SIGN_IN`); the first-month price on the Pro and Studio columns
+  (`<!--SALE_PLAN_key-->` in `_pricing()`); the FAQ's first question, open;
+  "Happy holidays" and a code line in the closing frame; a footer line; snow
+  on a canvas in the two black frames (only while on screen, still under
+  reduced motion). All divs/asides: still eight sections.
+- **Wording is "50% off your first month"** everywhere, never bare "50% off":
+  the code is a Stripe coupon with Duration "Once". Prices are the plans' own
+  halved (`PLAN_LIMITS`).
+- **Settings:** `HOLIDAY_SALE_CODE` (default CLIPPER; empty = off now),
+  `HOLIDAY_SALE_PERCENT` (50), `HOLIDAY_SALE_LAST_DAY` (2027-01-01; the sale
+  leaves the page at midnight US Pacific after it, and a tab left open removes
+  every piece at the same moment). An unreadable date means no sale.
+- **The discount itself is Stripe's.** Checkout's code box
+  (`allow_promotion_codes`) takes it; nothing about the discount is in our
+  code. `scripts/promo_check.py` (read-only) asks Stripe whether the code is
+  active, 50%, "once", covers both plans' products and has not run out or
+  expired. Not run against live Stripe from here.
+- Realtime: the landing page is not the app (no socket); the end-of-sale
+  removal in the open tab is the only live part and is driven by the clock.
+
+Tests: `tests/test_holiday_sale.py` (33). Browser: 1440, 1180, 768, 390, 360,
+no overflow and no console errors; copy button puts CLIPPER on the clipboard;
+clock ticks; at the end time the page went back to exactly its old self.

@@ -12198,7 +12198,11 @@ _ERROR_MESSAGES = {
 # Keys, not URLs, so the parameter can never send anybody off the site.
 _AFTER_SIGN_IN = {"promote": "/?view=promote&new=1",
                   # The landing page's "Browse the campaigns" (clippers).
-                  "campaigns": "/?view=campaigns"}
+                  "campaigns": "/?view=campaigns",
+                  # The holiday sale's "Get Pro for $12.50": signed in, then
+                  # straight to that plan's Checkout, where the code goes in.
+                  "pro": "/billing/checkout?plan=pro",
+                  "studio": "/billing/checkout?plan=studio"}
 
 
 def _after_sign_in(key) -> str:
@@ -12518,6 +12522,10 @@ def render_landing(html: str | None = None) -> str:
     # machines read, so the two can never disagree.
     total = get_clip_counter()
     html = html.replace("<!--BIGNUMS-->", _bignums_html(total), 1)
+    # The holiday sale, while it runs (src/dashboard/holiday_sale.py). Per
+    # request, so it starts and ends with no deploy.
+    from src.dashboard import holiday_sale
+    html = holiday_sale.apply(html)
 
     if total <= 0:
         # Nothing captured yet: leave the JSON-LD at 0 rather than advertising
@@ -14443,6 +14451,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="proof" id="proof" aria-labelledby="proof-h">
   <div class="proof-bg"><!--FRAME_HERO--></div>
   <div class="proof-in wrap">
+    <!--SALE_HERO-->
     <!--PROOF_YOUTUBE-->
     <!--PROOF_CAMPAIGNS-->
     <!-- THE PAGE'S h1. A landing page with no h1 is a real SEO regression,
@@ -14453,6 +14462,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <a href="/login" class="btn btn-go btn-lg">Start clipping free</a>
       <p class="proof-note">Free plan &middot; one channel, Twitch or Kick &middot; no card &middot; <!--FREETIME_SHORT--></p>
     </div>
+    <!--SALE_TAG-->
   </div>
   <div class="fan">
     <img class="fan-l" src="/static/landing/tour-live.webp" width="1200" height="750" loading="lazy" decoding="async"
@@ -14571,6 +14581,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="light pricing" id="pricing" aria-labelledby="pricing-h">
   <div class="wrap">
     <h2 class="disp l-h" id="pricing-h">Pricing</h2>
+    <!--SALE_PRICING-->
     <!--PRICING-->
     <!-- The Clip Editor, marketed (owner, 2026-09-15). It lives inside the
          pricing section under the plans, cut from them by a hairline the way
@@ -14596,6 +14607,7 @@ LANDING_HTML = """<!DOCTYPE html>
       <p class="l-sub">The short answers. The <a href="/tutorial">walkthrough</a> has the long ones, screen by screen.</p>
     </div>
     <div class="faq-cols">
+      <!--SALE_FAQ-->
       <!--FAQ-->
     </div>
   </div>
@@ -14607,11 +14619,13 @@ LANDING_HTML = """<!DOCTYPE html>
 <section class="end" id="start" aria-labelledby="end-h">
   <div class="end-bg"><!--FRAME_END--></div>
   <div class="end-in wrap">
+    <!--SALE_END_K-->
     <h2 class="disp end-h" id="end-h">Go stream. The clips will be waiting.</h2>
     <div class="end-act">
       <a href="/login" class="btn btn-go btn-lg">Start clipping free</a>
       <a href="/tutorial" class="btn btn-ghost btn-lg">Read the walkthrough</a>
     </div>
+    <!--SALE_END-->
   </div>
 </section>
 
@@ -14630,6 +14644,7 @@ LANDING_HTML = """<!DOCTYPE html>
 <footer class="footer">
   <img src="/static/logo-mark.png" alt="Highlightz" width="374" height="501">
   <nav aria-label="Site"><a href="/tutorial">Tutorial</a><a href="/compare">Compare</a><a href="/blog">Blog</a><!--FOOT_CAMPAIGNS--><a href="/tos">Terms of Service</a><a href="/privacy">Privacy Policy</a><a href="/cookies">Cookie Policy</a><a href="/opt-out">Streamer Opt-Out</a></nav>
+  <!--SALE_FOOT-->
   <span class="fl">&copy; 2026 ANTI Technology LLC</span>
 </footer>
 <script>
@@ -15609,19 +15624,31 @@ LANDING_HTML = """<!DOCTYPE html>
    ResizeObserver rather than a resize listener alone, because the bar also
    changes height when its own contents change — the Example clips link is
    revealed from JS once the showcase loads, and that can be the thing that
-   makes the links wrap. */
+   makes the links wrap.
+
+   The holiday sale's ribbon (src/dashboard/holiday_sale.py), while there is
+   one, sits above the bar and pushes it down by --sale-h: everything that
+   clears the bar clears the two together, so --nav-h counts both. */
 (function(){
-  var nav = document.querySelector('.nav'), root = document.documentElement, last = 0;
+  var nav = document.querySelector('.nav'), root = document.documentElement, last = 0, lastSale = -1;
   if (!nav) return;
+  var sale = document.querySelector('.hz-ribbon');
   function measure(){
-    var h = Math.round(nav.getBoundingClientRect().height);
+    var s = sale && sale.isConnected ? Math.round(sale.getBoundingClientRect().height) : 0;
+    if (s !== lastSale){ lastSale = s; root.style.setProperty('--sale-h', s + 'px'); }
+    var h = Math.round(nav.getBoundingClientRect().height) + s;
     if (h && h !== last){ last = h; root.style.setProperty('--nav-h', h + 'px'); }
   }
   measure();
   window.addEventListener('resize', measure, { passive: true });
-  if ('ResizeObserver' in window) new ResizeObserver(measure).observe(nav);
+  if ('ResizeObserver' in window){
+    var ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    if (sale) ro.observe(sale);
+  }
 })();
 </script>
+<!--SALE_SCRIPT-->
 </body>
 </html>"""
 
@@ -16077,7 +16104,7 @@ def _pricing() -> str:
     def chans(n: int) -> str:
         return str(n) + (" channel" if n == 1 else " channels")
 
-    def plan(limits: dict, cta: str, suffix: str = "per month") -> str:
+    def plan(key: str, limits: dict, cta: str, suffix: str = "per month") -> str:
         facts = [
             ("Channels at once", chans(limits["max_streams"])),
             # Free's weekly hours (owner, 2026-11-19). A row on every column
@@ -16122,6 +16149,9 @@ def _pricing() -> str:
                 + ('<span class="plan-badge">Most popular</span>' if popular else "")
                 + '<h3 class="plan-name">' + limits["label"] + "</h3>"
                 + '<p class="plan-price">$' + str(limits["price"]) + "<i>" + suffix + "</i></p>"
+                # The holiday sale's first-month price, per request
+                # (src/dashboard/holiday_sale.py); empty with no sale.
+                + "<!--SALE_PLAN_" + key + "-->"
                 + '<ul class="plan-facts">'
                 + "".join("<li><span>" + k + "</span><b>" + v + "</b></li>" for k, v in facts)
                 + "</ul>"
@@ -16139,8 +16169,8 @@ def _pricing() -> str:
            if _free_metered() else "enter and no time limit on it. ")
         + "Upgrade when you want. The plans differ on "
         "the rows below and nowhere else.</p>"
-        '<div class="plans">' + plan(free, "Start free", "no card") + plan(pro, "Get Pro")
-        + plan(studio, "Get Studio") + "</div>"
+        '<div class="plans">' + plan("free", free, "Start free", "no card") + plan("pro", pro, "Get Pro")
+        + plan("studio", studio, "Get Studio") + "</div>"
         '<p class="price-tiny">Move between them whenever you like. Cancel from the Settings tab. '
         "No contracts. Streamers can opt out at any time, and it applies everywhere at once.</p>")
 
