@@ -22,6 +22,18 @@ cd /opt/highlightz && git fetch origin && git reset --hard origin/claude/handoff
 
 If `docs/HANDOFF.md` ever changes the command, change it here too.
 
+## Replies are short (owner, 2026-11-24)
+
+"I need you to send less information back whenever you finish a command the
+important stuff is tell me what you did, what I need to do next if there is
+something to do and give me the command needed for deploying any updates that
+were made. There is too much nonsense otherwise."
+
+So a finished task's reply is three things and nothing else: what was done
+(a few lines), what the owner has to do next (only if anything), and the
+deploy command when something was pushed. No test counts, no investigation
+narrative, no background, unless asked.
+
 ## Commands for the owner are pasted exactly as written
 
 Learned 2026-11-18. A reply listed three commands, said "deploy first (the
